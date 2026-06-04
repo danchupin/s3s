@@ -22,7 +22,7 @@ func TestPreviewTextScrollable(t *testing.T) {
 	pl := preview.Build("file.txt", "text/plain", []byte(body), false)
 	m = deliver(m, previewMsg{gen: m.gen, payload: pl})
 
-	if m.mode != modePreview {
+	if m.mode != modeObject {
 		t.Fatalf("mode = %v, want preview", m.mode)
 	}
 	if !strings.Contains(viewOf(m), "line0") {
@@ -69,7 +69,7 @@ func TestPreviewImageFallbackSummary(t *testing.T) {
 	}
 	m = deliver(m, previewMsg{gen: m.gen, payload: pl})
 	v := viewOf(m)
-	if !strings.Contains(v, "Image preview unavailable") || !strings.Contains(v, "image") {
+	if !strings.Contains(v, "image preview unavailable") || !strings.Contains(v, "image") {
 		t.Errorf("undecodable image should fall back to summary:\n%s", v)
 	}
 }

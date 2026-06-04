@@ -29,7 +29,7 @@ func TestMetadataPaneRenders(t *testing.T) {
 	}
 	m = deliver(m, metadataMsg{gen: m.gen, md: md})
 
-	if m.mode != modeMetadata {
+	if m.mode != modeObject {
 		t.Fatalf("mode = %v, want metadata", m.mode)
 	}
 	v := viewOf(m)

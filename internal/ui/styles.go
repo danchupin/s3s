@@ -22,21 +22,15 @@ var (
 	colErr    = lipgloss.Color("203")
 	colSelBg  = lipgloss.Color("24")
 	colSelFg  = lipgloss.Color("231")
-	colLogoBg = lipgloss.Color("39")
-	colLogoFg = lipgloss.Color("231")
 )
 
 var (
-	logoStyle    = lipgloss.NewStyle().Bold(true).Foreground(colLogoFg).Background(colLogoBg).Padding(0, 1)
-	versionStyle = lipgloss.NewStyle().Foreground(colDim)
-	hdrKeyStyle  = lipgloss.NewStyle().Foreground(colWarn)
-	hdrValStyle  = lipgloss.NewStyle().Bold(true).Foreground(colText)
-	hdrNumStyle  = lipgloss.NewStyle().Bold(true).Foreground(colPink)
-	roStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
-	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
-	crumbStyle   = lipgloss.NewStyle().Foreground(colText)
-	countStyle   = lipgloss.NewStyle().Foreground(colDim)
-	ruleStyle    = lipgloss.NewStyle().Foreground(colAccent)
+	hdrKeyStyle = lipgloss.NewStyle().Foreground(colWarn)
+	hdrValStyle = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	hdrNumStyle = lipgloss.NewStyle().Bold(true).Foreground(colPink)
+	roStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
+	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	ruleStyle   = lipgloss.NewStyle().Foreground(colAccent)
 
 	colHeadStyle = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
 	selRowStyle  = lipgloss.NewStyle().Background(colSelBg).Foreground(colSelFg)
@@ -44,7 +38,7 @@ var (
 	objCellStyle = lipgloss.NewStyle().Foreground(colText)
 	dimCellStyle = lipgloss.NewStyle().Foreground(colDim)
 
-	metaKeyStyle = lipgloss.NewStyle().Foreground(colAccent).Width(16)
+	metaKeyStyle = lipgloss.NewStyle().Foreground(colAccent)
 	metaValStyle = lipgloss.NewStyle().Foreground(colText)
 
 	footerStyle = lipgloss.NewStyle().Foreground(colDim)
@@ -245,15 +239,6 @@ func boxView(left, center, body string, width, minRows int) string {
 	}
 	b.WriteString(ruleStyle.Render("╰" + strings.Repeat("─", inner) + "╯"))
 	return b.String()
-}
-
-// placeRow puts left and right on one line, padded to width.
-func placeRow(width int, left, right string) string {
-	gap := width - lipgloss.Width(left) - lipgloss.Width(right)
-	if gap < 1 {
-		gap = 1
-	}
-	return left + strings.Repeat(" ", gap) + right
 }
 
 // formatDate renders a date compactly, or an em dash when zero.

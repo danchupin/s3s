@@ -2,14 +2,15 @@ package preview
 
 import (
 	"bytes"
+	"encoding/base64"
+	"fmt"
 	"image"
 	"image/color"
-	_ "image/gif"  // register decoders for image.Decode
-	_ "image/jpeg" // ...
-	_ "image/png"  // ...
+	_ "image/gif"  // register GIF decoder for image.Decode
+	_ "image/jpeg" // register JPEG decoder
+	"image/png"
 	"strings"
 
-	termimg "github.com/blacktop/go-termimg"
 	"github.com/eliukblau/pixterm/pkg/ansimage"
 )
 
@@ -64,38 +65,69 @@ func DetectProtocol(env func(string) string) Protocol {
 }
 
 // RenderImage renders image bytes for the given terminal protocol. A real
-// graphics protocol (kitty/iTerm2/sixel) produces a crisp pixel image; ProtoNone
-// (or any failure) falls back to ANSI half-block, which is low-resolution by
-// nature (two pixels per character cell) but works everywhere. cols/rows are the
-// target size in character cells.
+// graphics protocol (kitty / iTerm2) produces a crisp, full-resolution image;
+// ProtoNone/ProtoSixel (or any failure) fall back to ANSI half-block, which is
+// low-resolution by nature (two pixels per character cell) but works everywhere.
+// cols/rows are the target size in character cells. The protocol encoders are
+// hand-rolled (no terminal queries) so they never block or panic inside the TUI.
 func RenderImage(data []byte, proto Protocol, cols, rows int) (string, error) {
-	if proto == ProtoNone {
-		return RenderHalfBlock(data, cols, rows)
-	}
-	var tp termimg.Protocol
 	switch proto {
-	case ProtoKitty:
-		tp = termimg.Kitty
 	case ProtoITerm2:
-		tp = termimg.ITerm2
-	case ProtoSixel:
-		tp = termimg.Sixel
-	default:
+		if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+			return "", err // not a decodable image → caller shows a summary
+		}
+		return renderITerm2(data, cols, rows), nil
+	case ProtoKitty:
+		if s, err := renderKitty(data, cols, rows); err == nil {
+			return s, nil
+		}
+		return "", fmt.Errorf("kitty render failed")
+	default: // ProtoNone, ProtoSixel
 		return RenderHalfBlock(data, cols, rows)
 	}
+}
+
+// renderITerm2 emits the iTerm2 inline-image escape (raw bytes, base64). width
+// and height are in character cells; aspect ratio is preserved.
+func renderITerm2(data []byte, cols, rows int) string {
+	b64 := base64.StdEncoding.EncodeToString(data)
+	return fmt.Sprintf("\x1b]1337;File=inline=1;size=%d;width=%d;height=%d;preserveAspectRatio=1:%s\x07",
+		len(data), cols, rows, b64)
+}
+
+// renderKitty emits the kitty graphics protocol: a PNG payload, base64, chunked.
+// A fixed image id replaces the previous image; q=2 suppresses the terminal's
+// acknowledgement responses so they never leak into the TUI input stream.
+func renderKitty(data []byte, cols, rows int) (string, error) {
 	img, _, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
-		return "", err // not a decodable image — caller shows a summary
+		return "", err
 	}
-	r, err := termimg.GetRenderer(tp)
-	if err != nil {
-		return RenderHalfBlock(data, cols, rows)
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", err
 	}
-	out, err := r.Render(img, termimg.RenderOptions{Width: cols, Height: rows})
-	if err != nil || out == "" {
-		return RenderHalfBlock(data, cols, rows)
+	b64 := base64.StdEncoding.EncodeToString(buf.Bytes())
+
+	const chunk = 4096
+	var sb strings.Builder
+	first := true
+	for len(b64) > 0 {
+		n := min(chunk, len(b64))
+		part := b64[:n]
+		b64 = b64[n:]
+		more := 0
+		if len(b64) > 0 {
+			more = 1
+		}
+		if first {
+			fmt.Fprintf(&sb, "\x1b_Gf=100,a=T,i=1,q=2,c=%d,r=%d,m=%d;%s\x1b\\", cols, rows, more, part)
+			first = false
+		} else {
+			fmt.Fprintf(&sb, "\x1b_Gm=%d;%s\x1b\\", more, part)
+		}
 	}
-	return out, nil
+	return sb.String(), nil
 }
 
 // RenderHalfBlock renders image bytes to a truecolor ANSI half-block string sized

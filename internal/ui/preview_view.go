@@ -4,15 +4,17 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/preview"
 )
 
-// onPreviewKey handles the preview pane: scroll text, Esc/← back.
-func (m App) onPreviewKey(key string) (tea.Model, tea.Cmd) {
+// onObjectKey handles the combined object view: scroll content, Esc/← back.
+func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 	switch {
 	case matches(key, m.keys.Back):
 		m.mode = modeTree
+		m.meta = nil
 		m.prev = nil
 		m.prevOff = 0
 	case matches(key, m.keys.Down):
@@ -27,52 +29,83 @@ func (m App) onPreviewKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// previewView renders the preview pane (FR-014/015/016).
-func (m App) previewView() string {
+// objectView lays out the combined object view: a metadata column on the left and
+// the content (text / image / summary) on the right, separated by a vertical rule.
+func (m App) objectView(w, rows int) string {
+	metaW := w / 3
+	if metaW > 40 {
+		metaW = 40
+	}
+	if metaW < 18 {
+		metaW = 18
+	}
+	if metaW > w-12 {
+		metaW = max(1, w-12)
+	}
+	contentW := w - metaW - 3
+	if contentW < 1 {
+		contentW = 1
+	}
+
+	meta := lipgloss.NewStyle().Width(metaW).Render(m.metaPane(metaW))
+	sep := vrule(rows)
+	content := m.contentPane(contentW, rows)
+	return lipgloss.JoinHorizontal(lipgloss.Top, meta, " ", sep, " ", content)
+}
+
+// vrule returns a vertical divider of n rows.
+func vrule(n int) string {
+	if n < 1 {
+		n = 1
+	}
+	line := dimCellStyle.Render("│")
+	lines := make([]string, n)
+	for i := range lines {
+		lines[i] = line
+	}
+	return strings.Join(lines, "\n")
+}
+
+// contentPane renders the object content within width w / rows (FR-014/015/016).
+func (m App) contentPane(w, rows int) string {
 	if m.prev == nil {
 		if m.loading {
-			return dimCellStyle.Render("Loading preview…")
+			return dimCellStyle.Render("content…")
 		}
 		if txt := m.errorText(); txt != "" {
-			return errStyle.Render(txt)
+			return errStyle.Render(truncate(txt, w))
 		}
-		return ""
+		return dimCellStyle.Render("(no content)")
 	}
 	p := m.prev
-	header := titleStyle.Render(sanitizeLabel(p.Key)) + "  " + dimCellStyle.Render(p.Kind.String()) + "\n\n"
-	notice := ""
+	head := ""
 	if p.Truncated {
-		notice = warnStyle.Render("[preview truncated at 5 MiB]") + "\n\n"
+		head = warnStyle.Render("[truncated at 5 MiB]") + "\n"
 	}
-	back := "\n\n" + dimCellStyle.Render("(Esc back)")
 
 	switch p.Kind {
 	case preview.KindText:
-		return header + notice + m.renderTextPreview(p)
+		return head + m.renderTextPreview(p, w, rows)
 	case preview.KindImage:
-		cols := m.width
-		if cols < 1 {
-			cols = 80
+		if w < 1 {
+			w = 1
 		}
-		img, err := preview.RenderImage(p.Data, m.imgProto, cols, m.bodyRows())
+		img, err := preview.RenderImage(p.Data, m.imgProto, w, rows)
 		if err != nil {
-			// Non-decodable or non-capable: safe summary instead of a degraded
-			// render (FR-015).
-			return header + notice + warnStyle.Render("Image preview unavailable.") + "\n" + preview.Summary(*p) + back
+			return head + warnStyle.Render("image preview unavailable") + "\n" + wrapText(preview.Summary(*p), w)
 		}
-		return header + notice + img + back
+		return head + img
 	default:
-		return header + notice + preview.Summary(*p) + back
+		return head + wrapText(preview.Summary(*p), w)
 	}
 }
 
-// renderTextPreview windows the text by the scroll offset.
-func (m App) renderTextPreview(p *preview.Payload) string {
-	lines := strings.Split(string(p.Data), "\n")
-	rows := m.bodyRows() - 1
+// renderTextPreview windows the text content by the scroll offset, truncated to w.
+func (m App) renderTextPreview(p *preview.Payload, w, rows int) string {
 	if rows < 1 {
 		rows = 1
 	}
+	lines := strings.Split(string(p.Data), "\n")
 	off := m.prevOff
 	if off > len(lines)-1 {
 		off = max(0, len(lines)-1)
@@ -84,9 +117,17 @@ func (m App) renderTextPreview(p *preview.Payload) string {
 
 	var b strings.Builder
 	for i := off; i < end; i++ {
-		b.WriteString(sanitizeLabel(lines[i]))
+		b.WriteString(truncate(sanitizeLabel(lines[i]), w))
 		b.WriteByte('\n')
 	}
-	b.WriteString("\n(↑/↓ scroll · Esc back)")
-	return b.String()
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// wrapText truncates each line of s to width w (summaries are short one-liners).
+func wrapText(s string, w int) string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		out = append(out, truncate(line, w))
+	}
+	return strings.Join(out, "\n")
 }

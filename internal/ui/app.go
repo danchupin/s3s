@@ -23,8 +23,7 @@ type mode int
 const (
 	modeBuckets mode = iota
 	modeTree
-	modeMetadata
-	modePreview
+	modeObject // combined metadata + content view (opened with Enter)
 	modeContextSwitch
 	modeHelp
 )
@@ -199,7 +198,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		md := msg.md
 		m.meta = &md
-		m.mode = modeMetadata
+		m.mode = modeObject
 		return m, nil
 
 	case previewMsg:
@@ -209,8 +208,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		p := msg.payload
 		m.prev = &p
-		m.prevOff = 0
-		m.mode = modePreview
+		m.mode = modeObject
 		return m, nil
 
 	case errMsg:
@@ -267,10 +265,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onBucketsKey(key)
 	case modeTree:
 		return m.onTreeKey(key, msg)
-	case modeMetadata:
-		return m.onMetadataKey(key)
-	case modePreview:
-		return m.onPreviewKey(key)
+	case modeObject:
+		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
 	}
@@ -454,10 +450,8 @@ func (m App) View() tea.View {
 		body = boxView(m.resourceTitle(), m.selectionName(), m.treeView(w-2, rows), w, rows)
 	case modeContextSwitch:
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, rows), w, rows)
-	case modeMetadata:
-		body = m.metadataView()
-	case modePreview:
-		body = m.previewView()
+	case modeObject:
+		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
 	case modeHelp:
 		body = m.helpView()
 	}
@@ -558,6 +552,11 @@ func (m App) resourceTitle() string {
 		return fmt.Sprintf("%s[%d%s]", loc, n, more)
 	case modeContextSwitch:
 		return fmt.Sprintf("contexts[%d]", len(m.contexts))
+	case modeObject:
+		if m.meta != nil {
+			return sanitizeLabel(m.meta.Key)
+		}
+		return "object"
 	default:
 		fb := m.filteredBuckets()
 		if m.bucketFilter != "" {
@@ -565,6 +564,14 @@ func (m App) resourceTitle() string {
 		}
 		return fmt.Sprintf("buckets[%d]", len(m.buckets))
 	}
+}
+
+// objectKind is the highlighted center label for the object box (content kind).
+func (m App) objectKind() string {
+	if m.prev != nil {
+		return m.prev.Kind.String()
+	}
+	return ""
 }
 
 // selectionName is the centered, highlighted label on the box top border —

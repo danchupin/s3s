@@ -63,13 +63,9 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
-	case matches(key, m.keys.Metadata):
+	case matches(key, m.keys.Metadata), matches(key, m.keys.Preview):
 		if e := m.selected(); e != nil && !e.isDir {
-			return m.openMetadata(e.obj)
-		}
-	case matches(key, m.keys.Preview):
-		if e := m.selected(); e != nil && !e.isDir {
-			return m.openPreview(e.obj)
+			return m.openObject(e.obj)
 		}
 	case matches(key, m.keys.Enter):
 		e := m.selected()
@@ -81,7 +77,7 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.search = ""
 			return m.enterLevel()
 		}
-		return m.openMetadata(e.obj)
+		return m.openObject(e.obj)
 	case matches(key, m.keys.Back):
 		return m.goBack()
 	}
@@ -151,22 +147,23 @@ func (m App) goBack() (tea.Model, tea.Cmd) {
 	return m.enterLevel()
 }
 
-// openMetadata launches an async HeadObject for the object.
-func (m App) openMetadata(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
+// openObject opens the combined object view: it fetches metadata (HeadObject)
+// and bounded content (ranged GET) concurrently under one generation, so the
+// metadata pane and the content/image pane fill in together (no separate steps).
+func (m App) openObject(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
 	if o == nil {
 		return m, nil
 	}
+	m.meta = nil
+	m.prev = nil
+	m.prevOff = 0
+	m.mode = modeObject
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadMetadata(ctx, m.store, m.bucket, o.Key, m.gen), spinnerTick())
-}
-
-// openPreview launches an async bounded ranged GET for the object.
-func (m App) openPreview(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
-	if o == nil {
-		return m, nil
-	}
-	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadPreview(ctx, m.store, m.bucket, o.Key, "", o.Size, m.gen), spinnerTick())
+	return m, tea.Batch(
+		loadMetadata(ctx, m.store, m.bucket, o.Key, m.gen),
+		loadPreview(ctx, m.store, m.bucket, o.Key, "", o.Size, m.gen),
+		spinnerTick(),
+	)
 }
 
 // onLevel merges a freshly-loaded page into the current level and caches it.

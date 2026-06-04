@@ -5,6 +5,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"testing"
 )
 
@@ -63,6 +64,33 @@ func TestRenderHalfBlock(t *testing.T) {
 	// truecolor half-block uses the upper-half-block rune and ANSI escapes.
 	if !bytes.Contains([]byte(out), []byte("\x1b[")) {
 		t.Error("expected ANSI escape codes in half-block output")
+	}
+}
+
+func TestRenderImageProtocols(t *testing.T) {
+	png := makePNG(t, 8, 8)
+
+	if out, err := RenderImage(png, ProtoNone, 20, 10); err != nil || out == "" {
+		t.Errorf("ProtoNone should render half-block: out=%d err=%v", len(out), err)
+	}
+	iterm, err := RenderImage(png, ProtoITerm2, 20, 10)
+	if err != nil || !strings.Contains(iterm, "\x1b]1337;File=inline=1") {
+		t.Errorf("iTerm2 render missing escape: err=%v out=%q", err, iterm[:min(40, len(iterm))])
+	}
+	kitty, err := RenderImage(png, ProtoKitty, 20, 10)
+	if err != nil || !strings.Contains(kitty, "\x1b_Gf=100,a=T") || !strings.Contains(kitty, "q=2") {
+		t.Errorf("kitty render missing escape: err=%v", err)
+	}
+}
+
+func TestRenderImageBadDataFallsBack(t *testing.T) {
+	bad := []byte("not an image")
+	// Protocol paths surface an error so the caller shows a summary.
+	if _, err := RenderImage(bad, ProtoITerm2, 20, 10); err == nil {
+		t.Error("iTerm2 with undecodable data should error")
+	}
+	if _, err := RenderImage(bad, ProtoKitty, 20, 10); err == nil {
+		t.Error("kitty with undecodable data should error")
 	}
 }
 

@@ -16,8 +16,7 @@ any write-capable S3 symbol appears outside `internal/storage`.
 go build -o bin/s3s ./cmd/s3s
 ```
 
-Requires Go 1.26+ (the `go-termimg` image-protocol dependency needs it). For
-local testing you also need Docker (MinIO via testcontainers).
+Requires Go 1.25+. For local testing you also need Docker (MinIO via testcontainers).
 
 ## Configuration
 
@@ -86,24 +85,24 @@ docker run -p 9000:9000 -p 9001:9001 \
 | Key | Action |
 |-----|--------|
 | `↑`/`k`, `↓`/`j` | move selection |
-| `→`/`l`/`Enter` | enter bucket or directory |
+| `→`/`l`/`Enter` | enter bucket/dir, or open an object (metadata + content together) |
 | `←`/`h`/`Esc` | back to parent (or clear active search) |
 | `g` / `G` | jump to top / bottom |
-| `/` | search current level (prefix, ~300 ms debounce); `Esc` clears |
-| `i` | object metadata |
-| `p` / `Space` | preview object |
+| `/` | filter buckets / search a level (prefix, ~300 ms debounce); `Esc` clears |
+| `i` / `p` | open the object view (same as Enter on an object) |
 | `r` | refresh current level (discard cache) |
 | `c` | switch context |
 | `x` | cancel in-flight load |
 | `?` | help overlay |
 | `q` / `Ctrl+C` | quit |
 
-Images preview using a terminal graphics protocol (kitty / iTerm2 / sixel) when
-one is detected from the environment — this gives a crisp, full-resolution image.
-On terminals without a protocol it falls back to ANSI half-block, which is
-inherently low-resolution (two pixels per character cell). Force half-block with
-`S3S_IMAGE_PROTOCOL=off` if the protocol path causes artifacts. Previews are
-bounded to the first 5 MiB; larger objects show a truncation notice.
+Images preview using a terminal graphics protocol (kitty / iTerm2) when one is
+detected from the environment — this gives a crisp, full-resolution image. On
+terminals without a supported protocol (incl. sixel) it falls back to ANSI
+half-block, which is inherently low-resolution (two pixels per character cell).
+Force half-block with `S3S_IMAGE_PROTOCOL=off` if the protocol path causes
+artifacts. Previews are bounded to the first 5 MiB; larger objects show a
+truncation notice.
 
 ### Filtering & quick context switch
 
