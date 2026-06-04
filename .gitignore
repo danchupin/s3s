@@ -1,0 +1,24 @@
+# Binaries
+/s3s
+/bin/
+*.exe
+*.test
+*.out
+
+# Local config & secrets
+.env
+*.local.yaml
+config.local.yaml
+
+# Logs
+*.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Go
+vendor/
