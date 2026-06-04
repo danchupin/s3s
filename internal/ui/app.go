@@ -402,7 +402,7 @@ func (m App) View() tea.View {
 	case modeContextSwitch:
 		b.WriteString(m.contextView())
 	case modeHelp:
-		b.WriteString(strings.Join(helpLines(), "\n"))
+		b.WriteString(m.helpView())
 	}
 
 	b.WriteString("\n\n")
@@ -413,19 +413,68 @@ func (m App) View() tea.View {
 	return v
 }
 
-// headerView shows the active context and breadcrumb.
+// headerView renders the k9s-style header bar: logo + version, active context,
+// view title + breadcrumb, and an item count, closed by a rule.
 func (m App) headerView() string {
-	loc := m.breadcrumb()
-	return fmt.Sprintf("s3s  [context: %s]  %s", m.ctxName, loc)
+	w := clampW(m.width)
+	top := placeRow(w,
+		logoStyle.Render("S3S")+versionStyle.Render(" "+Version),
+		hdrKeyStyle.Render("context: ")+hdrValStyle.Render(m.ctxName),
+	)
+	mid := placeRow(w,
+		titleStyle.Render(m.viewTitle())+"  "+crumbStyle.Render(m.breadcrumb()),
+		countStyle.Render(m.countLabel()),
+	)
+	rule := ruleStyle.Render(strings.Repeat("━", w))
+	return top + "\n" + mid + "\n" + rule
+}
+
+// viewTitle is the current view's name for the header.
+func (m App) viewTitle() string {
+	switch m.mode {
+	case modeTree:
+		return "Objects"
+	case modeMetadata:
+		return "Metadata"
+	case modePreview:
+		return "Preview"
+	case modeContextSwitch:
+		return "Contexts"
+	case modeHelp:
+		return "Help"
+	default:
+		return "Buckets"
+	}
+}
+
+// countLabel summarizes how many items the current view holds.
+func (m App) countLabel() string {
+	switch m.mode {
+	case modeBuckets:
+		return fmt.Sprintf("buckets: %d", len(m.buckets))
+	case modeTree:
+		if m.level == nil {
+			return ""
+		}
+		s := fmt.Sprintf("items: %d", m.level.count())
+		if !m.level.complete {
+			s += "+"
+		}
+		return s
+	case modeContextSwitch:
+		return fmt.Sprintf("contexts: %d", len(m.contexts))
+	default:
+		return ""
+	}
 }
 
 // breadcrumb describes the current location (FR-009).
 func (m App) breadcrumb() string {
 	switch m.mode {
 	case modeBuckets:
-		return "buckets"
+		return "/"
 	case modeContextSwitch:
-		return "contexts"
+		return "select a context"
 	default:
 		loc := m.bucket
 		if m.prefix != "" {
@@ -438,56 +487,63 @@ func (m App) breadcrumb() string {
 	}
 }
 
+// tableRows is the number of body rows that fit between the header and footer.
+func (m App) tableRows() int {
+	rows := m.height - 9
+	if rows < 1 {
+		return 1
+	}
+	return rows
+}
+
 // footerView shows loading/error/hints.
 func (m App) footerView() string {
 	if m.searching {
-		return fmt.Sprintf("search: %s_  (Enter to apply, Esc to clear)", m.searchInput)
+		return footerStyle.Render(fmt.Sprintf("search: %s▏  (Enter apply · Esc clear)", m.searchInput))
 	}
 	if m.loading {
-		return fmt.Sprintf("%s loading…  (x to cancel)", m.spinnerView())
+		return footerStyle.Render(fmt.Sprintf("%s loading…  (x to cancel)", m.spinnerView()))
 	}
 	if txt := m.errorText(); txt != "" {
-		return "error: " + txt
+		return errStyle.Render("error: " + txt)
 	}
-	return "↑/↓ move · →/Enter open · ← back · / search · i meta · p preview · r refresh · c context · ? help · q quit"
+	return footerStyle.Render("↑/↓ move · →/Enter open · ← back · / search · i meta · p preview · r refresh · c context · ? help · q quit")
 }
 
-// bucketsView renders the bucket list.
+// bucketsView renders the bucket list as a table.
 func (m App) bucketsView() string {
 	if len(m.buckets) == 0 {
 		if m.loading {
-			return "Loading buckets…"
+			return dimCellStyle.Render("Loading buckets…")
 		}
-		return "No buckets visible for this context."
+		return emptyStyle.Render("No buckets visible for this context.")
 	}
-	var b strings.Builder
-	for i, bk := range m.buckets {
-		cursor := "  "
-		if i == m.bucketSel {
-			cursor = "> "
-		}
-		fmt.Fprintf(&b, "%s%s\n", cursor, bk.Name)
+	rows := m.tableRows()
+	off, end := windowBounds(len(m.buckets), m.bucketSel, rows)
+	cols := []column{{"name", 0}, {"created", 19}}
+	data := make([][]string, 0, end-off)
+	for i := off; i < end; i++ {
+		data = append(data, []string{m.buckets[i].Name, formatDate(m.buckets[i].CreationDate)})
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return renderTable(m.width, cols, data, nil, m.bucketSel-off)
 }
 
-// contextView renders the context switcher.
+// contextView renders the context switcher as a table.
 func (m App) contextView() string {
 	if len(m.contexts) == 0 {
-		return "No contexts configured."
+		return emptyStyle.Render("No contexts configured.")
 	}
-	var b strings.Builder
-	b.WriteString("Switch context:\n\n")
-	for i, n := range m.contexts {
-		cursor := "  "
-		if i == m.ctxSel {
-			cursor = "> "
+	rows := m.tableRows()
+	off, end := windowBounds(len(m.contexts), m.ctxSel, rows)
+	cols := []column{{"context", 0}, {"status", 10}}
+	data := make([][]string, 0, end-off)
+	for i := off; i < end; i++ {
+		status := ""
+		if m.contexts[i] == m.ctxName {
+			status = "active"
 		}
-		marker := ""
-		if n == m.ctxName {
-			marker = " (active)"
-		}
-		fmt.Fprintf(&b, "%s%s%s\n", cursor, n, marker)
+		data = append(data, []string{m.contexts[i], status})
 	}
-	return strings.TrimRight(b.String(), "\n")
+	title := titleStyle.Render("Switch context")
+	return title + "\n\n" + renderTable(m.width, cols, data, nil, m.ctxSel-off)
 }

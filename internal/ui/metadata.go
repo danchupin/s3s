@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -23,42 +22,38 @@ func (m App) onMetadataKey(key string) (tea.Model, tea.Cmd) {
 func (m App) metadataView() string {
 	if m.meta == nil {
 		if m.loading {
-			return "Loading metadata…"
+			return dimCellStyle.Render("Loading metadata…")
 		}
 		if txt := m.errorText(); txt != "" {
-			return txt
+			return errStyle.Render(txt)
 		}
 		return ""
 	}
 	md := m.meta
 	var b strings.Builder
-	fmt.Fprintf(&b, "Key:            %s\n", sanitizeLabel(md.Key))
-	fmt.Fprintf(&b, "Size:           %s (%d bytes)\n", humanSize(md.Size), md.Size)
-	fmt.Fprintf(&b, "Last modified:  %s\n", formatTime(md.LastModified))
-	fmt.Fprintf(&b, "Content type:   %s\n", orDash(md.ContentType))
-	fmt.Fprintf(&b, "Storage class:  %s\n", orDash(md.StorageClass))
-	fmt.Fprintf(&b, "ETag:           %s\n", orDash(md.ETag))
+	row := func(k, v string) {
+		b.WriteString(metaKeyStyle.Render(k) + metaValStyle.Render(v) + "\n")
+	}
+	row("Key", sanitizeLabel(md.Key))
+	row("Size", fmt.Sprintf("%s (%d bytes)", humanSize(md.Size), md.Size))
+	row("Last modified", formatDate(md.LastModified))
+	row("Content type", orDash(md.ContentType))
+	row("Storage class", orDash(md.StorageClass))
+	row("ETag", orDash(md.ETag))
 
 	if len(md.UserMetadata) > 0 {
-		b.WriteString("\nUser metadata:\n")
+		b.WriteString("\n" + colHeadStyle.Render("User metadata") + "\n")
 		keys := make([]string, 0, len(md.UserMetadata))
 		for k := range md.UserMetadata {
 			keys = append(keys, k)
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			fmt.Fprintf(&b, "  %s: %s\n", sanitizeLabel(k), sanitizeLabel(md.UserMetadata[k]))
+			row(k, sanitizeLabel(md.UserMetadata[k]))
 		}
 	}
-	b.WriteString("\n(Esc/← back)")
+	b.WriteString("\n" + dimCellStyle.Render("(Esc/← back)"))
 	return b.String()
-}
-
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return "—"
-	}
-	return t.UTC().Format(time.RFC3339)
 }
 
 func orDash(s string) string {

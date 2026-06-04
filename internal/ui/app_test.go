@@ -85,7 +85,7 @@ func TestBucketsRender(t *testing.T) {
 	if !strings.Contains(v, "alpha") || !strings.Contains(v, "beta") {
 		t.Errorf("bucket names missing from view:\n%s", v)
 	}
-	if !strings.Contains(v, "> alpha") {
+	if !strings.Contains(v, "▶ alpha") {
 		t.Errorf("cursor should mark first bucket:\n%s", v)
 	}
 }
@@ -100,7 +100,7 @@ func TestBucketsNavigation(t *testing.T) {
 	if m.bucketSel != 1 {
 		t.Fatalf("after down, bucketSel = %d, want 1", m.bucketSel)
 	}
-	if !strings.Contains(viewOf(m), "> beta") {
+	if !strings.Contains(viewOf(m), "▶ beta") {
 		t.Errorf("cursor should be on beta:\n%s", viewOf(m))
 	}
 	m = press(m, "up")

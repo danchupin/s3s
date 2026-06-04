@@ -31,22 +31,24 @@ func (m App) onPreviewKey(key string) (tea.Model, tea.Cmd) {
 func (m App) previewView() string {
 	if m.prev == nil {
 		if m.loading {
-			return "Loading preview…"
+			return dimCellStyle.Render("Loading preview…")
 		}
 		if txt := m.errorText(); txt != "" {
-			return txt
+			return errStyle.Render(txt)
 		}
 		return ""
 	}
 	p := m.prev
+	header := titleStyle.Render(sanitizeLabel(p.Key)) + "  " + dimCellStyle.Render(p.Kind.String()) + "\n\n"
 	notice := ""
 	if p.Truncated {
-		notice = "[preview truncated at 5 MiB]\n\n"
+		notice = warnStyle.Render("[preview truncated at 5 MiB]") + "\n\n"
 	}
+	back := "\n\n" + dimCellStyle.Render("(Esc back)")
 
 	switch p.Kind {
 	case preview.KindText:
-		return notice + m.renderTextPreview(p)
+		return header + notice + m.renderTextPreview(p)
 	case preview.KindImage:
 		cols := m.width
 		if cols < 1 {
@@ -56,11 +58,11 @@ func (m App) previewView() string {
 		if err != nil {
 			// Non-decodable or non-capable: safe summary instead of a degraded
 			// render (FR-015).
-			return notice + "Image preview unavailable.\n" + preview.Summary(*p) + "\n\n(Esc back)"
+			return header + notice + warnStyle.Render("Image preview unavailable.") + "\n" + preview.Summary(*p) + back
 		}
-		return notice + img + "\n\n(Esc back)"
+		return header + notice + img + back
 	default:
-		return notice + preview.Summary(*p) + "\n\n(Esc back)"
+		return header + notice + preview.Summary(*p) + back
 	}
 }
 

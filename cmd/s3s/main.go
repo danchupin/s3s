@@ -19,7 +19,12 @@ import (
 	"github.com/danchupin/s3s/internal/ui"
 )
 
+// version is the build version, overridable via
+// -ldflags "-X main.version=vX.Y.Z".
+var version = "dev"
+
 func main() {
+	ui.Version = version
 	if err := run(); err != nil {
 		fmt.Fprintln(os.Stderr, "s3s:", err)
 		os.Exit(1)

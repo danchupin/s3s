@@ -210,41 +210,41 @@ func (m App) bodyRows() int {
 	return rows
 }
 
-// treeView renders the windowed tree level.
+// treeView renders the windowed tree level as a k9s-style table.
 func (m App) treeView() string {
 	if m.level == nil {
 		if m.loading {
-			return "Loading…"
+			return dimCellStyle.Render("Loading…")
 		}
 		return ""
 	}
 	entries := m.treeEntries()
 	if len(entries) == 0 {
 		if m.search != "" {
-			return fmt.Sprintf("No matches for %q.", m.search)
+			return emptyStyle.Render(fmt.Sprintf("No matches for %q.", m.search))
 		}
-		return "Empty — no folders or objects here."
+		return emptyStyle.Render("Empty — no folders or objects here.")
 	}
 
-	rows := m.bodyRows()
-	end := min(m.treeOff+rows, len(entries))
-	var b strings.Builder
-	for i := m.treeOff; i < end; i++ {
+	rows := m.tableRows()
+	off, end := windowBounds(len(entries), m.treeSel, rows)
+	cols := []column{{"name", 0}, {"type", 5}, {"size", 11}, {"modified", 17}}
+	data := make([][]string, 0, end-off)
+	dirs := make([]bool, 0, end-off)
+	for i := off; i < end; i++ {
 		e := entries[i]
-		cursor := "  "
-		if i == m.treeSel {
-			cursor = "> "
-		}
 		if e.isDir {
-			fmt.Fprintf(&b, "%s%s\n", cursor, e.label)
+			data = append(data, []string{e.label, "dir", "—", "—"})
 		} else {
-			fmt.Fprintf(&b, "%s%s  (%s)\n", cursor, e.label, humanSize(e.obj.Size))
+			data = append(data, []string{e.label, "obj", humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
 		}
+		dirs = append(dirs, e.isDir)
 	}
+	table := renderTable(m.width, cols, data, dirs, m.treeSel-off)
 	if !m.level.complete {
-		b.WriteString("  … more (scroll down to load)\n")
+		table += "\n" + dimCellStyle.Render("  ↓ more — scroll to load")
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return table
 }
 
 // parentPrefix returns the prefix one level up ("a/b/" -> "a/", "a/" -> "").

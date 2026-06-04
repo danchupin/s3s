@@ -49,6 +49,16 @@ func matches(key string, binds []string) bool {
 	return false
 }
 
+// helpView renders the styled help overlay.
+func (m App) helpView() string {
+	lines := helpLines()
+	out := titleStyle.Render(lines[0])
+	for _, l := range lines[1:] {
+		out += "\n" + dimCellStyle.Render(l)
+	}
+	return out
+}
+
 // helpLines is the content of the help overlay (FR / tui-contract).
 func helpLines() []string {
 	return []string{
