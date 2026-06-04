@@ -99,9 +99,19 @@ func run() error {
 		return err
 	}
 
-	imgProto := preview.DetectProtocol(os.Getenv)
-	if os.Getenv("S3S_IMAGE_PROTOCOL") == "off" {
-		imgProto = preview.ProtoNone // force half-block (avoids protocol artifacts)
+	// Image rendering. Default to ANSI half-block: Bubble Tea v2's cell renderer
+	// only understands cell content (incl. truecolor), so terminal graphics
+	// protocols (kitty/iTerm2) are stripped and never reach the terminal. Half-
+	// block is lower-resolution but actually renders. The protocol paths are an
+	// explicit, experimental opt-in for setups where they survive.
+	imgProto := preview.ProtoNone
+	switch os.Getenv("S3S_IMAGE_PROTOCOL") {
+	case "kitty":
+		imgProto = preview.ProtoKitty
+	case "iterm2":
+		imgProto = preview.ProtoITerm2
+	case "auto":
+		imgProto = preview.DetectProtocol(os.Getenv)
 	}
 	model := ui.New(initial, active, cfg.ContextNames(), resolve, imgProto)
 	if _, err := tea.NewProgram(model).Run(); err != nil {

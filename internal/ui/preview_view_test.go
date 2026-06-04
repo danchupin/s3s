@@ -14,7 +14,7 @@ func TestPreviewTextScrollable(t *testing.T) {
 	m := enterTree(t, f, "b")
 	m.height = 10 // small window to make scrolling observable
 
-	m = press(m, "p")
+	m = press(m, "enter")
 	if !m.loading {
 		t.Fatal("'p' should arm a preview load")
 	}
@@ -49,7 +49,7 @@ func TestPreviewTruncatedNotice(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "big.txt", storage.FakeObject{Data: []byte("x")})
 	m := enterTree(t, f, "b")
-	m = press(m, "p")
+	m = press(m, "enter")
 	pl := preview.Build("big.txt", "text/plain", []byte("data"), true)
 	m = deliver(m, previewMsg{gen: m.gen, payload: pl})
 	if !strings.Contains(viewOf(m), "truncated at 5 MiB") {
@@ -61,7 +61,7 @@ func TestPreviewImageFallbackSummary(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "logo.png", storage.FakeObject{Data: []byte("not a real png")})
 	m := enterTree(t, f, "b")
-	m = press(m, "p")
+	m = press(m, "enter")
 	// image/* content type but undecodable bytes → classified image, render fails.
 	pl := preview.Build("logo.png", "image/png", []byte{0x89, 0x50, 0x4e, 0x47, 0x00}, false)
 	if pl.Kind != preview.KindImage {

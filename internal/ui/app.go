@@ -518,8 +518,8 @@ func (m App) contextListBlock() string {
 // hintsBlock renders the keybinding cheat-sheet columns.
 func (m App) hintsBlock() string {
 	type hint struct{ k, a string }
-	left := []hint{{"enter", "Open"}, {"/", "Filter"}, {"i", "Metadata"}, {"p", "Preview"}, {"r", "Refresh"}, {"c", "Context"}}
-	right := []hint{{"←", "Back"}, {"g/G", "Top/Bottom"}, {"x", "Cancel"}, {"?", "Help"}, {"q", "Quit"}, {"1-9", "Switch ctx"}}
+	left := []hint{{"enter", "Open"}, {"/", "Filter"}, {"r", "Refresh"}, {"c", "Context"}}
+	right := []hint{{"←", "Back"}, {"g/G", "Top/Bottom"}, {"?", "Help"}, {"q", "Quit"}, {"1-9", "Switch ctx"}}
 	render := func(hs []hint) string {
 		var b strings.Builder
 		for _, h := range hs {
@@ -617,7 +617,8 @@ func (m App) breadcrumb() string {
 	}
 }
 
-// footerView shows the filter/search input, loading, error, or hints.
+// footerView shows transient status only — the filter/search input, loading, or
+// errors. Keybindings live in the header (no duplication).
 func (m App) footerView() string {
 	if m.searching {
 		label := "search"
@@ -632,7 +633,7 @@ func (m App) footerView() string {
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + txt)
 	}
-	return footerStyle.Render("↑/↓ move · →/Enter open · ← back · / search · i meta · p preview · r refresh · c context · ? help · q quit")
+	return ""
 }
 
 // bucketsView renders the bucket list table body (filtered) at the given width.

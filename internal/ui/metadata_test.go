@@ -14,7 +14,7 @@ func TestMetadataPaneRenders(t *testing.T) {
 	m := enterTree(t, f, "b")
 
 	// Selected entry is the single object; open metadata.
-	m = press(m, "i")
+	m = press(m, "enter")
 	if !m.loading {
 		t.Fatal("'i' should arm a metadata load")
 	}
@@ -51,7 +51,7 @@ func TestMetadataAccessDenied(t *testing.T) {
 	f.SeedObject("b", "secret", storage.FakeObject{AccessDenied: true})
 	m := enterTree(t, f, "b")
 
-	m = press(m, "i")
+	m = press(m, "enter")
 	m = deliver(m, errMsg{gen: m.gen, err: storage.ErrAccessDenied})
 	if !strings.Contains(m.errorText(), "Access denied") {
 		t.Errorf("access-denied metadata should surface denied copy, got %q", m.errorText())

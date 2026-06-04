@@ -63,10 +63,6 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
-	case matches(key, m.keys.Metadata), matches(key, m.keys.Preview):
-		if e := m.selected(); e != nil && !e.isDir {
-			return m.openObject(e.obj)
-		}
 	case matches(key, m.keys.Enter):
 		e := m.selected()
 		if e == nil {
