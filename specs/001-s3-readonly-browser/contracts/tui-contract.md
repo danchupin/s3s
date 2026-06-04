@@ -34,7 +34,7 @@ s3s [--context <name>] [--config <path>]
 | `→`/`l`/`Enter` | enter selected bucket or directory (drill down) |
 | `←`/`h`/`Esc` | go back to parent level |
 | `g`/`G` | jump to top/bottom of level |
-| `/` | start prefix search at current level; `Esc` clears it |
+| `/` | start prefix search at current level (debounced ~300 ms); `Esc` clears it |
 | `i`/`Enter` (on object) | open metadata for the object |
 | `p`/`Space` | preview selected object |
 | `r` | refresh current level (discard cache, re-fetch) (FR-011a) |

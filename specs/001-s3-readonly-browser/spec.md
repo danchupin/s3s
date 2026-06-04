@@ -231,6 +231,10 @@ appears.
 
 - **FR-017**: Users MUST be able to search the current level by prefix, with the narrowing applied
   server-side so results are complete (not limited to already-loaded entries).
+- **FR-017a**: To avoid issuing a backend request on every keystroke, the system MUST coalesce
+  search input — debouncing typed input by ~300 ms (or dispatching on explicit submit) — so at most
+  one in-flight search request exists per pause; superseded search requests are cancelled
+  (consistent with FR-012 and SC-003).
 - **FR-018**: System MUST allow clearing the search to restore the full current-level view, and
   MUST show an explicit no-matches state.
 
