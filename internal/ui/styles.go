@@ -23,6 +23,11 @@ var (
 	colOK     = lipgloss.Color("108") // muted green (e.g. [RO])
 	colSelBg  = lipgloss.Color("238")
 	colSelFg  = lipgloss.Color("223") // warm white
+
+	// distinct footer-segment hues (Claude Code-style colored params)
+	colCyan   = lipgloss.Color("109")
+	colBlue   = lipgloss.Color("74")
+	colPurple = lipgloss.Color("139")
 )
 
 var (
@@ -40,9 +45,17 @@ var (
 	metaValStyle = lipgloss.NewStyle().Foreground(colText)
 
 	accentStyle = lipgloss.NewStyle().Foreground(colAccent)
-	errStyle    = lipgloss.NewStyle().Bold(true).Foreground(colErr)
-	warnStyle   = lipgloss.NewStyle().Foreground(colWarn)
-	emptyStyle  = lipgloss.NewStyle().Faint(true).Foreground(colDim)
+
+	// footer segment styles (one hue per parameter type)
+	segCtxStyle      = lipgloss.NewStyle().Bold(true).Foreground(colOK)
+	segClusterStyle  = lipgloss.NewStyle().Foreground(colAccent)
+	segUserStyle     = lipgloss.NewStyle().Foreground(colCyan)
+	segEndpointStyle = lipgloss.NewStyle().Foreground(colBlue)
+	segRegionStyle   = lipgloss.NewStyle().Foreground(colPurple)
+
+	errStyle   = lipgloss.NewStyle().Bold(true).Foreground(colErr)
+	warnStyle  = lipgloss.NewStyle().Foreground(colWarn)
+	emptyStyle = lipgloss.NewStyle().Faint(true).Foreground(colDim)
 )
 
 // column is a table column; width 0 means flex (absorbs remaining width).
@@ -237,6 +250,72 @@ func boxView(left, center, body string, width, minRows int) string {
 	}
 	b.WriteString(ruleStyle.Render("╰" + strings.Repeat("─", inner) + "╯"))
 	return b.String()
+}
+
+// fseg is a pre-styled footer segment paired with its display width.
+type fseg struct {
+	s string
+	w int
+}
+
+// joinFit joins segments with dim "·" separators, dropping trailing ones that
+// would overflow width (so the line never wraps and hide following footer lines).
+func joinFit(width int, segs []fseg) string {
+	sep := dimCellStyle.Render(" · ")
+	const sepW = 3
+	var b strings.Builder
+	used := 0
+	for i, sg := range segs {
+		add := sg.w
+		if i > 0 {
+			add += sepW
+		}
+		if used+add > width {
+			break
+		}
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(sg.s)
+		used += add
+	}
+	return b.String()
+}
+
+// footerInfoLine builds the colored info line: each parameter gets its own hue.
+func footerInfoLine(width int, ctx, cluster, user, endpoint, region, rev string) string {
+	segs := []fseg{{
+		s: roStyle.Render("●") + " " + segCtxStyle.Render(ctx) + dimCellStyle.Render(" [RO]"),
+		w: lipgloss.Width("● " + ctx + " [RO]"),
+	}}
+	add := func(label, val string, st lipgloss.Style, lim int) {
+		if val == "" {
+			return
+		}
+		v := truncate(val, lim)
+		segs = append(segs, fseg{
+			s: dimCellStyle.Render(label+" ") + st.Render(v),
+			w: lipgloss.Width(label + " " + v),
+		})
+	}
+	add("cluster", cluster, segClusterStyle, 24)
+	add("user", user, segUserStyle, 24)
+	add("endpoint", endpoint, segEndpointStyle, 46)
+	add("region", region, segRegionStyle, 16)
+	add("s3s ver", rev, dimCellStyle, 16)
+	return joinFit(width, segs)
+}
+
+// footerHintsLine builds the colored keybinding line.
+func footerHintsLine(width int) string {
+	h := func(k, a string) fseg {
+		return fseg{s: accentStyle.Render(k) + " " + dimCellStyle.Render(a), w: lipgloss.Width(k + " " + a)}
+	}
+	segs := []fseg{
+		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
+		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),
+	}
+	return joinFit(width, segs)
 }
 
 // formatDate renders a date compactly, or an em dash when zero.

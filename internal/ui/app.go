@@ -463,42 +463,14 @@ func (m App) View() tea.View {
 }
 
 // footerBlock is the Claude Code-style status footer: a thin separator, an info
-// line (context · cluster · user · …), a keybinding line, and a transient status
-// line. Items are joined with dim "·" separators.
+// line (context · cluster · user · …) with one hue per parameter, a keybinding
+// line, and a transient status line. Each line is fit to the width segment-by-
+// segment so nothing wraps (which would otherwise hide a line).
 func (m App) footerBlock(w int) string {
-	dot := dimCellStyle.Render(" · ")
-
-	item := func(label, val string, lim int) string {
-		return dimCellStyle.Render(label+" ") + objCellStyle.Render(truncate(val, lim))
-	}
-
-	info := []string{roStyle.Render("●") + " " + accentStyle.Render(m.ctxName) + dimCellStyle.Render(" [RO]")}
-	if m.info.Cluster != "" {
-		info = append(info, item("cluster", m.info.Cluster, 24))
-	}
-	if m.info.User != "" {
-		info = append(info, item("user", m.info.User, 24))
-	}
-	if m.info.Endpoint != "" {
-		info = append(info, item("endpoint", m.info.Endpoint, 44))
-	}
-	if m.info.Region != "" {
-		info = append(info, item("region", m.info.Region, 16))
-	}
-	info = append(info, item("rev", Version, 16))
-
-	hint := func(k, a string) string {
-		return accentStyle.Render(k) + " " + dimCellStyle.Render(a)
-	}
-	hints := []string{
-		hint("enter", "open"), hint("/", "filter"), hint("r", "refresh"),
-		hint("c", "context"), hint("1-9", "switch"), hint("?", "help"), hint("q", "quit"),
-	}
-
 	lines := []string{
 		ruleStyle.Render(strings.Repeat("─", w)),
-		strings.Join(info, dot),
-		strings.Join(hints, dot),
+		footerInfoLine(w, m.ctxName, m.info.Cluster, m.info.User, m.info.Endpoint, m.info.Region, Version),
+		footerHintsLine(w),
 	}
 	if s := m.statusLine(); s != "" {
 		lines = append(lines, s)
