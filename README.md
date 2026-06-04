@@ -20,6 +20,20 @@ Requires Go 1.24+. For local testing you also need Docker (MinIO via testcontain
 
 ## Configuration
 
+### Generate a config interactively
+
+```bash
+s3s config init                       # writes to the default XDG path
+s3s config init --config ./my.yaml    # custom path
+```
+
+The wizard prompts for the cluster endpoint, addressing/TLS, credentials, and
+context name, then merges the result into the existing config (existing entries
+are preserved). The secret is stored as a `${ENV}` reference — never written to
+disk — and the wizard prints the `export` line to set it.
+
+### Manual config
+
 Config lives at `$XDG_CONFIG_HOME/s3s/config.yaml` (default `~/.config/s3s/config.yaml`).
 Override with `--config <path>`.
 

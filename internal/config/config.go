@@ -36,18 +36,18 @@ type Config struct {
 type Cluster struct {
 	Name          string `yaml:"name"`
 	Endpoint      string `yaml:"endpoint"`
-	Region        string `yaml:"region"`
+	Region        string `yaml:"region,omitempty"`
 	PathStyle     bool   `yaml:"pathStyle"`
-	TLSSkipVerify bool   `yaml:"tlsSkipVerify"`
+	TLSSkipVerify bool   `yaml:"tlsSkipVerify,omitempty"`
 }
 
 // User is a named credential. Secrets are redacted everywhere (FR-005).
 type User struct {
 	Name            string         `yaml:"name"`
-	Anonymous       bool           `yaml:"anonymous"`
-	AccessKeyID     string         `yaml:"accessKeyId"`
-	SecretAccessKey logging.Secret `yaml:"secretAccessKey"`
-	SessionToken    logging.Secret `yaml:"sessionToken"`
+	Anonymous       bool           `yaml:"anonymous,omitempty"`
+	AccessKeyID     string         `yaml:"accessKeyId,omitempty"`
+	SecretAccessKey logging.Secret `yaml:"secretAccessKey,omitempty"`
+	SessionToken    logging.Secret `yaml:"sessionToken,omitempty"`
 }
 
 // Context binds a cluster and a user under a selectable name.

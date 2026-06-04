@@ -27,6 +27,11 @@ func main() {
 }
 
 func run() error {
+	// Subcommand: `s3s config init` — interactive config generator.
+	if args := os.Args[1:]; len(args) >= 2 && args[0] == "config" && args[1] == "init" {
+		return runConfigInit(args[2:])
+	}
+
 	var ctxFlag, cfgPath string
 	flag.StringVar(&ctxFlag, "context", "", "active context name (overrides $S3S_CONTEXT and current-context)")
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: XDG ~/.config/s3s/config.yaml)")
@@ -78,6 +83,22 @@ func run() error {
 		return fmt.Errorf("tui: %w", err)
 	}
 	return nil
+}
+
+// runConfigInit handles `s3s config init [--config <path>]` — the interactive
+// config generator. Writing a local config file is not an S3 operation, so this
+// does not breach the read-only guarantee (FR-019).
+func runConfigInit(args []string) error {
+	fs := flag.NewFlagSet("config init", flag.ContinueOnError)
+	cfgPath := fs.String("config", "", "path to write the config file (default: XDG ~/.config/s3s/config.yaml)")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path := *cfgPath
+	if path == "" {
+		path = config.DefaultPath()
+	}
+	return config.RunInit(os.Stdin, os.Stdout, path)
 }
 
 // defaultLogPath resolves a writable log file path (XDG state dir, then temp).
