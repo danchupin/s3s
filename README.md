@@ -1,10 +1,21 @@
+<div align="center">
+
 # s3s
 
 **A fast, keyboard-driven terminal browser for S3-compatible object storage —
-think `k9s`, but for your buckets.** Point it at Ceph RGW or MinIO, switch
-clusters like kubectl contexts, and walk millions of keys, inspect metadata, and
-preview files without ever leaving the terminal — fully read-only, so you can
-explore production safely.
+think [`k9s`](https://github.com/derailed/k9s), but for your buckets.**
+
+[![Release](https://img.shields.io/github/v/release/danchupin/s3s?sort=semver)](https://github.com/danchupin/s3s/releases/latest)
+[![CI](https://github.com/danchupin/s3s/actions/workflows/ci.yml/badge.svg)](https://github.com/danchupin/s3s/actions/workflows/ci.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/danchupin/s3s)](https://goreportcard.com/report/github.com/danchupin/s3s)
+[![Go version](https://img.shields.io/github/go-mod/go-version/danchupin/s3s)](./go.mod)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
+Point it at Ceph RGW or MinIO, switch clusters like kubectl contexts, and walk
+millions of keys, inspect metadata, and preview files without ever leaving the
+terminal — **fully read-only**, so you can explore production safely.
+
+</div>
 
 > ⚠️ **Alpha.** Usable day-to-day but rough edges remain; flags, config, and the
 > UI may change. Feedback and issues welcome.
@@ -12,6 +23,18 @@ explore production safely.
 The interface borrows from two tools we love: **k9s** (bordered resource tables,
 fast navigation, context switching) and **Claude Code** (warm color palette, a
 compact multi-line status footer).
+
+<!-- TODO: drop a screenshot or asciinema GIF here, e.g. assets/demo.gif -->
+
+## Screenshots
+
+<!--
+Add a screenshot/GIF to make the README pop, then reference it here:
+
+![s3s browsing a bucket](assets/screenshot.png)
+-->
+
+_Coming soon — a recording of context switching, tree navigation, and previews._
 
 ## Features
 
@@ -36,14 +59,62 @@ compact multi-line status footer).
 - **Secrets never leak** — credentials are redacted everywhere; logs go to a file
   only (the TUI owns the terminal). `${ENV}` references keep keys out of config.
 
-## Install
+## Installation
+
+### Homebrew (macOS)
 
 ```bash
-go build -ldflags "-X main.version=$(git describe --tags --always)" -o bin/s3s ./cmd/s3s
+brew install danchupin/tap/s3s
 ```
 
-Requires Go 1.25+. For the integration tests you also need Docker (MinIO via
-testcontainers).
+### Scoop (Windows)
+
+```powershell
+scoop bucket add danchupin https://github.com/danchupin/scoop-bucket
+scoop install s3s
+```
+
+### Debian / Ubuntu (`.deb`)
+
+Grab the latest `.deb` from the [Releases page](https://github.com/danchupin/s3s/releases/latest), then:
+
+```bash
+sudo dpkg -i s3s_*_linux_amd64.deb
+```
+
+### RHEL / Fedora (`.rpm`)
+
+```bash
+sudo rpm -i s3s_*_linux_amd64.rpm
+```
+
+### Alpine (`.apk`)
+
+```bash
+sudo apk add --allow-untrusted s3s_*_linux_amd64.apk
+```
+
+### Go
+
+```bash
+go install github.com/danchupin/s3s/cmd/s3s@latest
+```
+
+### Prebuilt binaries
+
+Download a `.tar.gz` / `.zip` for your OS/arch from the
+[Releases page](https://github.com/danchupin/s3s/releases/latest), extract, and
+put `s3s` on your `PATH`.
+
+### Building From Source
+
+Requires Go 1.25+.
+
+```bash
+git clone https://github.com/danchupin/s3s
+cd s3s
+make build   # -> bin/s3s
+```
 
 ## Configuration
 
@@ -93,11 +164,12 @@ export S3S_DEV_SECRET=password
 Active-context precedence: `--context <name>` > `S3S_CONTEXT` env >
 `current-context`.
 
-## Run
+## Running
 
 ```bash
 s3s                  # uses current-context
 s3s --context local  # explicit context
+s3s --version        # print version
 ```
 
 ### A local MinIO to try it
@@ -108,7 +180,7 @@ docker run -p 9000:9000 -p 9001:9001 \
   minio/minio server /data --console-address ":9001"
 ```
 
-## Keybindings
+## Key Bindings
 
 | Key | Action |
 |-----|--------|
@@ -128,7 +200,7 @@ experimental — Bubble Tea's cell renderer doesn't reliably pass them through.
 
 Logs: `$XDG_STATE_HOME/s3s/s3s.log` (or `~/.local/state/s3s/s3s.log`).
 
-## Roadmap (selected)
+## Roadmap
 
 Larger items on the horizon (full list in [ROADMAP.md](./ROADMAP.md)):
 
@@ -163,3 +235,7 @@ Integration tests `t.Skip` automatically when Docker is unreachable.
 Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea),
 [Lip Gloss](https://github.com/charmbracelet/lipgloss), and
 [aws-sdk-go-v2](https://github.com/aws/aws-sdk-go-v2).
+
+## License
+
+[MIT](./LICENSE) © Daniil Chupin
