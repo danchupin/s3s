@@ -39,9 +39,16 @@ func run() error {
 	}
 
 	var ctxFlag, cfgPath string
+	var showVersion bool
+	flag.BoolVar(&showVersion, "version", false, "print version and exit")
 	flag.StringVar(&ctxFlag, "context", "", "active context name (overrides $S3S_CONTEXT and current-context)")
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: XDG ~/.config/s3s/config.yaml)")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println("s3s", version)
+		return nil
+	}
 
 	if cfgPath == "" {
 		cfgPath = config.DefaultPath()
