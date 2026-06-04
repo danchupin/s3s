@@ -11,26 +11,24 @@ import (
 // -ldflags "-X github.com/danchupin/s3s/internal/ui.Version=vX.Y.Z".
 var Version = "dev"
 
-// Palette (256-color), k9s-ish.
+// Palette (256-color) — Claude Code-ish: warm coral/orange accent on muted grays.
 var (
-	colAccent = lipgloss.Color("39")  // cyan/blue
-	colPink   = lipgloss.Color("213") // context value
-	colDir    = lipgloss.Color("75")  // directories
+	colAccent = lipgloss.Color("173") // coral/orange (Claude signature ~#d7875f)
+	colDir    = lipgloss.Color("180") // soft tan — directories
 	colText   = lipgloss.Color("252")
-	colDim    = lipgloss.Color("245")
-	colWarn   = lipgloss.Color("214")
-	colErr    = lipgloss.Color("203")
-	colSelBg  = lipgloss.Color("24")
-	colSelFg  = lipgloss.Color("231")
+	colDim    = lipgloss.Color("244") // labels, separators
+	colBorder = lipgloss.Color("240") // subtle box borders
+	colWarn   = lipgloss.Color("179")
+	colErr    = lipgloss.Color("174")
+	colOK     = lipgloss.Color("108") // muted green (e.g. [RO])
+	colSelBg  = lipgloss.Color("238")
+	colSelFg  = lipgloss.Color("223") // warm white
 )
 
 var (
-	hdrKeyStyle = lipgloss.NewStyle().Foreground(colWarn)
-	hdrValStyle = lipgloss.NewStyle().Bold(true).Foreground(colText)
-	hdrNumStyle = lipgloss.NewStyle().Bold(true).Foreground(colPink)
-	roStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
-	titleStyle  = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
-	ruleStyle   = lipgloss.NewStyle().Foreground(colAccent)
+	roStyle    = lipgloss.NewStyle().Bold(true).Foreground(colOK)
+	titleStyle = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
+	ruleStyle  = lipgloss.NewStyle().Foreground(colBorder)
 
 	colHeadStyle = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
 	selRowStyle  = lipgloss.NewStyle().Background(colSelBg).Foreground(colSelFg)
@@ -41,7 +39,7 @@ var (
 	metaKeyStyle = lipgloss.NewStyle().Foreground(colAccent)
 	metaValStyle = lipgloss.NewStyle().Foreground(colText)
 
-	footerStyle = lipgloss.NewStyle().Foreground(colDim)
+	accentStyle = lipgloss.NewStyle().Foreground(colAccent)
 	errStyle    = lipgloss.NewStyle().Bold(true).Foreground(colErr)
 	warnStyle   = lipgloss.NewStyle().Foreground(colWarn)
 	emptyStyle  = lipgloss.NewStyle().Faint(true).Foreground(colDim)

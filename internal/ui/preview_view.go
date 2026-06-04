@@ -29,9 +29,22 @@ func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// objectView lays out the combined object view: a metadata column on the left and
-// the content (text / image / summary) on the right, separated by a vertical rule.
+// objectView lays out the combined object view. Images get the full width
+// (metadata as a compact strip above) so the half-block render is as sharp as the
+// cell grid allows; text/binary keep a metadata column beside the content.
 func (m App) objectView(w, rows int) string {
+	if m.prev != nil && m.prev.Kind == preview.KindImage {
+		meta := m.metaPane(w)
+		metaH := strings.Count(meta, "\n") + 1
+		imgRows := rows - metaH - 1
+		if imgRows < 1 {
+			imgRows = 1
+		}
+		content := m.contentPane(w, imgRows)
+		rule := dimCellStyle.Render(strings.Repeat("─", w))
+		return meta + "\n" + rule + "\n" + content
+	}
+
 	metaW := w / 3
 	if metaW > 40 {
 		metaW = 40

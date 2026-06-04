@@ -11,7 +11,6 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/preview"
@@ -428,16 +427,20 @@ func (m App) errorText() string {
 	}
 }
 
-// View renders the whole UI: a k9s-style header, a bordered body, and a footer.
+// View renders the whole UI: a bordered body on top and a multi-line, Claude
+// Code-style status footer at the bottom.
 func (m App) View() tea.View {
 	w := clampW(m.width)
-	header := m.headerView()
-	footer := m.footerView()
 
-	headerH := strings.Count(header, "\n") + 1
-	// inner rows the bordered body can hold: total minus header, footer, the two
-	// border lines, and the blank separators around the box.
-	rows := m.height - headerH - 2 - 3
+	if m.mode == modeHelp {
+		v := tea.NewView(m.helpView())
+		v.AltScreen = true
+		return v
+	}
+
+	footer := m.footerBlock(w)
+	footerH := strings.Count(footer, "\n") + 1
+	rows := m.height - footerH - 2 - 1 // box borders (2) + gap (1)
 	if rows < 1 {
 		rows = 1
 	}
@@ -452,82 +455,74 @@ func (m App) View() tea.View {
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, rows), w, rows)
 	case modeObject:
 		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
-	case modeHelp:
-		body = m.helpView()
 	}
 
-	out := header + "\n" + body + "\n" + footer
-	v := tea.NewView(out)
+	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true
 	return v
 }
 
-// headerView renders the k9s-style header: an info block (context/cluster/user/
-// rev), a numbered context-switch list, and keybinding hint columns.
-func (m App) headerView() string {
-	info := m.infoBlock()
-	ctxs := m.contextListBlock()
-	hints := m.hintsBlock()
-	header := lipgloss.JoinHorizontal(lipgloss.Top, info, "    ", ctxs, "    ", hints)
-	// Guard against overflow on narrow terminals: fall back to the info block.
-	if lipgloss.Width(header) > clampW(m.width) {
-		header = lipgloss.JoinHorizontal(lipgloss.Top, info, "    ", ctxs)
-	}
-	if lipgloss.Width(header) > clampW(m.width) {
-		header = info
-	}
-	return header
-}
+// footerBlock is the Claude Code-style status footer: a thin separator, an info
+// line (context · cluster · user · …), a keybinding line, and a transient status
+// line. Items are joined with dim "·" separators.
+func (m App) footerBlock(w int) string {
+	dot := dimCellStyle.Render(" · ")
 
-// infoBlock is the left key/value column of the header.
-func (m App) infoBlock() string {
-	kv := func(k, v string) string {
-		return hdrKeyStyle.Render(pad(k, 9)) + hdrValStyle.Render(v)
+	item := func(label, val string, lim int) string {
+		return dimCellStyle.Render(label+" ") + objCellStyle.Render(truncate(val, lim))
 	}
+
+	info := []string{roStyle.Render("●") + " " + accentStyle.Render(m.ctxName) + dimCellStyle.Render(" [RO]")}
+	if m.info.Cluster != "" {
+		info = append(info, item("cluster", m.info.Cluster, 24))
+	}
+	if m.info.User != "" {
+		info = append(info, item("user", m.info.User, 24))
+	}
+	if m.info.Endpoint != "" {
+		info = append(info, item("endpoint", m.info.Endpoint, 44))
+	}
+	if m.info.Region != "" {
+		info = append(info, item("region", m.info.Region, 16))
+	}
+	info = append(info, item("rev", Version, 16))
+
+	hint := func(k, a string) string {
+		return accentStyle.Render(k) + " " + dimCellStyle.Render(a)
+	}
+	hints := []string{
+		hint("enter", "open"), hint("/", "filter"), hint("r", "refresh"),
+		hint("c", "context"), hint("1-9", "switch"), hint("?", "help"), hint("q", "quit"),
+	}
+
 	lines := []string{
-		kv("Context:", m.ctxName) + " " + roStyle.Render("[RO]"),
-		kv("Cluster:", orDash(m.info.Cluster)),
-		kv("User:", orDash(m.info.User)),
-		kv("Endpoint:", orDash(m.info.Endpoint)),
-		kv("Region:", orDash(m.info.Region)),
-		kv("Rev:", Version),
+		ruleStyle.Render(strings.Repeat("─", w)),
+		strings.Join(info, dot),
+		strings.Join(hints, dot),
+	}
+	if s := m.statusLine(); s != "" {
+		lines = append(lines, s)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// contextListBlock is the numbered context switcher (press 1-9 to switch).
-func (m App) contextListBlock() string {
-	if len(m.contexts) == 0 {
-		return ""
-	}
-	var lines []string
-	for i, n := range m.contexts {
-		if i >= 9 {
-			break
+// statusLine is the transient bottom line: filter/search input, loading, or error.
+func (m App) statusLine() string {
+	if m.searching {
+		label := "search"
+		if m.mode == modeBuckets {
+			label = "filter"
 		}
-		num := hdrNumStyle.Render(fmt.Sprintf("<%d>", i+1))
-		name := dimCellStyle.Render(n)
-		if n == m.ctxName {
-			name = hdrValStyle.Render(n)
-		}
-		lines = append(lines, num+" "+name)
+		return accentStyle.Render(label+": ") + objCellStyle.Render(m.searchInput) +
+			dimCellStyle.Render("▏  (Enter apply · Esc clear)")
 	}
-	return strings.Join(lines, "\n")
-}
-
-// hintsBlock renders the keybinding cheat-sheet columns.
-func (m App) hintsBlock() string {
-	type hint struct{ k, a string }
-	left := []hint{{"enter", "Open"}, {"/", "Filter"}, {"r", "Refresh"}, {"c", "Context"}}
-	right := []hint{{"←", "Back"}, {"g/G", "Top/Bottom"}, {"?", "Help"}, {"q", "Quit"}, {"1-9", "Switch ctx"}}
-	render := func(hs []hint) string {
-		var b strings.Builder
-		for _, h := range hs {
-			b.WriteString(hdrNumStyle.Render(pad("<"+h.k+">", 8)) + dimCellStyle.Render(h.a) + "\n")
-		}
-		return strings.TrimRight(b.String(), "\n")
+	if m.loading {
+		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" loading…  (x to cancel)")
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, render(left), "  ", render(right))
+	if txt := m.errorText(); txt != "" {
+		return errStyle.Render("error: " + txt)
+	}
+	return ""
 }
 
 // resourceTitle is the left label on the box top border, e.g. "buckets[12]".
@@ -615,25 +610,6 @@ func (m App) breadcrumb() string {
 		}
 		return loc
 	}
-}
-
-// footerView shows transient status only — the filter/search input, loading, or
-// errors. Keybindings live in the header (no duplication).
-func (m App) footerView() string {
-	if m.searching {
-		label := "search"
-		if m.mode == modeBuckets {
-			label = "filter"
-		}
-		return footerStyle.Render(fmt.Sprintf("%s: %s▏  (Enter apply · Esc clear)", label, m.searchInput))
-	}
-	if m.loading {
-		return footerStyle.Render(fmt.Sprintf("%s loading…  (x to cancel)", m.spinnerView()))
-	}
-	if txt := m.errorText(); txt != "" {
-		return errStyle.Render("error: " + txt)
-	}
-	return ""
 }
 
 // bucketsView renders the bucket list table body (filtered) at the given width.
