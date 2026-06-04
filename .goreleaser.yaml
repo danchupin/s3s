@@ -1,0 +1,134 @@
+# GoReleaser config — Phase 1 distribution.
+# Docs: https://goreleaser.com
+# Test locally without publishing: goreleaser release --snapshot --clean
+version: 2
+
+project_name: s3s
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: s3s
+    main: ./cmd/s3s
+    binary: s3s
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    # tar.gz everywhere, zip on Windows.
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+      - ROADMAP.md
+      - LICENSE*
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "merge conflict"
+      - Merge pull request
+      - Merge branch
+
+# Linux native packages — produces .deb / .rpm / .apk FILES attached to the
+# GitHub Release. Install via `dpkg -i`, `rpm -i`, `apk add --allow-untrusted`.
+# True `apt install` (a hosted repo) is Phase 2.
+nfpms:
+  - id: s3s
+    package_name: s3s
+    vendor: danchupin
+    homepage: https://github.com/danchupin/s3s
+    maintainer: Daniil Chupin <chupindo@gmail.com>
+    description: Read-only, keyboard-driven TUI for browsing S3-compatible object storage.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+
+# Homebrew tap (macOS) — pushes a cask to github.com/danchupin/homebrew-tap.
+# `brews` is deprecated; casks are the current path for prebuilt CLI binaries.
+# Requires: that repo to exist + a PAT in secret HOMEBREW_TAP_GITHUB_TOKEN.
+# Install: brew install danchupin/tap/s3s
+homebrew_casks:
+  - name: s3s
+    repository:
+      owner: danchupin
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: https://github.com/danchupin/s3s
+    description: Read-only, keyboard-driven TUI for browsing S3-compatible object storage.
+    commit_author:
+      name: goreleaser-bot
+      email: chupindo@gmail.com
+    # Strip the quarantine xattr so the unsigned binary runs without Gatekeeper.
+    hooks:
+      post:
+        install: |
+          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/s3s"]
+          end
+
+# Scoop bucket (Windows) — pushes a manifest to github.com/danchupin/scoop-bucket.
+# Requires: that repo to exist + the same PAT (SCOOP_BUCKET_GITHUB_TOKEN).
+# Install: scoop bucket add danchupin https://github.com/danchupin/scoop-bucket; scoop install s3s
+scoops:
+  - name: s3s
+    repository:
+      owner: danchupin
+      name: scoop-bucket
+      token: "{{ .Env.SCOOP_BUCKET_GITHUB_TOKEN }}"
+    homepage: https://github.com/danchupin/s3s
+    description: Read-only, keyboard-driven TUI for browsing S3-compatible object storage.
+    license: MIT
+
+# --- AUR (Arch Linux) — enable in Phase 1 only after setup ---
+# Needs an AUR account, an SSH key registered there, and the private key in
+# secret AUR_KEY. Uncomment when ready (otherwise the release job errors).
+# aurs:
+#   - name: s3s-bin
+#     homepage: https://github.com/danchupin/s3s
+#     description: Read-only, keyboard-driven TUI for browsing S3-compatible object storage.
+#     maintainers:
+#       - "Daniil Chupin <chupindo@gmail.com>"
+#     license: MIT
+#     private_key: "{{ .Env.AUR_KEY }}"
+#     git_url: "ssh://aur@aur.archlinux.org/s3s-bin.git"
+
+release:
+  github:
+    owner: danchupin
+    name: s3s
+  draft: false
+  prerelease: auto
