@@ -16,7 +16,8 @@ any write-capable S3 symbol appears outside `internal/storage`.
 go build -o bin/s3s ./cmd/s3s
 ```
 
-Requires Go 1.24+. For local testing you also need Docker (MinIO via testcontainers).
+Requires Go 1.26+ (the `go-termimg` image-protocol dependency needs it). For
+local testing you also need Docker (MinIO via testcontainers).
 
 ## Configuration
 
@@ -97,9 +98,18 @@ docker run -p 9000:9000 -p 9001:9001 \
 | `?` | help overlay |
 | `q` / `Ctrl+C` | quit |
 
-Images preview as ANSI half-block by default (works in any 24-bit terminal);
-kitty/iTerm2/sixel are detected from the environment. Previews are bounded to the
-first 5 MiB; larger objects show a truncation notice.
+Images preview using a terminal graphics protocol (kitty / iTerm2 / sixel) when
+one is detected from the environment — this gives a crisp, full-resolution image.
+On terminals without a protocol it falls back to ANSI half-block, which is
+inherently low-resolution (two pixels per character cell). Force half-block with
+`S3S_IMAGE_PROTOCOL=off` if the protocol path causes artifacts. Previews are
+bounded to the first 5 MiB; larger objects show a truncation notice.
+
+### Filtering & quick context switch
+
+In the bucket list press `/` to filter buckets by name (live, case-insensitive);
+`Esc` clears. Press a digit `1`–`9` to jump straight to that context (shown in the
+header's numbered list).
 
 Logs are written to a file (`$XDG_STATE_HOME/s3s/s3s.log` or
 `~/.local/state/s3s/s3s.log`) — never the terminal. Secrets are always redacted.

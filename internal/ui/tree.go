@@ -210,8 +210,8 @@ func (m App) bodyRows() int {
 	return rows
 }
 
-// treeView renders the windowed tree level as a k9s-style table.
-func (m App) treeView() string {
+// treeView renders the windowed tree level table body at the given width.
+func (m App) treeView(w, rows int) string {
 	if m.level == nil {
 		if m.loading {
 			return dimCellStyle.Render("Loading…")
@@ -226,7 +226,6 @@ func (m App) treeView() string {
 		return emptyStyle.Render("Empty — no folders or objects here.")
 	}
 
-	rows := m.tableRows()
 	off, end := windowBounds(len(entries), m.treeSel, rows)
 	cols := []column{{"name", 0}, {"type", 5}, {"size", 11}, {"modified", 17}}
 	data := make([][]string, 0, end-off)
@@ -240,11 +239,7 @@ func (m App) treeView() string {
 		}
 		dirs = append(dirs, e.isDir)
 	}
-	table := renderTable(m.width, cols, data, dirs, m.treeSel-off)
-	if !m.level.complete {
-		table += "\n" + dimCellStyle.Render("  ↓ more — scroll to load")
-	}
-	return table
+	return renderTable(w, cols, data, dirs, m.treeSel-off)
 }
 
 // parentPrefix returns the prefix one level up ("a/b/" -> "a/", "a/" -> "").

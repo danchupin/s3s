@@ -54,7 +54,7 @@ func (m App) previewView() string {
 		if cols < 1 {
 			cols = 80
 		}
-		img, err := preview.RenderHalfBlock(p.Data, cols, m.bodyRows())
+		img, err := preview.RenderImage(p.Data, m.imgProto, cols, m.bodyRows())
 		if err != nil {
 			// Non-decodable or non-capable: safe summary instead of a degraded
 			// render (FR-015).

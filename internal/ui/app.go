@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/preview"
@@ -38,16 +39,28 @@ type levelState struct {
 
 func (l *levelState) count() int { return len(l.dirs) + len(l.objects) }
 
-// ContextSwitcher rebuilds Storage for a newly selected context. Injected by the
-// entrypoint so the UI never imports config/SDK construction directly.
-type ContextSwitcher func(name string) (storage.Storage, error)
+// Backend describes the storage client plus the display metadata for the active
+// context (shown in the header). The UI never builds clients itself.
+type Backend struct {
+	Store    storage.Storage
+	Cluster  string
+	User     string
+	Endpoint string
+	Region   string
+}
+
+// Resolver rebuilds a Backend for a named context (context switch). May be nil
+// to disable switching.
+type Resolver func(context string) (Backend, error)
 
 // App is the root Bubble Tea model.
 type App struct {
 	store    storage.Storage
+	info     Backend
 	ctxName  string
 	contexts []string
-	switchFn ContextSwitcher
+	resolve  Resolver
+	imgProto preview.Protocol
 
 	keys  keyMap
 	cache *cache.Cache[*levelState]
@@ -57,8 +70,9 @@ type App struct {
 	width, height int
 
 	// buckets
-	buckets   []storage.Bucket
-	bucketSel int
+	buckets      []storage.Bucket
+	bucketSel    int
+	bucketFilter string // client-side name filter at the bucket list
 
 	// tree navigation
 	bucket  string
@@ -76,7 +90,7 @@ type App struct {
 	// context switcher
 	ctxSel int
 
-	// search input
+	// search/filter input
 	searching   bool
 	searchInput string
 	searchGen   int
@@ -92,14 +106,17 @@ type App struct {
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// New builds the root model. contexts is the list for the switcher; switchFn
-// rebuilds Storage on context change (may be nil to disable switching).
-func New(store storage.Storage, ctxName string, contexts []string, switchFn ContextSwitcher) App {
+// New builds the root model for an initial backend. resolve rebuilds the backend
+// on context change (nil disables switching). imgProto is the detected terminal
+// image protocol for previews.
+func New(initial Backend, ctxName string, contexts []string, resolve Resolver, imgProto preview.Protocol) App {
 	m := App{
-		store:    store,
+		store:    initial.Store,
+		info:     initial,
 		ctxName:  ctxName,
 		contexts: contexts,
-		switchFn: switchFn,
+		resolve:  resolve,
+		imgProto: imgProto,
 		keys:     defaultKeys(),
 		cache:    cache.New[*levelState](),
 		mode:     modeBuckets,
@@ -262,31 +279,56 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 // onBucketsKey handles the bucket-list view.
 func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
+	n := len(m.filteredBuckets())
 	switch {
 	case matches(key, m.keys.Up):
 		if m.bucketSel > 0 {
 			m.bucketSel--
 		}
 	case matches(key, m.keys.Down):
-		if m.bucketSel < len(m.buckets)-1 {
+		if m.bucketSel < n-1 {
 			m.bucketSel++
 		}
 	case matches(key, m.keys.Top):
 		m.bucketSel = 0
 	case matches(key, m.keys.Bottom):
-		m.bucketSel = max(0, len(m.buckets)-1)
+		m.bucketSel = max(0, n-1)
+	case matches(key, m.keys.Search):
+		return m.startSearch() // "/" filters bucket names (FR: bucket filter)
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
+	case len(key) == 1 && key[0] >= '1' && key[0] <= '9':
+		// Quick context switch by number (k9s-style).
+		if idx := int(key[0] - '1'); idx < len(m.contexts) {
+			return m.applyContext(m.contexts[idx])
+		}
 	case matches(key, m.keys.Enter):
-		if len(m.buckets) == 0 {
+		fb := m.filteredBuckets()
+		if m.bucketSel < 0 || m.bucketSel >= len(fb) {
 			return m, nil
 		}
-		m.bucket = m.buckets[m.bucketSel].Name
+		m.bucket = fb[m.bucketSel].Name
 		m.prefix = ""
 		m.search = ""
 		return m.enterLevel()
 	}
 	return m, nil
+}
+
+// filteredBuckets returns the buckets whose name contains the (case-insensitive)
+// bucket filter; the full list when no filter is set.
+func (m App) filteredBuckets() []storage.Bucket {
+	if m.bucketFilter == "" {
+		return m.buckets
+	}
+	needle := strings.ToLower(m.bucketFilter)
+	out := make([]storage.Bucket, 0, len(m.buckets))
+	for _, b := range m.buckets {
+		if strings.Contains(strings.ToLower(b.Name), needle) {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // openContextSwitch enters the context switcher positioned on the active context.
@@ -319,30 +361,37 @@ func (m App) onContextKey(key string) (tea.Model, tea.Cmd) {
 			m.mode = modeBuckets
 			return m, nil
 		}
-		target := m.contexts[m.ctxSel]
-		if target == m.ctxName || m.switchFn == nil {
-			m.mode = modeBuckets
-			return m, nil
-		}
-		st, err := m.switchFn(target)
-		if err != nil {
-			m.err = err
-			m.mode = modeBuckets
-			return m, nil
-		}
-		// Reset all browsing state for the new backend.
-		m.store = st
-		m.ctxName = target
-		m.cache.Clear()
-		m.buckets = nil
-		m.bucketSel = 0
-		m.bucket, m.prefix, m.search = "", "", ""
-		m.level = nil
-		m.mode = modeBuckets
-		ctx := (&m).beginLoad()
-		return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
+		return m.applyContext(m.contexts[m.ctxSel])
 	}
 	return m, nil
+}
+
+// applyContext switches to the named context, rebuilds the backend, resets all
+// browsing state, and reloads buckets. A no-op (back to buckets) when the context
+// is already active or switching is disabled.
+func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
+	if target == m.ctxName || m.resolve == nil {
+		m.mode = modeBuckets
+		return m, nil
+	}
+	be, err := m.resolve(target)
+	if err != nil {
+		m.err = err
+		m.mode = modeBuckets
+		return m, nil
+	}
+	m.store = be.Store
+	m.info = be
+	m.ctxName = target
+	m.cache.Clear()
+	m.buckets = nil
+	m.bucketSel = 0
+	m.bucketFilter = ""
+	m.bucket, m.prefix, m.search = "", "", ""
+	m.level = nil
+	m.mode = modeBuckets
+	ctx := (&m).beginLoad()
+	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
 }
 
 // clampSelection keeps selection indices within bounds after resize/data change
@@ -383,95 +432,169 @@ func (m App) errorText() string {
 	}
 }
 
-// View renders the whole UI.
+// View renders the whole UI: a k9s-style header, a bordered body, and a footer.
 func (m App) View() tea.View {
-	var b strings.Builder
+	w := clampW(m.width)
+	header := m.headerView()
+	footer := m.footerView()
 
-	b.WriteString(m.headerView())
-	b.WriteString("\n\n")
-
-	switch m.mode {
-	case modeBuckets:
-		b.WriteString(m.bucketsView())
-	case modeTree:
-		b.WriteString(m.treeView())
-	case modeMetadata:
-		b.WriteString(m.metadataView())
-	case modePreview:
-		b.WriteString(m.previewView())
-	case modeContextSwitch:
-		b.WriteString(m.contextView())
-	case modeHelp:
-		b.WriteString(m.helpView())
+	headerH := strings.Count(header, "\n") + 1
+	// inner rows the bordered body can hold: total minus header, footer, the two
+	// border lines, and the blank separators around the box.
+	rows := m.height - headerH - 2 - 3
+	if rows < 1 {
+		rows = 1
 	}
 
-	b.WriteString("\n\n")
-	b.WriteString(m.footerView())
+	var body string
+	switch m.mode {
+	case modeBuckets:
+		body = boxView(m.resourceTitle(), m.selectionName(), m.bucketsView(w-2, rows), w, rows)
+	case modeTree:
+		body = boxView(m.resourceTitle(), m.selectionName(), m.treeView(w-2, rows), w, rows)
+	case modeContextSwitch:
+		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, rows), w, rows)
+	case modeMetadata:
+		body = m.metadataView()
+	case modePreview:
+		body = m.previewView()
+	case modeHelp:
+		body = m.helpView()
+	}
 
-	v := tea.NewView(b.String())
+	out := header + "\n" + body + "\n" + footer
+	v := tea.NewView(out)
 	v.AltScreen = true
 	return v
 }
 
-// headerView renders the k9s-style header bar: logo + version, active context,
-// view title + breadcrumb, and an item count, closed by a rule.
+// headerView renders the k9s-style header: an info block (context/cluster/user/
+// rev), a numbered context-switch list, and keybinding hint columns.
 func (m App) headerView() string {
-	w := clampW(m.width)
-	top := placeRow(w,
-		logoStyle.Render("S3S")+versionStyle.Render(" "+Version),
-		hdrKeyStyle.Render("context: ")+hdrValStyle.Render(m.ctxName),
-	)
-	mid := placeRow(w,
-		titleStyle.Render(m.viewTitle())+"  "+crumbStyle.Render(m.breadcrumb()),
-		countStyle.Render(m.countLabel()),
-	)
-	rule := ruleStyle.Render(strings.Repeat("━", w))
-	return top + "\n" + mid + "\n" + rule
-}
-
-// viewTitle is the current view's name for the header.
-func (m App) viewTitle() string {
-	switch m.mode {
-	case modeTree:
-		return "Objects"
-	case modeMetadata:
-		return "Metadata"
-	case modePreview:
-		return "Preview"
-	case modeContextSwitch:
-		return "Contexts"
-	case modeHelp:
-		return "Help"
-	default:
-		return "Buckets"
+	info := m.infoBlock()
+	ctxs := m.contextListBlock()
+	hints := m.hintsBlock()
+	header := lipgloss.JoinHorizontal(lipgloss.Top, info, "    ", ctxs, "    ", hints)
+	// Guard against overflow on narrow terminals: fall back to the info block.
+	if lipgloss.Width(header) > clampW(m.width) {
+		header = lipgloss.JoinHorizontal(lipgloss.Top, info, "    ", ctxs)
 	}
+	if lipgloss.Width(header) > clampW(m.width) {
+		header = info
+	}
+	return header
 }
 
-// countLabel summarizes how many items the current view holds.
-func (m App) countLabel() string {
-	switch m.mode {
-	case modeBuckets:
-		return fmt.Sprintf("buckets: %d", len(m.buckets))
-	case modeTree:
-		if m.level == nil {
-			return ""
-		}
-		s := fmt.Sprintf("items: %d", m.level.count())
-		if !m.level.complete {
-			s += "+"
-		}
-		return s
-	case modeContextSwitch:
-		return fmt.Sprintf("contexts: %d", len(m.contexts))
-	default:
+// infoBlock is the left key/value column of the header.
+func (m App) infoBlock() string {
+	kv := func(k, v string) string {
+		return hdrKeyStyle.Render(pad(k, 9)) + hdrValStyle.Render(v)
+	}
+	lines := []string{
+		kv("Context:", m.ctxName) + " " + roStyle.Render("[RO]"),
+		kv("Cluster:", orDash(m.info.Cluster)),
+		kv("User:", orDash(m.info.User)),
+		kv("Endpoint:", orDash(m.info.Endpoint)),
+		kv("Region:", orDash(m.info.Region)),
+		kv("Rev:", Version),
+	}
+	return strings.Join(lines, "\n")
+}
+
+// contextListBlock is the numbered context switcher (press 1-9 to switch).
+func (m App) contextListBlock() string {
+	if len(m.contexts) == 0 {
 		return ""
 	}
+	var lines []string
+	for i, n := range m.contexts {
+		if i >= 9 {
+			break
+		}
+		num := hdrNumStyle.Render(fmt.Sprintf("<%d>", i+1))
+		name := dimCellStyle.Render(n)
+		if n == m.ctxName {
+			name = hdrValStyle.Render(n)
+		}
+		lines = append(lines, num+" "+name)
+	}
+	return strings.Join(lines, "\n")
 }
 
-// breadcrumb describes the current location (FR-009).
+// hintsBlock renders the keybinding cheat-sheet columns.
+func (m App) hintsBlock() string {
+	type hint struct{ k, a string }
+	left := []hint{{"enter", "Open"}, {"/", "Filter"}, {"i", "Metadata"}, {"p", "Preview"}, {"r", "Refresh"}, {"c", "Context"}}
+	right := []hint{{"←", "Back"}, {"g/G", "Top/Bottom"}, {"x", "Cancel"}, {"?", "Help"}, {"q", "Quit"}, {"1-9", "Switch ctx"}}
+	render := func(hs []hint) string {
+		var b strings.Builder
+		for _, h := range hs {
+			b.WriteString(hdrNumStyle.Render(pad("<"+h.k+">", 8)) + dimCellStyle.Render(h.a) + "\n")
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	return lipgloss.JoinHorizontal(lipgloss.Top, render(left), "  ", render(right))
+}
+
+// resourceTitle is the left label on the box top border, e.g. "buckets[12]".
+func (m App) resourceTitle() string {
+	switch m.mode {
+	case modeTree:
+		loc := m.bucket
+		if m.prefix != "" {
+			loc += "/" + strings.TrimSuffix(sanitizeLabel(m.prefix), "/")
+		}
+		n := 0
+		if m.level != nil {
+			n = m.level.count()
+		}
+		more := ""
+		if m.level != nil && !m.level.complete {
+			more = "+"
+		}
+		if m.search != "" {
+			loc += fmt.Sprintf("/%s*", sanitizeLabel(m.search))
+		}
+		return fmt.Sprintf("%s[%d%s]", loc, n, more)
+	case modeContextSwitch:
+		return fmt.Sprintf("contexts[%d]", len(m.contexts))
+	default:
+		fb := m.filteredBuckets()
+		if m.bucketFilter != "" {
+			return fmt.Sprintf("buckets[%d/%d]", len(fb), len(m.buckets))
+		}
+		return fmt.Sprintf("buckets[%d]", len(m.buckets))
+	}
+}
+
+// selectionName is the centered, highlighted label on the box top border —
+// the currently selected item (k9s-style).
+func (m App) selectionName() string {
+	switch m.mode {
+	case modeTree:
+		if e := m.selected(); e != nil {
+			return e.label
+		}
+	case modeContextSwitch:
+		if m.ctxSel >= 0 && m.ctxSel < len(m.contexts) {
+			return m.contexts[m.ctxSel]
+		}
+	default:
+		fb := m.filteredBuckets()
+		if m.bucketSel >= 0 && m.bucketSel < len(fb) {
+			return fb[m.bucketSel].Name
+		}
+	}
+	return ""
+}
+
+// breadcrumb describes the current location (used by the box title / tests).
 func (m App) breadcrumb() string {
 	switch m.mode {
 	case modeBuckets:
+		if m.bucketFilter != "" {
+			return "filter: " + m.bucketFilter
+		}
 		return "/"
 	case modeContextSwitch:
 		return "select a context"
@@ -487,19 +610,14 @@ func (m App) breadcrumb() string {
 	}
 }
 
-// tableRows is the number of body rows that fit between the header and footer.
-func (m App) tableRows() int {
-	rows := m.height - 9
-	if rows < 1 {
-		return 1
-	}
-	return rows
-}
-
-// footerView shows loading/error/hints.
+// footerView shows the filter/search input, loading, error, or hints.
 func (m App) footerView() string {
 	if m.searching {
-		return footerStyle.Render(fmt.Sprintf("search: %s▏  (Enter apply · Esc clear)", m.searchInput))
+		label := "search"
+		if m.mode == modeBuckets {
+			label = "filter"
+		}
+		return footerStyle.Render(fmt.Sprintf("%s: %s▏  (Enter apply · Esc clear)", label, m.searchInput))
 	}
 	if m.loading {
 		return footerStyle.Render(fmt.Sprintf("%s loading…  (x to cancel)", m.spinnerView()))
@@ -510,30 +628,32 @@ func (m App) footerView() string {
 	return footerStyle.Render("↑/↓ move · →/Enter open · ← back · / search · i meta · p preview · r refresh · c context · ? help · q quit")
 }
 
-// bucketsView renders the bucket list as a table.
-func (m App) bucketsView() string {
-	if len(m.buckets) == 0 {
+// bucketsView renders the bucket list table body (filtered) at the given width.
+func (m App) bucketsView(w, rows int) string {
+	fb := m.filteredBuckets()
+	if len(fb) == 0 {
 		if m.loading {
 			return dimCellStyle.Render("Loading buckets…")
 		}
+		if m.bucketFilter != "" {
+			return emptyStyle.Render(fmt.Sprintf("No buckets match %q.", m.bucketFilter))
+		}
 		return emptyStyle.Render("No buckets visible for this context.")
 	}
-	rows := m.tableRows()
-	off, end := windowBounds(len(m.buckets), m.bucketSel, rows)
+	off, end := windowBounds(len(fb), m.bucketSel, rows)
 	cols := []column{{"name", 0}, {"created", 19}}
 	data := make([][]string, 0, end-off)
 	for i := off; i < end; i++ {
-		data = append(data, []string{m.buckets[i].Name, formatDate(m.buckets[i].CreationDate)})
+		data = append(data, []string{fb[i].Name, formatDate(fb[i].CreationDate)})
 	}
-	return renderTable(m.width, cols, data, nil, m.bucketSel-off)
+	return renderTable(w, cols, data, nil, m.bucketSel-off)
 }
 
-// contextView renders the context switcher as a table.
-func (m App) contextView() string {
+// contextView renders the context switcher table body at the given width.
+func (m App) contextView(w, rows int) string {
 	if len(m.contexts) == 0 {
 		return emptyStyle.Render("No contexts configured.")
 	}
-	rows := m.tableRows()
 	off, end := windowBounds(len(m.contexts), m.ctxSel, rows)
 	cols := []column{{"context", 0}, {"status", 10}}
 	data := make([][]string, 0, end-off)
@@ -544,6 +664,5 @@ func (m App) contextView() string {
 		}
 		data = append(data, []string{m.contexts[i], status})
 	}
-	title := titleStyle.Render("Switch context")
-	return title + "\n\n" + renderTable(m.width, cols, data, nil, m.ctxSel-off)
+	return renderTable(w, cols, data, nil, m.ctxSel-off)
 }

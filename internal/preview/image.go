@@ -2,9 +2,14 @@ package preview
 
 import (
 	"bytes"
+	"image"
 	"image/color"
+	_ "image/gif"  // register decoders for image.Decode
+	_ "image/jpeg" // ...
+	_ "image/png"  // ...
 	"strings"
 
+	termimg "github.com/blacktop/go-termimg"
 	"github.com/eliukblau/pixterm/pkg/ansimage"
 )
 
@@ -56,6 +61,41 @@ func DetectProtocol(env func(string) string) Protocol {
 	default:
 		return ProtoNone
 	}
+}
+
+// RenderImage renders image bytes for the given terminal protocol. A real
+// graphics protocol (kitty/iTerm2/sixel) produces a crisp pixel image; ProtoNone
+// (or any failure) falls back to ANSI half-block, which is low-resolution by
+// nature (two pixels per character cell) but works everywhere. cols/rows are the
+// target size in character cells.
+func RenderImage(data []byte, proto Protocol, cols, rows int) (string, error) {
+	if proto == ProtoNone {
+		return RenderHalfBlock(data, cols, rows)
+	}
+	var tp termimg.Protocol
+	switch proto {
+	case ProtoKitty:
+		tp = termimg.Kitty
+	case ProtoITerm2:
+		tp = termimg.ITerm2
+	case ProtoSixel:
+		tp = termimg.Sixel
+	default:
+		return RenderHalfBlock(data, cols, rows)
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return "", err // not a decodable image — caller shows a summary
+	}
+	r, err := termimg.GetRenderer(tp)
+	if err != nil {
+		return RenderHalfBlock(data, cols, rows)
+	}
+	out, err := r.Render(img, termimg.RenderOptions{Width: cols, Height: rows})
+	if err != nil || out == "" {
+		return RenderHalfBlock(data, cols, rows)
+	}
+	return out, nil
 }
 
 // RenderHalfBlock renders image bytes to a truecolor ANSI half-block string sized

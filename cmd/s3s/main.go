@@ -15,6 +15,7 @@ import (
 
 	"github.com/danchupin/s3s/internal/config"
 	"github.com/danchupin/s3s/internal/logging"
+	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 	"github.com/danchupin/s3s/internal/ui"
 )
@@ -66,24 +67,43 @@ func run() error {
 		slog.Info("s3s start", "context", active, "config", cfgPath)
 	}
 
-	cc, err := cfg.ClientConfig(active)
-	if err != nil {
-		return err
-	}
-	store, err := storage.New(cc)
-	if err != nil {
-		return err
-	}
-
-	switchFn := func(name string) (storage.Storage, error) {
-		c, cerr := cfg.ClientConfig(name)
-		if cerr != nil {
-			return nil, cerr
+	// resolve builds the storage client + header metadata for a context.
+	resolve := func(name string) (ui.Backend, error) {
+		cl, u, rerr := cfg.Resolve(name)
+		if rerr != nil {
+			return ui.Backend{}, rerr
 		}
-		return storage.New(c)
+		cc, cerr := cfg.ClientConfig(name)
+		if cerr != nil {
+			return ui.Backend{}, cerr
+		}
+		st, serr := storage.New(cc)
+		if serr != nil {
+			return ui.Backend{}, serr
+		}
+		userLabel := u.Name
+		if u.Anonymous {
+			userLabel += " (anonymous)"
+		}
+		return ui.Backend{
+			Store:    st,
+			Cluster:  cl.Name,
+			User:     userLabel,
+			Endpoint: cl.Endpoint,
+			Region:   cl.Region,
+		}, nil
 	}
 
-	model := ui.New(store, active, cfg.ContextNames(), switchFn)
+	initial, err := resolve(active)
+	if err != nil {
+		return err
+	}
+
+	imgProto := preview.DetectProtocol(os.Getenv)
+	if os.Getenv("S3S_IMAGE_PROTOCOL") == "off" {
+		imgProto = preview.ProtoNone // force half-block (avoids protocol artifacts)
+	}
+	model := ui.New(initial, active, cfg.ContextNames(), resolve, imgProto)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
 	}

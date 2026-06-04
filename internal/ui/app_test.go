@@ -7,10 +7,17 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
 
 // --- test helpers ---
+
+// newApp builds a test App with a fake store and no image protocol.
+func newApp(f *storage.Fake, contexts []string, resolve Resolver) App {
+	return New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x"},
+		"ctx", contexts, resolve, preview.ProtoNone)
+}
 
 func deliver(m App, msg tea.Msg) App {
 	mm, _ := m.Update(msg)
@@ -48,8 +55,8 @@ func pressCmd(m App, s string) (App, tea.Cmd) {
 }
 
 // withBuckets builds an App and delivers the initial bucket list for the fake.
-func withBuckets(f *storage.Fake, contexts []string, switchFn ContextSwitcher) App {
-	m := New(f, "ctx", contexts, switchFn)
+func withBuckets(f *storage.Fake, contexts []string, resolve Resolver) App {
+	m := newApp(f, contexts, resolve)
 	bs, _ := f.ListBuckets(context.Background())
 	return deliver(m, bucketsMsg{gen: m.gen, buckets: bs})
 }
@@ -60,7 +67,7 @@ func viewOf(m App) string { return m.View().Content }
 
 func TestInitialLoadingState(t *testing.T) {
 	f := storage.NewFake()
-	m := New(f, "ctx", []string{"ctx"}, nil)
+	m := newApp(f, []string{"ctx"}, nil)
 	if !m.loading {
 		t.Fatal("New should arm an initial load (loading=true)")
 	}
@@ -123,7 +130,7 @@ func TestStaleBucketsDropped(t *testing.T) {
 
 func TestErrorState(t *testing.T) {
 	f := storage.NewFake()
-	m := New(f, "ctx", []string{"ctx"}, nil)
+	m := newApp(f, []string{"ctx"}, nil)
 	m = deliver(m, errMsg{gen: m.gen, err: storage.ErrAccessDenied})
 
 	if m.loading {
@@ -144,21 +151,21 @@ func TestContextSwitchChangesContext(t *testing.T) {
 	other.Seed("gamma")
 
 	switched := false
-	switchFn := func(name string) (storage.Storage, error) {
+	resolve := func(name string) (Backend, error) {
 		if name == "other" {
 			switched = true
-			return other, nil
+			return Backend{Store: other, Cluster: "o", User: "u"}, nil
 		}
-		return f, nil
+		return Backend{Store: f}, nil
 	}
 
-	m := withBuckets(f, []string{"ctx", "other"}, switchFn)
+	m := withBuckets(f, []string{"ctx", "other"}, resolve)
 
 	m = press(m, "c")
 	if m.mode != modeContextSwitch {
 		t.Fatalf("'c' should open context switcher, mode = %v", m.mode)
 	}
-	if !strings.Contains(viewOf(m), "Switch context") {
+	if !strings.Contains(viewOf(m), "contexts") || !strings.Contains(viewOf(m), "other") {
 		t.Errorf("context switcher view missing:\n%s", viewOf(m))
 	}
 
@@ -169,7 +176,7 @@ func TestContextSwitchChangesContext(t *testing.T) {
 	m = press(m, "enter") // apply
 
 	if !switched {
-		t.Error("switchFn was not called for 'other'")
+		t.Error("resolve was not called for 'other'")
 	}
 	if m.ctxName != "other" {
 		t.Errorf("active context = %q, want other", m.ctxName)
@@ -202,7 +209,7 @@ func TestHelpOverlay(t *testing.T) {
 
 func TestQuit(t *testing.T) {
 	f := storage.NewFake()
-	m := New(f, "ctx", []string{"ctx"}, nil)
+	m := newApp(f, []string{"ctx"}, nil)
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'q', Text: "q"})
 	if cmd == nil {
 		t.Fatal("'q' should return a command")

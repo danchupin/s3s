@@ -29,8 +29,10 @@ var (
 var (
 	logoStyle    = lipgloss.NewStyle().Bold(true).Foreground(colLogoFg).Background(colLogoBg).Padding(0, 1)
 	versionStyle = lipgloss.NewStyle().Foreground(colDim)
-	hdrKeyStyle  = lipgloss.NewStyle().Foreground(colDim)
-	hdrValStyle  = lipgloss.NewStyle().Bold(true).Foreground(colPink)
+	hdrKeyStyle  = lipgloss.NewStyle().Foreground(colWarn)
+	hdrValStyle  = lipgloss.NewStyle().Bold(true).Foreground(colText)
+	hdrNumStyle  = lipgloss.NewStyle().Bold(true).Foreground(colPink)
+	roStyle      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("84"))
 	titleStyle   = lipgloss.NewStyle().Bold(true).Foreground(colAccent)
 	crumbStyle   = lipgloss.NewStyle().Foreground(colText)
 	countStyle   = lipgloss.NewStyle().Foreground(colDim)
@@ -183,6 +185,66 @@ func windowBounds(n, sel, rows int) (int, int) {
 		off = n - rows
 	}
 	return off, off + rows
+}
+
+// padLine right-pads a (possibly ANSI-styled) line to width w (no truncation).
+func padLine(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return s + strings.Repeat(" ", gap)
+	}
+	return s
+}
+
+// boxView wraps body in a rounded border (k9s-style). The top border carries a
+// left resource label and a centered, highlighted selection label. Body lines are
+// padded to the inner width and to at least minRows rows.
+func boxView(left, center, body string, width, minRows int) string {
+	inner := width - 2
+	if inner < 1 {
+		inner = 1
+	}
+
+	lines := strings.Split(body, "\n")
+	for i := range lines {
+		lines[i] = padLine(lines[i], inner)
+	}
+	for len(lines) < minRows {
+		lines = append(lines, strings.Repeat(" ", inner))
+	}
+
+	// Top border: "╭─ left ─── «center» ───╮"
+	leftPlain := "─ " + left + " "
+	centerPlain := ""
+	if center != "" {
+		centerPlain = " " + truncate(center, max(0, inner-lipgloss.Width(leftPlain)-4)) + " "
+	}
+	wl := lipgloss.Width(leftPlain)
+	wc := lipgloss.Width(centerPlain)
+	leftDashes := (inner-wc)/2 - wl
+	if leftDashes < 1 {
+		leftDashes = 1
+	}
+	rightDashes := inner - wl - leftDashes - wc
+	if rightDashes < 0 {
+		rightDashes = 0
+		leftDashes = inner - wl - wc
+		if leftDashes < 0 {
+			leftDashes = 0
+		}
+	}
+	topInner := ruleStyle.Render("─ ") + titleStyle.Render(left) + ruleStyle.Render(" "+strings.Repeat("─", leftDashes))
+	if centerPlain != "" {
+		topInner += selRowStyle.Render(centerPlain)
+	}
+	topInner += ruleStyle.Render(strings.Repeat("─", rightDashes))
+
+	var b strings.Builder
+	b.WriteString(ruleStyle.Render("╭") + topInner + ruleStyle.Render("╮") + "\n")
+	for _, l := range lines {
+		b.WriteString(ruleStyle.Render("│") + l + ruleStyle.Render("│") + "\n")
+	}
+	b.WriteString(ruleStyle.Render("╰" + strings.Repeat("─", inner) + "╯"))
+	return b.String()
 }
 
 // placeRow puts left and right on one line, padded to width.
