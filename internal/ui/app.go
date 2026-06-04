@@ -78,7 +78,6 @@ type App struct {
 	search  string
 	level   *levelState
 	treeSel int
-	treeOff int
 
 	// metadata / preview panes
 	meta    *storage.ObjectMetadata
@@ -389,8 +388,9 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
 }
 
-// clampSelection keeps selection indices within bounds after resize/data change
-// and preserves the visible window (Edge Case: resize reflow).
+// clampSelection keeps selection indices within bounds after resize/data change.
+// The visible window is recomputed statelessly at render time (windowBounds), so
+// only the selection indices need clamping here (Edge Case: resize reflow).
 func (m *App) clampSelection() {
 	if m.bucketSel >= len(m.buckets) {
 		m.bucketSel = max(0, len(m.buckets)-1)
@@ -398,7 +398,6 @@ func (m *App) clampSelection() {
 	if m.level != nil && m.treeSel >= m.level.count() {
 		m.treeSel = max(0, m.level.count()-1)
 	}
-	m.adjustTreeWindow()
 }
 
 // spinnerView renders the current spinner frame.
@@ -481,27 +480,30 @@ func (m App) footerBlock(w int) string {
 		footerEndpointLine(w, m.info.Endpoint, m.info.Region, Version),
 		footerHintsLine(w),
 	}
-	if s := m.statusLine(); s != "" {
+	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)
 	}
 	return strings.Join(lines, "\n")
 }
 
-// statusLine is the transient bottom line: filter/search input, loading, or error.
-func (m App) statusLine() string {
+// statusLine is the transient bottom line: filter/search input, loading, or
+// error. Plain text is truncated to width so it never wraps (which would push the
+// box up and clip a footer line).
+func (m App) statusLine(w int) string {
 	if m.searching {
 		label := "search"
 		if m.mode == modeBuckets {
 			label = "filter"
 		}
-		return accentStyle.Render(label+": ") + objCellStyle.Render(m.searchInput) +
-			dimCellStyle.Render("▏  (Enter apply · Esc clear)")
+		const suffix = "▏  (Enter apply · Esc clear)"
+		input := truncate(m.searchInput, max(1, w-len(label)-2-len(suffix)))
+		return accentStyle.Render(label+": ") + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
 	}
 	if m.loading {
 		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" loading…  (x to cancel)")
 	}
 	if txt := m.errorText(); txt != "" {
-		return errStyle.Render("error: " + txt)
+		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))
 	}
 	return ""
 }

@@ -220,7 +220,13 @@ func boxView(left, center, body string, width, minRows int) string {
 		lines = lines[:minRows]
 	}
 
-	// Top border: "╭─ left ─── «center» ───╮"
+	// Top border: "╭─ left ─── «center» ───╮". Cap the left title so a long key or
+	// prefix can't overflow the border line and break the layout.
+	leftCap := inner - 4
+	if center != "" {
+		leftCap = inner * 2 / 3
+	}
+	left = truncate(left, max(1, leftCap))
 	leftPlain := "─ " + left + " "
 	centerPlain := ""
 	if center != "" {
@@ -261,33 +267,42 @@ type fseg struct {
 	w int
 }
 
-// joinFit joins segments with dim "·" separators, dropping trailing ones that
-// would overflow width (so the line never wraps and hide following footer lines).
-func joinFit(width int, segs []fseg) string {
+// wrapSegs joins segments with dim "·" separators, wrapping to additional lines
+// when they don't fit — so nothing is silently dropped (used for keybindings).
+func wrapSegs(width int, segs []fseg) string {
 	sep := dimCellStyle.Render(" · ")
 	const sepW = 3
-	var b strings.Builder
-	used := 0
-	for i, sg := range segs {
-		add := sg.w
-		if i > 0 {
-			add += sepW
+	var lines []string
+	var cur strings.Builder
+	used, first := 0, true
+	for _, sg := range segs {
+		if !first && used+sepW+sg.w > width {
+			lines = append(lines, cur.String())
+			cur.Reset()
+			used, first = 0, true
 		}
-		if used+add > width {
-			break
+		if !first {
+			cur.WriteString(sep)
+			used += sepW
 		}
-		if i > 0 {
-			b.WriteString(sep)
-		}
-		b.WriteString(sg.s)
-		used += add
+		cur.WriteString(sg.s)
+		used += sg.w
+		first = false
 	}
-	return b.String()
+	if cur.Len() > 0 {
+		lines = append(lines, cur.String())
+	}
+	return strings.Join(lines, "\n")
 }
 
 // labeledSeg is a "label value" footer segment with the value in its own hue.
-func labeledSeg(label, val string, st lipgloss.Style, lim int) fseg {
-	v := truncate(val, lim)
+// The value is capped to both lim and the remaining line width so a single long
+// value (e.g. an endpoint) can never overflow.
+func labeledSeg(width int, label, val string, st lipgloss.Style, lim int) fseg {
+	if room := width - lipgloss.Width(label) - 2; room < lim {
+		lim = room
+	}
+	v := truncate(val, max(1, lim))
 	return fseg{
 		s: dimCellStyle.Render(label+" ") + st.Render(v),
 		w: lipgloss.Width(label + " " + v),
@@ -297,32 +312,33 @@ func labeledSeg(label, val string, st lipgloss.Style, lim int) fseg {
 // footerIdentityLine: who/where we're connected — context, cluster, user.
 func footerIdentityLine(width int, ctx, cluster, user string) string {
 	segs := []fseg{{
-		s: roStyle.Render("●") + " " + segCtxStyle.Render(ctx) + dimCellStyle.Render(" [RO]"),
-		w: lipgloss.Width("● " + ctx + " [RO]"),
+		s: roStyle.Render("●") + " " + segCtxStyle.Render(truncate(ctx, max(1, width-6))) + dimCellStyle.Render(" [RO]"),
+		w: lipgloss.Width("● " + truncate(ctx, max(1, width-6)) + " [RO]"),
 	}}
 	if cluster != "" {
-		segs = append(segs, labeledSeg("cluster", cluster, segClusterStyle, 32))
+		segs = append(segs, labeledSeg(width, "cluster", cluster, segClusterStyle, 32))
 	}
 	if user != "" {
-		segs = append(segs, labeledSeg("user", user, segUserStyle, 32))
+		segs = append(segs, labeledSeg(width, "user", user, segUserStyle, 32))
 	}
-	return joinFit(width, segs)
+	return wrapSegs(width, segs)
 }
 
 // footerEndpointLine: connection details — endpoint, region, version.
 func footerEndpointLine(width int, endpoint, region, ver string) string {
 	var segs []fseg
 	if endpoint != "" {
-		segs = append(segs, labeledSeg("endpoint", endpoint, segEndpointStyle, 60))
+		segs = append(segs, labeledSeg(width, "endpoint", endpoint, segEndpointStyle, 60))
 	}
 	if region != "" {
-		segs = append(segs, labeledSeg("region", region, segRegionStyle, 20))
+		segs = append(segs, labeledSeg(width, "region", region, segRegionStyle, 20))
 	}
-	segs = append(segs, labeledSeg("s3s ver", ver, dimCellStyle, 20))
-	return joinFit(width, segs)
+	segs = append(segs, labeledSeg(width, "s3s ver", ver, dimCellStyle, 20))
+	return wrapSegs(width, segs)
 }
 
-// footerHintsLine builds the colored keybinding line.
+// footerHintsLine builds the colored keybinding line(s); wraps so every hint —
+// including help/quit — is always visible, even on narrow terminals.
 func footerHintsLine(width int) string {
 	h := func(k, a string) fseg {
 		return fseg{s: accentStyle.Render(k) + " " + dimCellStyle.Render(a), w: lipgloss.Width(k + " " + a)}
@@ -331,7 +347,7 @@ func footerHintsLine(width int) string {
 		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
 		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),
 	}
-	return joinFit(width, segs)
+	return wrapSegs(width, segs)
 }
 
 // formatDate renders a date compactly, or an em dash when zero.

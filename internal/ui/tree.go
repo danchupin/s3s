@@ -42,21 +42,17 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Up):
 		if m.treeSel > 0 {
 			m.treeSel--
-			(&m).adjustTreeWindow()
 		}
 	case matches(key, m.keys.Down):
 		if m.treeSel < n-1 {
 			m.treeSel++
-			(&m).adjustTreeWindow()
 		} else if m.level != nil && !m.level.complete && !m.loading {
 			return m.fetchNextPage() // paging-on-scroll: exactly one load
 		}
 	case matches(key, m.keys.Top):
 		m.treeSel = 0
-		(&m).adjustTreeWindow()
 	case matches(key, m.keys.Bottom):
 		m.treeSel = max(0, n-1)
-		(&m).adjustTreeWindow()
 	case matches(key, m.keys.Search):
 		return m.startSearch()
 	case matches(key, m.keys.Refresh):
@@ -94,7 +90,6 @@ func (m App) selected() *treeEntry {
 func (m App) enterLevel() (tea.Model, tea.Cmd) {
 	m.mode = modeTree
 	m.treeSel = 0
-	m.treeOff = 0
 	key := m.levelKey()
 	if cached, ok := m.cache.Get(key); ok {
 		m.level = cached
@@ -122,7 +117,6 @@ func (m App) refresh() (tea.Model, tea.Cmd) {
 	m.cache.Invalidate(key)
 	m.level = nil
 	m.treeSel = 0
-	m.treeOff = 0
 	ctx := (&m).beginLoad()
 	q := storage.LevelQuery{Bucket: m.bucket, Prefix: m.prefix, Search: m.search}
 	return m, tea.Batch(loadLevel(ctx, m.store, key, q, m.gen), spinnerTick())
@@ -176,31 +170,7 @@ func (m App) onLevel(msg levelMsg) (tea.Model, tea.Cmd) {
 	m.level.nextToken = msg.page.NextToken
 	m.level.complete = msg.page.NextToken == nil
 	m.cache.Put(msg.key, m.level)
-	(&m).adjustTreeWindow()
 	return m, nil
-}
-
-// adjustTreeWindow keeps the selection inside the visible window (resize-safe).
-func (m *App) adjustTreeWindow() {
-	rows := m.bodyRows()
-	if m.treeSel < m.treeOff {
-		m.treeOff = m.treeSel
-	}
-	if m.treeSel >= m.treeOff+rows {
-		m.treeOff = m.treeSel - rows + 1
-	}
-	if m.treeOff < 0 {
-		m.treeOff = 0
-	}
-}
-
-// bodyRows is the number of list rows that fit between header and footer.
-func (m App) bodyRows() int {
-	rows := m.height - 6
-	if rows < 1 {
-		return 1
-	}
-	return rows
 }
 
 // treeView renders the windowed tree level table body at the given width.
