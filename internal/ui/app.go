@@ -440,19 +440,27 @@ func (m App) View() tea.View {
 
 	footer := m.footerBlock(w)
 	footerH := strings.Count(footer, "\n") + 1
-	rows := m.height - footerH - 2 - 1 // box borders (2) + gap (1)
-	if rows < 1 {
-		rows = 1
+	// Inner box height = total minus the footer and the two border lines. The box
+	// body MUST NOT exceed this, or the footer (incl. the hints line) scrolls off.
+	rows := m.height - footerH - 2
+	if rows < 3 {
+		rows = 3
+	}
+	// Table views render a 2-line header (column titles + rule) inside the box, so
+	// the data-row budget is two fewer than the box's inner height.
+	dataRows := rows - 2
+	if dataRows < 1 {
+		dataRows = 1
 	}
 
 	var body string
 	switch m.mode {
 	case modeBuckets:
-		body = boxView(m.resourceTitle(), m.selectionName(), m.bucketsView(w-2, rows), w, rows)
+		body = boxView(m.resourceTitle(), m.selectionName(), m.bucketsView(w-2, dataRows), w, rows)
 	case modeTree:
-		body = boxView(m.resourceTitle(), m.selectionName(), m.treeView(w-2, rows), w, rows)
+		body = boxView(m.resourceTitle(), m.selectionName(), m.treeView(w-2, dataRows), w, rows)
 	case modeContextSwitch:
-		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, rows), w, rows)
+		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
 		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
 	}
@@ -469,7 +477,8 @@ func (m App) View() tea.View {
 func (m App) footerBlock(w int) string {
 	lines := []string{
 		ruleStyle.Render(strings.Repeat("─", w)),
-		footerInfoLine(w, m.ctxName, m.info.Cluster, m.info.User, m.info.Endpoint, m.info.Region, Version),
+		footerIdentityLine(w, m.ctxName, m.info.Cluster, m.info.User),
+		footerEndpointLine(w, m.info.Endpoint, m.info.Region, Version),
 		footerHintsLine(w),
 	}
 	if s := m.statusLine(); s != "" {

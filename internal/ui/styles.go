@@ -216,6 +216,9 @@ func boxView(left, center, body string, width, minRows int) string {
 	for len(lines) < minRows {
 		lines = append(lines, strings.Repeat(" ", inner))
 	}
+	if len(lines) > minRows { // never exceed the budgeted height (footer must stay visible)
+		lines = lines[:minRows]
+	}
 
 	// Top border: "╭─ left ─── «center» ───╮"
 	leftPlain := "─ " + left + " "
@@ -282,27 +285,40 @@ func joinFit(width int, segs []fseg) string {
 	return b.String()
 }
 
-// footerInfoLine builds the colored info line: each parameter gets its own hue.
-func footerInfoLine(width int, ctx, cluster, user, endpoint, region, rev string) string {
+// labeledSeg is a "label value" footer segment with the value in its own hue.
+func labeledSeg(label, val string, st lipgloss.Style, lim int) fseg {
+	v := truncate(val, lim)
+	return fseg{
+		s: dimCellStyle.Render(label+" ") + st.Render(v),
+		w: lipgloss.Width(label + " " + v),
+	}
+}
+
+// footerIdentityLine: who/where we're connected — context, cluster, user.
+func footerIdentityLine(width int, ctx, cluster, user string) string {
 	segs := []fseg{{
 		s: roStyle.Render("●") + " " + segCtxStyle.Render(ctx) + dimCellStyle.Render(" [RO]"),
 		w: lipgloss.Width("● " + ctx + " [RO]"),
 	}}
-	add := func(label, val string, st lipgloss.Style, lim int) {
-		if val == "" {
-			return
-		}
-		v := truncate(val, lim)
-		segs = append(segs, fseg{
-			s: dimCellStyle.Render(label+" ") + st.Render(v),
-			w: lipgloss.Width(label + " " + v),
-		})
+	if cluster != "" {
+		segs = append(segs, labeledSeg("cluster", cluster, segClusterStyle, 32))
 	}
-	add("cluster", cluster, segClusterStyle, 24)
-	add("user", user, segUserStyle, 24)
-	add("endpoint", endpoint, segEndpointStyle, 46)
-	add("region", region, segRegionStyle, 16)
-	add("s3s ver", rev, dimCellStyle, 16)
+	if user != "" {
+		segs = append(segs, labeledSeg("user", user, segUserStyle, 32))
+	}
+	return joinFit(width, segs)
+}
+
+// footerEndpointLine: connection details — endpoint, region, version.
+func footerEndpointLine(width int, endpoint, region, ver string) string {
+	var segs []fseg
+	if endpoint != "" {
+		segs = append(segs, labeledSeg("endpoint", endpoint, segEndpointStyle, 60))
+	}
+	if region != "" {
+		segs = append(segs, labeledSeg("region", region, segRegionStyle, 20))
+	}
+	segs = append(segs, labeledSeg("s3s ver", ver, dimCellStyle, 20))
 	return joinFit(width, segs)
 }
 
