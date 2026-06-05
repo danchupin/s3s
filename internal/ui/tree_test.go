@@ -143,7 +143,7 @@ func TestTreeRefreshInvalidatesCache(t *testing.T) {
 		t.Fatal("level should be cached after load")
 	}
 
-	m = press(m, "r")
+	m = viaMenu(t, m, "refresh")
 	if _, ok := m.cache.Get(key); ok {
 		t.Error("refresh should invalidate the cached level (FR-011a)")
 	}

@@ -1,4 +1,4 @@
-# Feature Specification: UI/UX Refinement — Footer Redesign & Key Discoverability
+# Feature Specification: UI/UX Refinement — Action Menu, Footer Redesign & Key Discoverability
 
 **Feature Branch**: `004-ui-ux-refinement`
 
@@ -6,33 +6,33 @@
 
 **Status**: Draft
 
-**Input**: User description: "Теперь я хочу улучшить ui и ux. Действуй как ux/ui дизайнер и посмотри на наш интерфейс, чтобы ты захотел исправить, что неудобно? Как минимум мне не нравится как выглядит футер и огромное количество хоткеев - нужно что то тут придумать чтобы повысить удобство. Но посмотри и глобально на весь ui и ux, предложи улучшения"
+**Input**: User description: "Теперь я хочу улучшить ui и ux. Действуй как ux/ui дизайнер и посмотри на наш интерфейс, чтобы ты захотел исправить, что неудобно? Как минимум мне не нравится как выглядит футер и огромное количество хоткеев - нужно что то тут придумать чтобы повысить удобство. Но посмотри и глобально на весь ui и ux, предложи улучшения" — extended to actually reduce the keymap (not only relocate it).
 
 ## Overview & Design Intent
 
-`s3s` is a keyboard-driven TUI for browsing S3-compatible storage. A UX audit of the
-current interface surfaced one dominant problem and several smaller ones:
+`s3s` is a keyboard-driven TUI for browsing S3-compatible storage. A UX audit surfaced
+one dominant problem and several smaller ones:
 
-- **The footer is overloaded.** It renders up to 5 stacked lines — a separator, an
-  identity line (context · cluster · user), an endpoint line (endpoint · region ·
-  version), a keybinding-hints line listing up to ~13 shortcuts at once, and a status
-  line. On terminals narrower than 80 columns the hint line wraps to 2–3 additional
-  rows, so the footer can consume 6+ rows and crowd the content above it. Connection
-  metadata and action hints compete for the same scarce vertical space.
-- **Too many shortcuts are shown at once.** With write mode active in the tree view,
-  the hints line advertises `enter`, `/`, `r`, `+`, `d`, `u`, `y`, `m`, `D`, `c`,
-  `1-9`, `?`, `q` — a wall of keys that is hard to scan and includes actions that may
-  not even apply to the current selection.
-- **Discoverability and feedback gaps.** The help overlay is an undifferentiated list;
-  the loading spinner never says *what* is loading; debounced tree search gives no
-  "pending" feedback; typed-confirmation prompts give no progress signal as the user
-  types the confirmation string.
+- **Too many top-level shortcuts.** The current keymap exposes ~18 logical actions across
+  ~28 bindings; the worst offender is six separate top-level write keys
+  (`+`, `d`, `u`, `y`, `m`, `D`) plus `r` refresh and `x` cancel. In write mode the footer
+  advertised `enter`, `/`, `r`, `+`, `d`, `u`, `y`, `m`, `D`, `c`, `1-9`, `?`, `q` at once
+  — a wall of keys that is hard to scan and partly inapplicable to the current selection.
+- **The footer is overloaded.** It renders up to 5 stacked rows — separator, identity
+  line (context · cluster · user), endpoint line (endpoint · region · version), the
+  keybinding-hints line, and a status line. Under 80 columns the hints wrap to extra rows,
+  so the footer can consume 6+ rows and crowd the content above it.
+- **Discoverability and feedback gaps.** The help overlay is an undifferentiated list; the
+  loading spinner never says *what* is loading; debounced tree search gives no "pending"
+  feedback; typed-confirmation prompts give no progress signal.
 
-The guiding principle of this feature is **progressive disclosure**: show the few
-actions that matter *right now*, keep connection metadata available but out of the way,
-and make the full keymap reachable on demand through a redesigned help surface. No
-backend, storage, or write-semantics behavior changes — this feature is presentation,
-layout, and interaction only.
+This feature attacks the root cause of the key clutter by **reducing** the keymap, not
+just hiding it: the six write operations and refresh move into a single **contextual
+action menu** opened by one key (`a`); cancel folds into `Esc`. The footer becomes a
+calm, capped, contextual hint row; connection metadata and the full keymap (including the
+menu) move into a redesigned help surface. **No operation semantics change** — the action
+menu is only a new *entry point* into the existing flows (name/destination entry plus the
+two-tier confirmation model are preserved exactly).
 
 ## Clarifications
 
@@ -42,265 +42,345 @@ layout, and interaction only.
 - Q: What is the footer's maximum total height budget (identity + hints + status rows combined)? → A: 3 rows max — 1 identity, 1 hints, 1 status (status row present only when there is something to show).
 - Q: When terminal width forces dropping low-priority hints, how should the user know hints were hidden? → A: Show a "? more" affordance at the end of the hint line so the user knows the full keymap lives in help.
 
+### Session 2026-06-05 (scope extension — keymap reduction)
+
+- Q: How should the keymap be reduced (not only relocated)? → A: Introduce a contextual action menu opened by a single leader key (`a`); selected with ↑/↓ + Enter.
+- Q: Which top-level keys are removed? → A: The six write keys (`+`, `d`, `u`, `y`, `m`, `D`) and `r` refresh move into the action menu; `x` cancel folds into `Esc` (contextual: cancels an in-flight load when one is running). Navigation aliases (vim + arrows) are kept.
+- Q: Arrow keys vs vim keys — which is primary? → A: Arrow keys (and Enter/Esc) are the PRIMARY, advertised navigation shown in the footer/menu. Vim-style aliases (`h/j/k/l`, `g/G`) remain fully functional but are documented ONLY in the help surface, not advertised in the footer.
+- Q: After removing top-level `r`, where does the action menu open and how is the bucket list refreshed? → A: The menu opens in BOTH list modes (bucket list and tree); in the bucket list it offers Refresh only (no bucket-level write ops exist yet), which is the mechanism to refresh buckets now that `r` is removed.
+- Q: Which key opens the action menu? → A: `a` (mnemonic for "actions"); footer hint is `a actions`.
+
 ## User Scenarios & Testing *(mandatory)*
 
-### User Story 1 - A calm, context-aware footer (Priority: P1)
+### User Story 1 - Contextual action menu replaces the wall of write keys (Priority: P1) 🎯 MVP
+
+As a user, I want a single key to open a short menu of the actions that apply to what I've
+selected — instead of memorizing six separate write shortcuts — so the interface has far
+fewer top-level keys and the available actions are self-documenting.
+
+**Why this priority**: This is the direct answer to the user's primary complaint ("огромное
+количество хоткеев"). Collapsing 7 top-level keys (`+ d u y m D r`) into one `a` menu is the
+single biggest reduction in key clutter and makes write actions discoverable without the
+footer or help.
+
+**Independent Test**: In a writable context, select an object vs a folder vs an empty level
+and press the menu key; confirm the menu lists exactly the applicable actions, that choosing
+one enters the existing operation flow unchanged (entry + confirmation), that the removed
+top-level keys no longer trigger anything, and that the menu also works (showing Refresh) in
+a read-only context.
+
+**Acceptance Scenarios**:
+
+1. **Given** a writable tree with an **object** selected, **When** the user opens the action
+   menu, **Then** it lists Delete, Copy, Move/Rename, Upload here, New folder, and Refresh —
+   and NOT recursive delete (folder-only).
+2. **Given** a writable tree with a **folder** selected, **When** the menu opens, **Then** it
+   lists Recursive delete, Upload here, New folder, and Refresh — and NOT object-only Delete/
+   Copy/Move.
+3. **Given** a **read-only** context, **When** the menu opens, **Then** it lists Refresh only
+   (no write actions) — and the menu is still usable.
+4. **Given** the menu open, **When** the user chooses an action, **Then** the existing
+   operation flow runs unchanged (name/destination entry where applicable; simple vs typed
+   confirmation tier exactly as today), and **When** the user presses the dismiss key, the
+   menu closes with no side effect.
+5. **Given** the redesign is in effect, **When** the user presses any removed top-level write
+   key (`+`, `d`, `u`, `y`, `m`, `D`) or `r`, **Then** nothing happens (those keys are
+   unbound at top level); the actions are reachable only via the menu.
+6. **Given** an in-flight load, **When** the user presses `Esc`, **Then** the load is
+   cancelled (cancel folded into `Esc`); **When** no load is running, `Esc` performs back.
+
+---
+
+### User Story 2 - A calm, context-aware footer (Priority: P1)
 
 As a user browsing buckets and objects, I want the footer to show only the handful of
-actions relevant to where I am and what I have selected, so the bottom of the screen
-stays quiet and readable instead of presenting a wall of shortcuts.
+actions relevant to where I am, so the bottom of the screen stays quiet and readable.
 
-**Why this priority**: This is the user's primary complaint ("мне не нравится как
-выглядит футер и огромное количество хоткеев") and the highest-leverage change. A
-decluttered, mode-aware footer immediately reduces visual noise and reclaims vertical
-space for content on every screen and at every terminal width.
+**Why this priority**: The footer is the other half of the user's complaint. With write keys
+now behind the menu, the footer advertises a single `a actions` hint instead of six — making
+the calm, capped, contextual footer both simpler and more achievable.
 
-**Independent Test**: Launch the app at several terminal widths and in each mode
-(bucket list, tree, object view, with/without an active search, read-only vs write
-context). Confirm the footer presents a curated, prioritized set of hints that fits its
-height budget, adapts to the current mode and selection, and never wraps into an
-ever-growing stack of rows.
+**Independent Test**: At several widths and modes (read-only vs writable, object/folder
+selected, search active, single vs multi context), assert the footer is ≤ 3 rows, the hint
+row is one line capped at ≤ 6 hints, it shows `a actions` (not individual write keys), drops
+lowest-priority hints first with a `? more` cue, and never overflows.
 
 **Acceptance Scenarios**:
 
-1. **Given** the bucket list in a read-only context, **When** the footer renders,
-   **Then** only navigation/browse-relevant hints are shown (open, search, refresh,
-   context switch, help, quit) and no write-action hints appear.
-2. **Given** the tree view in a writable context with an object selected, **When** the
-   footer renders, **Then** write actions applicable to that selection are surfaced and
-   actions that do not apply to the selection are not shown.
-3. **Given** any mode at a terminal width below 80 columns, **When** the footer renders,
-   **Then** the hint area stays within its height budget by dropping the
-   lowest-priority hints first (graceful degradation) rather than wrapping every hint
-   onto new rows, and `help` remains visible as the escape hatch to the full keymap.
-4. **Given** an active search/filter in the tree, **When** the footer renders, **Then**
-   a "clear search" affordance is shown and the back-key ambiguity (clear search vs.
-   ascend level) is signalled to the user.
+1. **Given** the bucket list in a read-only context, **When** the footer renders, **Then**
+   only navigation/browse hints appear (open, search, actions, context, help, quit) and no
+   individual write-action hints.
+2. **Given** a writable tree, **When** the footer renders, **Then** it shows a single
+   `a actions` hint rather than `d/u/y/m/D/+`, and the hint count stays ≤ 6.
+3. **Given** any mode below 80 columns, **When** the footer renders, **Then** the hint row
+   stays one line by dropping lowest-priority hints first and appending `? more`; `? help`
+   and `q quit` always survive.
+4. **Given** an active search/filter in the tree, **When** the footer renders, **Then** it
+   shows `esc clear` (not `esc back`) to disambiguate the back action.
 5. **Given** a single-context configuration, **When** the footer renders, **Then** the
-   numeric quick-switch hint (`1-9`) is omitted because it has no effect.
+   numeric quick-switch hint (`1-9`) is omitted.
 
 ---
 
-### User Story 2 - Discover every shortcut on demand (Priority: P2)
+### User Story 3 - Discover every shortcut on demand (Priority: P2)
 
-As a user who can no longer see every shortcut in the footer, I want a single,
-well-organized place that lists the complete keymap — grouped by purpose and showing key
-aliases — so I never lose access to a command just because the footer hides it.
+As a user, I want one organized place that lists the complete keymap — including the action
+menu and its contents — plus the connection details, so nothing is lost when the footer
+hides it.
 
-**Why this priority**: Removing hints from the footer (P1) only improves UX if the
-hidden commands remain easy to find. A redesigned help surface is the safety net that
-makes aggressive footer decluttering safe. It depends conceptually on P1 but is
-independently testable.
+**Why this priority**: Removing keys and footer hints (US1/US2) is only safe if the full
+keymap and the menu's actions remain easy to find. The redesigned help is that safety net.
 
-**Independent Test**: Open the help surface from each mode and verify it lists all
-available actions, grouped into clear categories, including key aliases (arrows + vim
-keys), and clearly tells the user how to dismiss it.
+**Independent Test**: Open help from each mode; verify categorized sections, all key aliases,
+an Actions section describing the menu and its items, a Connection section with the
+footer-evicted metadata, write-capability reflection, and a stated dismissal.
 
 **Acceptance Scenarios**:
 
-1. **Given** any mode, **When** the user opens help, **Then** a categorized reference of
-   all keybindings is shown (e.g., Navigation, Search & View, Context, Write, Global),
-   each action listing all keys that trigger it.
-2. **Given** the help surface is open, **When** it renders, **Then** it states how to
-   close it.
-3. **Given** a write-enabled context, **When** the user opens help, **Then** write
-   actions are listed and labelled as available; **Given** a read-only context, **Then**
-   write actions are either hidden or clearly marked unavailable.
-4. **Given** the help surface, **When** it lists an action that has both an arrow key and
-   a vim-style key (e.g., move down = `↓` / `j`), **Then** both aliases are shown.
+1. **Given** any mode, **When** the user opens help, **Then** a categorized reference is shown
+   (Navigation, Search & View, Actions, Context, Global, Connection), each action listing all
+   its keys.
+2. **Given** the help surface, **When** it renders the Actions section, **Then** it documents
+   the menu key and lists the menu's actions (delete, copy, move, upload, new folder,
+   recursive delete, refresh) and which are write-only.
+3. **Given** the help surface is open, **When** it renders, **Then** it states how to close it.
+4. **Given** an action with multiple keys (e.g. `↓` / `j`), **When** help lists it, **Then**
+   all aliases are shown.
 
 ---
 
-### User Story 3 - Clearer status, loading, and confirmation feedback (Priority: P3)
+### User Story 4 - Clearer status, loading & confirmation feedback (Priority: P3)
 
-As a user performing loads, searches, and confirmations, I want status feedback that
-names what is happening and reflects my progress, so I always understand the current
-state and never cancel or confirm the wrong thing.
+As a user performing loads, searches, and confirmations, I want status feedback that names
+what is happening and reflects progress, so I always understand the current state.
 
-**Why this priority**: These are refinements that polish trust and clarity but are not
-the user's primary pain. They are valuable and independently shippable after the footer
-and help work land.
+**Why this priority**: Polish that builds trust; valuable but not the primary pain.
 
-**Independent Test**: Trigger each feedback state (loading a level, loading an object,
-pending debounced search, typed confirmation in progress) and verify the status line
-communicates *what* is happening and reflects progress where applicable.
+**Independent Test**: Trigger each state (level vs object load, pending debounced search,
+typed confirmation in progress, success notice) and verify the status communicates what is
+happening and distinguishes success from error.
 
 **Acceptance Scenarios**:
 
-1. **Given** a backend fetch is in flight, **When** the loading indicator renders,
-   **Then** it names what is loading (e.g., bucket contents vs. object) rather than a
-   generic "loading…".
-2. **Given** a debounced tree search where the user has typed but the search has not yet
-   fired, **When** the status renders, **Then** a "search pending/searching" indicator is
-   shown so the delay is understood as intentional.
-3. **Given** a typed-confirmation prompt for a destructive action, **When** the user
-   types part of the required confirmation string, **Then** the prompt continues to show
-   the exact required target alongside the input so the user can verify their progress,
-   and a mismatch on submit cancels safely without performing the action.
-4. **Given** a transient success notice (e.g., a completed recursive delete), **When** it
-   is shown, **Then** it is visually distinguishable from an error message and clears on
-   the next interaction.
+1. **Given** a fetch in flight, **When** the loading indicator renders, **Then** it names what
+   is loading (bucket contents vs object) and shows that `Esc` cancels.
+2. **Given** a debounced tree search typed but not yet fired, **When** status renders, **Then**
+   a "searching/pending" indicator is shown.
+3. **Given** a typed-confirmation prompt, **When** the user types part of the string, **Then**
+   the exact required target stays visible alongside the input and a mismatch on submit
+   cancels safely.
+4. **Given** a transient success notice, **When** it is shown, **Then** it is visually distinct
+   from an error and clears on the next interaction.
 
 ---
 
 ### Edge Cases
 
-- **Very narrow terminals (< 50 columns)**: footer must still show at least the most
-  critical affordance (a path to help and to quit) and must not push content out of view
-  or overflow the width.
-- **Very wide terminals (> 160 columns)**: the footer must not look sparse or
-  awkwardly stretched; hints and identity remain readable and reasonably grouped.
-- **Mode transitions**: when the user moves from object view back to the tree, the
-  footer must immediately reflect the actions now available (e.g., write actions
-  reappear) without requiring another keypress to refresh.
-- **Selection-dependent actions**: when nothing is selected or the selection is a folder
-  vs. an object, the footer must only advertise actions valid for that selection.
-- **Read-only context**: no write-action hint may appear anywhere in the footer.
-- **Help open during an in-flight load**: opening and closing help must not disturb or
-  cancel the load, and the underlying status must be intact when help closes.
+- **Empty level / nothing selected**: the action menu still opens, listing only level-scoped
+  actions (New folder, Upload here, Refresh) plus Refresh; object/folder-specific actions are
+  absent.
+- **Read-only context**: the menu shows Refresh only; no write action is listed or invokable
+  anywhere (footer, menu, or help).
+- **Menu open during an in-flight load**: opening/closing the menu must not disturb or cancel
+  the load.
+- **Very narrow terminals (< 50 cols)**: footer keeps at least `a actions`/`? help`/`q quit`
+  reachable and never overflows; the menu renders within the width.
+- **Very wide terminals (> 160 cols)**: footer is not sparse; menu is not awkwardly stretched.
+- **Mode transitions**: returning from object view to the tree immediately restores the
+  correct menu contents and the `a actions` footer hint.
 
 ## Requirements *(mandatory)*
 
 ### Functional Requirements
 
-#### Footer & hints (P1)
+#### Action menu & keymap reduction (US1)
 
-- **FR-001**: The footer MUST present action hints as a curated, prioritized set scoped
-  to the current mode and the current selection, rather than listing all possible
-  shortcuts at once. The number of hints shown MUST be capped at a fixed maximum of 6 —
-  when more than 6 hints apply to the current state, only the 6 highest-priority ones are
-  shown (the priority cap applies before any width-driven degrade in FR-004).
-- **FR-002**: The footer MUST NOT display write-action hints when the active context is
-  read-only.
+- **FR-023**: The application MUST provide a contextual action menu opened by the `a` key
+  (the "actions" key) from BOTH list modes — the bucket list and the tree. In the bucket
+  list the menu offers Refresh only (no bucket-level write operations exist in this
+  iteration); in the tree it offers the full contextual set per FR-024/FR-025.
+- **FR-024**: The menu MUST list only the actions valid for the current selection and context
+  — object-only actions (delete, copy, move/rename) only when an object is selected;
+  recursive delete only when a folder is selected; level actions (new folder, upload here) in
+  the tree; and they MUST be absent when the context is read-only.
+- **FR-025**: The menu MUST always include Refresh, in every list mode (bucket list and
+  tree) and in read-only contexts too. Refresh in the bucket list reloads the bucket list;
+  in the tree it reloads the current level. This is the sole refresh entry point now that
+  the top-level `r` key is removed (FR-028).
+- **FR-026**: Choosing a menu item MUST enter the EXISTING operation flow unchanged — the same
+  name/destination entry and the same two-tier (simple vs typed) confirmation as today. The
+  menu changes only the entry point, never the operation or its safety.
+- **FR-027**: The menu MUST be keyboard-navigable using the existing navigation keys (↑/↓ and
+  vim aliases to move, Enter to invoke, a back/escape key to dismiss) and MUST state how to
+  dismiss it.
+- **FR-028**: The per-operation top-level write keys (`+`, `d`, `u`, `y`, `m`, `D`) and the
+  top-level refresh key (`r`) MUST be removed from the top-level keymap; these operations are
+  reachable ONLY through the action menu. Pressing a removed key at top level MUST do nothing.
+- **FR-029**: Cancellation of an in-flight load MUST be performed via the back/escape key
+  (contextual: when a load is running, the key cancels it; otherwise it performs back); the
+  standalone cancel key (`x`) MUST be removed. **Modal precedence**: when the action menu (or
+  any modal overlay) is open, `Esc` MUST first close that overlay and MUST NOT cancel a
+  background load; the load/run-cancel meaning of `Esc` applies only when no modal overlay is
+  open.
+- **FR-030**: The reduced top-level keymap MUST contain no more than 12 always-live interactive
+  actions (down from ~18), and every removed action MUST remain reachable (write ops + refresh
+  via the menu; cancel via the back/escape key). **Counting rule**: an "interactive action" is a
+  distinct logical action routed at the top level; each action counts once regardless of how
+  many key aliases it has (e.g. `↑`/`k` = one), and the `1-9` numeric quick-switch counts as one.
+  Actions reachable only inside the menu or inside another mode are NOT top-level actions.
+- **FR-031**: Arrow keys (`↑`/`↓`/`←`/`→`) plus `Enter` and `Esc` MUST be the PRIMARY navigation
+  advertised in the footer and the action menu. Vim-style aliases (`h`/`j`/`k`/`l`, `g`/`G`)
+  MUST remain fully functional but MUST NOT be advertised in the footer or menu — they are
+  documented only in the help surface (per FR-014/FR-014c). Footer/menu navigation cues MUST use
+  the arrow glyphs, not the vim letters. **Top/Bottom** (jump to first/last) MUST NOT be
+  advertised in the footer or menu; it remains reachable via `Home`/`End` (and `g`/`G`) and is
+  documented only in the help surface.
+
+#### Footer & hints (US2)
+
+- **FR-001**: The footer MUST present action hints as a curated, prioritized set scoped to the
+  current mode and selection, rather than listing all possible shortcuts. The footer MUST
+  advertise the action menu with a single `a actions` hint INSTEAD of individual write-op
+  hints. The number of hints shown MUST be capped at a fixed maximum of 6 — when more than 6
+  apply, only the 6 highest-priority are shown (the priority cap applies before the width
+  degrade in FR-004).
+- **FR-002**: The footer MUST NOT display the `a actions` hint's write capability as available
+  when the active context is read-only; in read-only the menu still appears (Refresh only), so
+  `a actions` MAY still be shown but MUST NOT imply write capability.
 - **FR-003**: The footer MUST omit hints for actions that do not apply to the current
-  selection or configuration (e.g., numeric context quick-switch when only one context
-  exists; write actions when no eligible item is selected).
-- **FR-004**: When available width is insufficient to show all hints, the footer MUST
-  degrade by dropping the lowest-priority hints first while keeping the highest-priority
-  affordances visible, instead of wrapping every hint onto additional rows. When one or
-  more hints are dropped for this reason, the hint line MUST end with a "? more"
-  affordance signalling that the full keymap is available in the help surface.
-- **FR-005**: The footer MUST always keep a visible path to the full keymap (a help
-  affordance) regardless of width or mode.
-- **FR-006**: The footer's total rendered height MUST NOT exceed 3 rows — at most one
-  identity row, one hint row, and one status row — at any supported terminal width. The
-  status row is present only when there is a status to show (loading, search, confirm,
-  notice, or error); the identity and hint rows MUST each stay a single row (they degrade
-  per FR-004/FR-007 rather than wrapping onto additional rows).
-- **FR-007**: The footer MUST render connection/identity metadata as a SINGLE compact
-  identity row showing, at minimum, the context name and the read-write/read-only status
-  (cluster name MAY also appear if width permits). The remaining metadata — endpoint,
-  region, user, and version — MUST NOT appear in the footer and MUST instead be presented
-  in the help surface, so it does not crowd the action hints.
-- **FR-008**: The read-write vs. read-only status of the active context MUST remain
-  visible at a glance in the primary view (not only inside help).
-- **FR-009**: When a search/filter is active, the footer MUST disambiguate the back
-  action by replacing the `esc back` hint with an `esc clear` hint (so the rendered cue
-  reflects that the next back-key press clears the search rather than ascending a level);
-  the `esc back` hint MUST NOT be shown while a search/filter is active.
+  configuration (e.g. numeric context quick-switch when only one context exists).
+- **FR-004**: When width is insufficient, the footer MUST drop the lowest-priority hints first
+  while keeping the highest-priority affordances, instead of wrapping; when ≥1 hint is dropped,
+  the hint row MUST end with a `? more` affordance.
+- **FR-005**: The footer MUST always keep a visible path to the full keymap (a help affordance)
+  regardless of width or mode.
+- **FR-006**: The footer's total rendered height MUST NOT exceed 3 rows — at most one identity
+  row, one hint row, and one status row (status present only when there is a status to show);
+  the identity and hint rows MUST each stay a single row.
+- **FR-007**: The footer MUST render connection/identity metadata as a SINGLE compact identity
+  row (context name + read-write/read-only status, plus cluster if width permits). Endpoint,
+  region, user, and version MUST NOT appear in the footer and MUST instead appear in the help
+  surface.
+- **FR-008**: The read-write vs. read-only status of the active context MUST remain visible at
+  a glance in the primary view (not only inside help).
+- **FR-009**: When a search/filter is active, the footer MUST disambiguate the back action by
+  replacing the `esc back` hint with an `esc clear` hint; the `esc back` hint MUST NOT be shown
+  while a search/filter is active.
 
-#### Help & discoverability (P2)
+#### Help & discoverability (US3)
 
-- **FR-010**: The application MUST provide a single help surface, reachable from every
-  mode, that lists every available action and all key aliases that trigger it.
+- **FR-010**: The application MUST provide a single help surface, reachable from every mode,
+  listing every available action and all key aliases that trigger it.
 - **FR-011**: The help surface MUST group actions into labelled categories (at minimum:
-  Navigation, Search & View, Context, Write, Global).
+  Navigation, Search & View, Actions, Context, Global) plus a Connection section.
 - **FR-012**: The help surface MUST indicate how to dismiss it.
-- **FR-013**: The help surface MUST reflect context capability: write actions are shown
-  as available in a writable context and hidden or marked unavailable in a read-only
-  context.
-- **FR-014**: For any action with multiple bound keys (arrow + vim alias, primary +
-  secondary), the help surface MUST display all of those keys.
-- **FR-014a**: The help surface MUST include a connection section presenting the full
-  metadata that was removed from the footer per FR-007 — endpoint, region, user, and
-  version (plus context and cluster for completeness) — with secret-bearing values
-  redacted per FR-021.
+- **FR-013**: The help surface MUST reflect context capability: write actions (in the Actions
+  section) are shown as available in a writable context and hidden or marked unavailable in a
+  read-only context.
+- **FR-014**: For any action with multiple bound keys, the help surface MUST display all keys.
+- **FR-014a**: The help surface MUST include a Connection section presenting the metadata
+  removed from the footer per FR-007 — endpoint, region, user, and version (plus context and
+  cluster) — with secret-bearing values redacted per FR-021.
+- **FR-014b**: The help surface MUST document the action menu: the key that opens it and the
+  list of actions it contains (delete, copy, move/rename, upload, new folder, recursive
+  delete, refresh), marking which require write mode.
+- **FR-014c**: The help surface MUST list the vim-style navigation aliases (`h`/`j`/`k`/`l`,
+  `g`/`G`) alongside the primary arrow keys for each navigation action, so the only place the
+  vim bindings are advertised is help (per FR-031).
 
-#### Status, loading & confirmation feedback (P3)
+#### Status, loading & confirmation feedback (US4)
 
-- **FR-015**: The loading indicator MUST name what is being loaded (e.g., distinguishing
-  a level/listing load from an object metadata/content load).
-- **FR-016**: When a debounced search has been entered but not yet executed, the status
-  MUST indicate that a search is pending/in progress.
-- **FR-017**: A typed-confirmation prompt MUST continuously display the exact required
-  confirmation target alongside the user's input, and a mismatch on submit MUST cancel
-  the operation safely without performing it (preserving the existing two-tier
-  confirmation safety model).
-- **FR-018**: Transient success notices MUST be visually distinguishable from error
-  messages and MUST clear on the next interaction.
+- **FR-015**: The loading indicator MUST name what is being loaded (level/listing vs object)
+  and MUST show that the back/escape key cancels (per FR-029).
+- **FR-016**: When a debounced search has been entered but not executed, the status MUST
+  indicate that a search is pending/in progress.
+- **FR-017**: A typed-confirmation prompt MUST continuously display the exact required target
+  alongside the user's input, and a mismatch on submit MUST cancel the operation safely
+  (preserving the existing two-tier confirmation model).
+- **FR-018**: Transient success notices MUST be visually distinguishable from error messages
+  and MUST clear on the next interaction.
+- **FR-018a**: When multiple status conditions hold simultaneously, the single status row MUST
+  show exactly one, in this priority order (highest first): operation prompt (name/dest entry or
+  confirmation) > running-op progress > loading > search-pending > success notice > error.
 
 #### Cross-cutting constraints
 
-- **FR-019**: All footer, help, and status output MUST never exceed the terminal width
-  (no horizontal overflow) at any supported width.
+- **FR-019**: All footer, menu, help, and status output MUST never exceed the terminal width
+  at any supported width (40–200 columns).
 - **FR-020**: This feature MUST NOT change backend behavior, storage operations, write
-  semantics, the two-tier confirmation safety model, or which actions exist — it changes
-  only how they are presented, laid out, and discovered.
-- **FR-021**: Secret-bearing values MUST continue to be redacted everywhere they could
-  appear in the footer, help, or status output (no regression of existing redaction).
-- **FR-022**: The full set of existing keybindings MUST continue to function; no shortcut
-  is removed by this feature, only relocated in terms of where it is *advertised*.
+  semantics, or the two-tier confirmation safety model — it changes how actions are entered
+  (menu vs key), laid out, and discovered, not what they do.
+- **FR-021**: Secret-bearing values MUST continue to be redacted everywhere they could appear
+  (footer, menu, help, status); the help Connection section MUST source only non-secret
+  display fields and reference no credential path.
+- **FR-022**: Apart from the intentional reductions in FR-028/FR-029, every existing operation
+  MUST remain reachable; this feature removes top-level *keys* for write ops/refresh/cancel by
+  relocating them (to the menu / to `Esc`), and MUST NOT remove any *capability*.
 
 ### Key Entities
 
-- **Footer**: The composite bottom region of the screen. Comprises an identity area
-  (connection/context metadata), a contextual hint area (curated action shortcuts), and a
-  status area (loading, search, confirmation, notice, error). Adapts to mode, selection,
-  context capability, and terminal width.
-- **Hint**: A single advertised action consisting of a key (or key group) and a short
-  label, carrying a priority used for graceful degradation under width pressure.
-- **Help surface**: The on-demand, full keymap reference, organized by category, showing
-  all key aliases and reflecting context capability.
-- **Status message**: A transient feedback item in the status area — loading (named),
-  search-pending, confirmation prompt, success notice, or error — with a visual category
-  that distinguishes success from error from neutral.
+- **Action menu**: A contextual, keyboard-navigable overlay opened by the actions key, listing
+  the operations valid for the current selection and context. Its items are entry points into
+  the existing operation flows; it adds no new operation or confirmation behavior.
+- **Menu item**: A single action in the menu — a label, the operation it triggers, and a
+  visibility predicate (selection kind, write capability, level scope).
+- **Footer**: The ≤ 3-row bottom region — compact identity row, capped contextual hint row
+  (advertising `a actions`), and an optional status row.
+- **Hint**: An advertised footer action (key + short label + priority for degrade).
+- **Help surface**: The on-demand categorized keymap reference, including an Actions section
+  (the menu) and a Connection section (footer-evicted metadata).
+- **Status message**: A transient status item (named loading, search-pending, confirmation
+  prompt, success notice, or error) with a visual category distinguishing success from error.
 
 ## Success Criteria *(mandatory)*
 
 ### Measurable Outcomes
 
-- **SC-001**: At an 80-column terminal in write mode within the tree view, the footer's
-  hint area occupies exactly one row (down from the current up-to-3-row wrap of ~13
-  hints), and content above it gains the reclaimed rows.
-- **SC-002**: In every mode and at every supported terminal width (from 40 to 200
-  columns), the footer renders in at most 3 rows (identity + hints + optional status) and
-  produces zero horizontal overflow.
-- **SC-003**: The number of action hints shown simultaneously in the footer never exceeds
-  6, at any terminal width and in any mode/selection state; when more than 6 apply, the 6
-  highest-priority hints are shown (enforced by a hard cap, per FR-001).
-- **SC-004**: 100% of existing keybindings remain invokable and are discoverable through
-  the help surface in at most one step (open help) from any mode.
-- **SC-005**: In a read-only context, zero write-action hints appear anywhere in the
-  footer, in any mode or selection state.
-- **SC-006**: Every loading state names what is loading; a user reading the status line
-  can identify the in-flight operation without prior context.
-- **SC-007**: A first-time user can identify how to open help and how to quit from the
-  default view without opening help first (both affordances remain visible).
+- **SC-001**: In a writable tree at 80 columns, the footer's hint row occupies exactly one row
+  and advertises `a actions` (not six individual write keys); the footer is ≤ 3 rows total.
+- **SC-002**: In every mode and at every supported width (40–200 columns), the footer is ≤ 3
+  rows and produces zero horizontal overflow; the action menu also fits within the width.
+- **SC-003**: The number of action hints shown simultaneously in the footer never exceeds 6, at
+  any width and in any mode/selection state.
+- **SC-004**: 100% of existing operations remain reachable; all write operations and refresh
+  are reachable within 2 keypresses (open menu, then select), and the full keymap is
+  discoverable in the help surface in one step from any mode.
+- **SC-005**: In a read-only context, zero write actions appear or are invokable in the footer,
+  the action menu, or help.
+- **SC-006**: Every loading state names what is loading.
+- **SC-007**: A first-time user can identify how to open the actions menu, open help, and quit
+  from the default view without opening help first (all three affordances are visible).
+- **SC-008**: The number of always-live top-level interactive key actions is reduced from ~18
+  to ≤ 12; the six write keys, refresh, and the standalone cancel key are no longer top-level
+  bindings.
+- **SC-009**: The footer and action menu advertise navigation using arrow glyphs only; vim
+  aliases appear nowhere except the help surface, yet remain fully functional when pressed.
 
 ## Assumptions
 
-- **Scope is presentation-only.** No storage methods, write semantics, confirmation
-  tiers, or backend calls change. The constitution's read-only/safe-operation invariants
-  and the two-tier confirmation model are preserved exactly as-is.
-- **Existing keymap is retained.** Every current shortcut keeps working; this feature
-  changes where shortcuts are *advertised* (curated footer + full help), not which keys
-  do what. Adding or remapping keys is out of scope unless required to resolve an
-  ambiguity surfaced during design.
-- **Progressive disclosure is the chosen direction.** Connection metadata is split: a
-  single compact identity row in the footer (context + RW/RO, optionally cluster) and the
-  remaining detail (endpoint, region, user, version) moved into the help surface rather
-  than removed; action hints become contextual and prioritized; the full keymap lives in a
-  redesigned help surface. The footer is capped at 3 rows (identity + hints + optional
-  status). See Clarifications (Session 2026-06-05).
-- **Read-write status stays glanceable.** The compact identity line retains an at-a-glance
-  RW/RO indicator even after metadata is consolidated.
-- **Supported width range.** The interface targets terminals from roughly 40 to 200
-  columns; below 40 columns only the most critical affordances are guaranteed.
-- **No new dependency or terminal capability is introduced.** The redesign works within
-  the existing cell renderer and color palette; no new image protocol, mouse support, or
-  external library is assumed.
-- **Command-palette / fuzzy-action-search is out of scope** for this iteration; the
-  redesigned help surface is the discovery mechanism. It may be revisited later.
-- **Existing test conventions apply.** UI behavior is verified white-box by driving the
-  model and asserting on rendered view content, consistent with the project's TDD
-  approach.
+- **Operation semantics are unchanged.** The action menu and `Esc`-cancel are new *entry
+  points*; storage methods, write semantics, the two-tier confirmation model, and pre-execution
+  logging are preserved exactly (Constitution V honored).
+- **Keymap is reduced, not merely relocated.** Top-level write keys (`+ d u y m D`), refresh
+  (`r`), and cancel (`x`) are removed from the top level; their capabilities live in the menu
+  (writes + refresh) and on `Esc` (cancel).
+- **Arrows are primary; vim is secondary.** Arrow keys + Enter/Esc are the advertised
+  navigation (footer/menu show arrow glyphs). Vim aliases (`h/j/k/l`, `g/G`) stay bound and
+  functional but are advertised ONLY in the help surface (FR-031). No navigation capability is
+  removed — only its advertising.
+- **The actions key is `a`** (mnemonic "actions"); it is currently unbound at top level so it
+  does not collide with an existing action. Footer/help advertise it as `a actions`.
+- **Progressive disclosure for the footer.** Connection metadata is consolidated into one
+  compact identity row plus a help Connection section; hints are contextual, capped at 6, and
+  degrade with a `? more` cue. Footer ≤ 3 rows. See Clarifications.
+- **Supported width band.** The ≤ 3-row footer and zero-overflow guarantees apply within
+  40–200 columns. Below 40 columns is unsupported/best-effort (no layout guarantee); above 200
+  the layout simply does not look sparse.
+- **Accessibility / terminal-capability scope.** This iteration assumes the existing cell
+  renderer and 256-color palette; colour-blind/low-colour fallbacks, non-colour cue duplication,
+  and CJK/wide-glyph width edge cases are explicitly OUT OF SCOPE for 004 (candidate follow-up).
+- **No new dependency or terminal capability** is introduced (no mouse, no new image protocol).
+- **Command-palette / fuzzy action search is out of scope**; the action menu is contextual
+  (per-selection), not a global fuzzy finder. Help is the discovery surface for the full keymap.
+- **Existing test conventions apply.** UI behavior is verified white-box by driving the model
+  and asserting on rendered view content (TDD per Constitution III).

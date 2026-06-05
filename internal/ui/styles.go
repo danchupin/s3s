@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"sort"
 	"strings"
 	"time"
 
@@ -53,9 +54,10 @@ var (
 	segEndpointStyle = lipgloss.NewStyle().Foreground(colBlue)
 	segRegionStyle   = lipgloss.NewStyle().Foreground(colPurple)
 
-	errStyle   = lipgloss.NewStyle().Bold(true).Foreground(colErr)
-	warnStyle  = lipgloss.NewStyle().Foreground(colWarn)
-	emptyStyle = lipgloss.NewStyle().Faint(true).Foreground(colDim)
+	errStyle    = lipgloss.NewStyle().Bold(true).Foreground(colErr)
+	warnStyle   = lipgloss.NewStyle().Foreground(colWarn)
+	noticeStyle = lipgloss.NewStyle().Foreground(colOK) // success notices (green) — distinct from errStyle red
+	emptyStyle  = lipgloss.NewStyle().Faint(true).Foreground(colDim)
 )
 
 // column is a table column; width 0 means flex (absorbs remaining width).
@@ -261,108 +263,138 @@ func boxView(left, center, body string, width, minRows int) string {
 	return b.String()
 }
 
-// fseg is a pre-styled footer segment paired with its display width.
-type fseg struct {
-	s string
-	w int
+// --- footer: compact identity + contextual, capped, single-row hints ---
+
+const maxHints = 6 // SC-003: at most 6 hints shown at once
+
+// hint is one advertised footer action. prio governs survival under the count cap and
+// the width degrade (higher = kept longer); P0 help/quit use the top prio. Catalog
+// order is the display order; prio is independent of it.
+type hint struct {
+	key   string
+	label string
+	prio  int
+	show  func(hintCtx) bool
 }
 
-// wrapSegs joins segments with dim "·" separators, wrapping to additional lines
-// when they don't fit — so nothing is silently dropped (used for keybindings).
-func wrapSegs(width int, segs []fseg) string {
-	sep := dimCellStyle.Render(" · ")
-	const sepW = 3
-	var lines []string
-	var cur strings.Builder
-	used, first := 0, true
-	for _, sg := range segs {
-		if !first && used+sepW+sg.w > width {
-			lines = append(lines, cur.String())
-			cur.Reset()
-			used, first = 0, true
+// hintCtx is the snapshot the footer hint catalog reads (no I/O).
+type hintCtx struct {
+	mode         mode
+	searchActive bool
+	multiContext bool
+	width        int
+}
+
+func inList(c hintCtx) bool { return c.mode == modeBuckets || c.mode == modeTree }
+
+// hintCatalog returns the hints in DISPLAY order. Nav cues use arrow glyphs only
+// (FR-031); the write ops + refresh are NOT here — they live in the `a` action menu,
+// advertised by the single "a actions" hint.
+func hintCatalog() []hint {
+	always := func(hintCtx) bool { return true }
+	return []hint{
+		{"↵", "open", 90, inList},
+		{"esc", "clear", 85, func(c hintCtx) bool { return c.searchActive }},
+		{"esc", "back", 80, func(c hintCtx) bool { return !c.searchActive }},
+		{"/", "filter", 70, func(c hintCtx) bool { return c.mode == modeBuckets }},
+		{"/", "search", 70, func(c hintCtx) bool { return c.mode == modeTree }},
+		{"a", "actions", 60, inList},
+		{"c", "context", 40, func(c hintCtx) bool { return c.multiContext }},
+		{"1-9", "switch", 40, func(c hintCtx) bool { return c.multiContext }},
+		{"?", "help", 100, always},
+		{"q", "quit", 100, always},
+	}
+}
+
+// footerHints renders the single-row, priority-capped, width-fit hint line. When any
+// applicable hint is dropped (by the 6-cap or by width), a trailing "? more" cue is
+// appended (FR-001/FR-004). help/quit (top prio) survive every drop (FR-005).
+func footerHints(c hintCtx) string {
+	var app []hint
+	for _, h := range hintCatalog() {
+		if h.show(c) {
+			app = append(app, h)
 		}
-		if !first {
-			cur.WriteString(sep)
-			used += sepW
+	}
+	dropped := false
+	if len(app) > maxHints {
+		app = keepTopPrio(app, maxHints)
+		dropped = true
+	}
+	for {
+		s, w := renderHintRow(app, dropped)
+		if w <= c.width || len(app) <= 1 {
+			return s
 		}
-		cur.WriteString(sg.s)
-		used += sg.w
-		first = false
-	}
-	if cur.Len() > 0 {
-		lines = append(lines, cur.String())
-	}
-	return strings.Join(lines, "\n")
-}
-
-// labeledSeg is a "label value" footer segment with the value in its own hue.
-// The value is capped to both lim and the remaining line width so a single long
-// value (e.g. an endpoint) can never overflow.
-func labeledSeg(width int, label, val string, st lipgloss.Style, lim int) fseg {
-	if room := width - lipgloss.Width(label) - 2; room < lim {
-		lim = room
-	}
-	v := truncate(val, max(1, lim))
-	return fseg{
-		s: dimCellStyle.Render(label+" ") + st.Render(v),
-		w: lipgloss.Width(label + " " + v),
+		app = dropLowestPrio(app)
+		dropped = true
 	}
 }
 
-// footerIdentityLine: who/where we're connected — context, cluster, user, plus a
-// read-only/write-mode tag. [RW] (accented) means mutations are enabled for this
-// context; [RO] means read-only (no --write, or the context is readonly).
-func footerIdentityLine(width int, ctx, cluster, user string, writable bool) string {
+func renderHintRow(hs []hint, more bool) (string, int) {
+	parts := make([]string, 0, len(hs))
+	for _, h := range hs {
+		parts = append(parts, accentStyle.Render(h.key)+" "+dimCellStyle.Render(h.label))
+	}
+	s := strings.Join(parts, dimCellStyle.Render(" · "))
+	if more {
+		if s != "" {
+			s += dimCellStyle.Render(" · ")
+		}
+		s += dimCellStyle.Render("? more")
+	}
+	return s, lipgloss.Width(s)
+}
+
+// keepTopPrio keeps the n highest-prio hints, preserving the input (display) order.
+func keepTopPrio(hs []hint, n int) []hint {
+	idx := make([]int, len(hs))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return hs[idx[a]].prio > hs[idx[b]].prio })
+	keep := make(map[int]bool, n)
+	for _, i := range idx[:n] {
+		keep[i] = true
+	}
+	out := make([]hint, 0, n)
+	for i, h := range hs {
+		if keep[i] {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// dropLowestPrio removes the single lowest-prio hint (preserving order of the rest).
+func dropLowestPrio(hs []hint) []hint {
+	if len(hs) == 0 {
+		return hs
+	}
+	lo, loIdx := hs[0].prio, 0
+	for i, h := range hs {
+		if h.prio < lo {
+			lo, loIdx = h.prio, i
+		}
+	}
+	return append(append([]hint{}, hs[:loIdx]...), hs[loIdx+1:]...)
+}
+
+// footerIdentityCompact renders the single identity row: ● ctx [RW|RO], plus · cluster
+// if it fits (FR-007/FR-008). Endpoint/region/user/version are NOT shown here — they
+// move to the help surface.
+func footerIdentityCompact(width int, ctx, cluster string, writable bool) string {
 	tag, dotStyle, tagStyle := "[RO]", roStyle, dimCellStyle
 	if writable {
 		tag, dotStyle, tagStyle = "[RW]", accentStyle, accentStyle
 	}
-	segs := []fseg{{
-		s: dotStyle.Render("●") + " " + segCtxStyle.Render(truncate(ctx, max(1, width-6))) + tagStyle.Render(" "+tag),
-		w: lipgloss.Width("● " + truncate(ctx, max(1, width-6)) + " " + tag),
-	}}
-	if cluster != "" {
-		segs = append(segs, labeledSeg(width, "cluster", cluster, segClusterStyle, 32))
+	name := truncate(ctx, max(1, width-len(tag)-4))
+	head := dotStyle.Render("●") + " " + segCtxStyle.Render(name) + tagStyle.Render(" "+tag)
+	used := lipgloss.Width("● " + name + " " + tag)
+	if cluster != "" && used+lipgloss.Width(" · "+cluster) <= width {
+		head += dimCellStyle.Render(" · ") + segClusterStyle.Render(cluster)
 	}
-	if user != "" {
-		segs = append(segs, labeledSeg(width, "user", user, segUserStyle, 32))
-	}
-	return wrapSegs(width, segs)
-}
-
-// footerEndpointLine: connection details — endpoint, region, version.
-func footerEndpointLine(width int, endpoint, region, ver string) string {
-	var segs []fseg
-	if endpoint != "" {
-		segs = append(segs, labeledSeg(width, "endpoint", endpoint, segEndpointStyle, 60))
-	}
-	if region != "" {
-		segs = append(segs, labeledSeg(width, "region", region, segRegionStyle, 20))
-	}
-	segs = append(segs, labeledSeg(width, "s3s ver", ver, dimCellStyle, 20))
-	return wrapSegs(width, segs)
-}
-
-// footerHintsLine builds the colored keybinding line(s); wraps so every hint —
-// including help/quit — is always visible, even on narrow terminals. The "+ folder"
-// hint appears only where the key actually does something: a writable tree level.
-func footerHintsLine(width int, canNewFolder bool) string {
-	h := func(k, a string) fseg {
-		return fseg{s: accentStyle.Render(k) + " " + dimCellStyle.Render(a), w: lipgloss.Width(k + " " + a)}
-	}
-	segs := []fseg{
-		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
-	}
-	if canNewFolder {
-		segs = append(segs,
-			h("+", "folder"), h("d", "del"), h("u", "upload"),
-			h("y", "copy"), h("m", "move"), h("D", "rmdir"),
-		)
-	}
-	segs = append(segs,
-		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),
-	)
-	return wrapSegs(width, segs)
+	return head
 }
 
 // formatDate renders a date compactly, or an em dash when zero.

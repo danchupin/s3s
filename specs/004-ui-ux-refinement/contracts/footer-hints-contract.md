@@ -2,7 +2,7 @@
 
 Defines the observable behavior of the redesigned footer. Verified white-box by
 asserting on `App.View().Content` at chosen widths/modes. Maps to FR-001..009,
-FR-019, SC-001..003, SC-005, SC-007.
+FR-019, FR-031, SC-001..003, SC-005, SC-007, SC-009.
 
 ## C1 — Footer height
 
@@ -28,30 +28,32 @@ Hints are filtered by `hintCtx`, sorted by descending `prio`, **capped to the to
 applied before width-packing and is independent of width: at any width, at most 6 hints
 appear (FR-001, SC-003).
 
-| key | label | prio | visible when |
-|-----|-------|------|--------------|
+| key (glyph) | label | prio | visible when |
+|-------------|-------|------|--------------|
 | `?` | help | P0 | always (never dropped) |
 | `q` | quit | P0 | always (never dropped) |
-| `enter` | open | P1 | list modes (buckets/tree/context) |
+| `↵`/`enter` | open | P1 | list modes (buckets/tree/context) |
 | `esc` | back | P1 | tree (not at root) / object / context |
 | `/` | filter | P2 | buckets |
 | `/` | search | P2 | tree |
 | `esc` | clear | P2 | when `searchActive` (overrides `esc back` label; see C5) |
-| `d` | del | P3 | `writable && tree && selKind==object` |
-| `y` | copy | P3 | `writable && tree && selKind==object` |
-| `m` | move | P3 | `writable && tree && selKind==object` |
-| `D` | rmdir | P3 | `writable && tree && selKind==folder` |
-| `+` | folder | P3 | `writable && tree` |
-| `u` | upload | P3 | `writable && tree` |
-| `r` | refresh | P4 | list modes |
+| `a` | actions | P3 | list modes (buckets/tree) — see note |
 | `c` | context | P4 | `multiContext` |
 | `1-9` | switch | P4 | `multiContext` |
 
+The per-operation write hints (`d/u/y/m/D/+`) and the `r refresh` / `x cancel` hints are
+**removed** — they are replaced by the single `a actions` hint (the menu holds those
+operations + refresh). Navigation cues use **arrow glyphs**, not vim letters (FR-031,
+SC-009); vim aliases never appear in the footer.
+
 Rules:
-- **FR-002**: No P3 (write) hint appears when `!writable`.
-- **FR-003**: Object-only writes (`d`/`y`/`m`) hidden unless an object is selected;
-  `D rmdir` hidden unless a folder is selected; `c`/`1-9` hidden when `!multiContext`.
+- **FR-001/FR-028**: the footer advertises `a actions` instead of individual write keys.
+- **FR-002**: in read-only the menu still exists (Refresh only), so `a actions` MAY appear
+  but MUST NOT imply write capability; no individual write hint ever appears.
+- **FR-003**: `c`/`1-9` hidden when `!multiContext`.
 - **FR-005**: `? help` and `q quit` are P0 and survive every degrade.
+- **FR-031**: nav hint tokens render `↑/↓`, `↵`/`enter`, `esc` (arrow-family), never
+  `h/j/k/l`/`g`/`G`.
 
 ## C4 — Cap, degrade & "? more" cue
 
@@ -77,22 +79,24 @@ Rules:
 
 ## C6 — Mode/selection reactivity (FR + Edge cases)
 
-- Returning from object view to tree immediately restores write hints (no extra keypress).
-- With nothing selected, only level/global hints appear; no object/folder-specific hints.
+- Returning from object view to tree immediately restores the `a actions` hint.
+- The `a actions` hint shows in both buckets and tree list modes (the menu opens in both).
 
 ## Test obligations (TDD — write first, must fail before impl)
 
-1. `modeTree` writable + object selected at width 80 → hint row is **one line**, contains
-   `d`,`u`,`y`,`m`, `? help`, `q quit`; total footer rows ≤ 3 (SC-001).
-2. Read-only context, any mode/selection → **zero** of `d/u/y/m/D/+` appear anywhere in
-   the footer (SC-005).
+1. `modeTree` writable at width 80 → hint row is **one line**, contains `a` (actions),
+   `? help`, `q quit`, and does NOT contain `d`/`u`/`y`/`m`/`D`/`+`/`r`/`x`; footer ≤ 3 rows
+   (SC-001).
+2. Read-only context, any mode/selection → **zero** individual write hints (`d/u/y/m/D/+`)
+   anywhere in the footer (SC-005); `a actions` may still appear.
 3. Single context (`len==1`) → `1-9` and `c` hint absent.
 4. Width swept 40→200 → every footer line width ≤ width; footer rows ≤ 3 (SC-002).
 5. Narrow width that forces a drop → trailing `? more` present and `? help`+`q quit`
    still present (C4, FR-004/005).
-6. Folder selected → `D rmdir` present, `d/y/m` absent; object selected → inverse.
+6. Footer nav cues contain arrow glyphs (`↑`/`↓`/`↵`/`esc`) and NOT vim letters
+   (`h`/`j`/`k`/`l`/`g`/`G`) (FR-031, SC-009).
 7. Search active in tree → `esc clear` present AND `esc back` absent; search inactive →
    `esc back` present AND `esc clear` absent (C5, FR-009).
-8. A state yielding >6 applicable hints (writable tree, object selected, multi-context) at
-   a wide width (e.g. 200 cols) → hint row shows **at most 6** hints AND a `? more` cue
-   (C3/C4 count cap, SC-003). Count the rendered key tokens to assert ≤ 6.
+8. A state yielding >6 applicable hints (multi-context writable tree) at a wide width
+   (e.g. 200 cols) → hint row shows **at most 6** hints AND a `? more` cue if any dropped
+   (C3/C4 count cap, SC-003). Count rendered key tokens to assert ≤ 6.

@@ -1,128 +1,134 @@
-# Phase 0 Research: UI/UX Refinement
+# Phase 0 Research: UI/UX Refinement (Action Menu + Footer + Help + Feedback)
 
-All unknowns are design decisions internal to `internal/ui` (no external tech to
-evaluate). Each is resolved below with rationale and rejected alternatives.
+All unknowns are design decisions internal to `internal/ui`. Each resolved below.
 
-## D1 — Footer composition & 3-row budget
+## D1 — Action menu as a new modal mode
 
-**Decision**: `footerBlock` renders, in order: (1) one compact identity row, (2) one
-contextual hints row, (3) the existing transient status row *only when non-empty*. The
-standalone separator rule (`strings.Repeat("─", w)`, `app.go:542`) and the entire
-`footerEndpointLine` row are removed from the footer.
+**Decision**: Add `modeActionMenu` (a mode like `modeHelp`) with menu state on the model:
+the built item list + a selection index. Opened by `a` from `modeBuckets`/`modeTree`;
+rendered as a centered overlay box (reusing `boxView` styling) titled
+`actions: <selection>`. `onMenuKey` handles ↑/↓ (+ vim `j`/`k`) to move, Enter/→ to invoke
+the selected item, Esc/← to close. The menu is modal (owns keys while open) but does not
+block background loads.
 
-**Rationale**: The clarified budget is 3 rows (Session 2026-06-05). The box's rounded
-bottom border already provides a visual divider, so a dedicated rule row is redundant.
-Endpoint/region/version are reference data a user consults rarely → they belong in help,
-not in permanent footer real estate.
-
-**Alternatives considered**:
-- *Keep the separator rule* — costs a row for pure decoration; rejected against the
-  3-row cap.
-- *Keep endpoint line, drop only the rule* — still 4 rows on a busy screen; fails
-  FR-006. Rejected.
-
-## D2 — Contextual hint catalog, priorities & visibility predicates
-
-**Decision**: Define a static catalog of hints, each `{key, label, prio, visible(ctx)}`.
-At render time, filter by a small context struct (`mode`, `writable`, selection `isDir`
-/ none, `searching`, `searchActive`, `len(contexts)`, op active), sort by descending
-priority, **cap to the top `maxHints = 6`** (highest priority first), then greedily pack
-those into ONE row within `width`. The count cap is independent of width: even a 200-col
-terminal shows at most 6 hints (FR-001/SC-003). Priority tiers:
-
-| Tier | Hints | Visible when |
-|------|-------|--------------|
-| P0 (never dropped) | `? help`, `q quit` | always |
-| P1 | `enter open`, `esc back` | always (mode-appropriate label) |
-| P2 | `/ filter`\|`/ search`, `esc clear` (clear only when search active) | list modes |
-| P3 | `d del`, `u upload`, `+ folder`, `y copy`, `m move`, `D rmdir` | `writable && mode==tree`, gated by selection (object vs folder) |
-| P4 | `r refresh`, `c context`, `1-9 switch` (switch only when `len(contexts)>1`) | list modes / multi-context |
-
-Selection gating (FR-003): object-only actions (`d`, `y`, `m`) appear only when an object
-is selected; `D rmdir` only when a folder is selected; `+ folder`/`u upload` apply to the
-level so need no selection.
-
-**Rationale**: A declarative catalog with predicates keeps `footerBlock` a pure function
-of state — trivially testable per FR-001/002/003 and matching the project's "stateless
-render from selection indices" style. Priority tiers give a deterministic degrade order
-(FR-004) and guarantee the P0 escape hatches survive at any width (FR-005).
+**Rationale**: Mirrors the existing `modeHelp` pattern (minimal new machinery, stateless
+render from a selection index — matches the project's style). A mode keeps routing in the
+existing `onKey` switch.
 
 **Alternatives considered**:
-- *Per-mode hardcoded strings* (today's `footerHintsLine`) — duplicates logic, can't
-  degrade by priority, already the source of the clutter. Rejected.
-- *Wrap to multiple rows* (today's `wrapSegs`) — violates the single-row hints rule and
-  the 3-row cap. Rejected; `wrapSegs` stays available for help only / retired from footer.
+- *Inline popup anchored to the row* — more layout math, no real benefit. Rejected.
+- *Reuse the `operation` struct* — the menu precedes an operation; conflating them muddies
+  the op state machine. Rejected.
 
-## D3 — Overflow signalling ("? more")
+## D2 — Menu items dispatch the existing `start*` functions
 
-**Decision**: When the packer drops ≥1 hint due to width, append a trailing
-`dimCellStyle`-rendered `… ?` / `? more` segment as the final element (it is reserved
-space in the width budget so it always fits). When nothing is dropped, no cue is shown.
+**Decision**: Each menu item is `{label, invoke func() (tea.Model, tea.Cmd)}` bound to an
+existing entry point: `startCreateFolder`, `startRemoveObject`, `startUpload`, `startCopy`,
+`startMove`, `startRecursiveDelete`, `refresh`. Invoking an item calls that function, which
+already performs selection/writability validation and drives the existing name/dest entry +
+two-tier confirmation.
 
-**Rationale**: Clarified answer (Session 2026-06-05). Tells the user the keymap continues
-in help without the noise of a numeric count.
+**Rationale**: FR-026/FR-020 — zero change to operation semantics or safety. The menu is a
+pure new entry point; the `start*` funcs are already factored and reused verbatim.
 
-**Alternatives considered**: silent drop (no discoverability signal); `+N` count
-(noisy, count not actionable). Both rejected per clarification.
+**Alternatives considered**: re-implement op dispatch inside the menu — duplicates logic,
+risks diverging confirmation tiers. Rejected.
 
-## D4 — Compact identity row content
+## D3 — Contextual item set (FR-024/FR-025)
 
-**Decision**: `● <context> [RW|RO]` always; append `· <cluster>` only if it fits the row
-after the context+tag (reusing `labeledSeg`/`truncate` width-capping). User, endpoint,
-region, version are NOT in the footer.
+**Decision**: Build the item list from a `menuCtx` snapshot (mode, writable, selKind):
 
-**Rationale**: FR-007/FR-008 — context + read/write status must stay glanceable; cluster
-is cheap orientation when space allows; everything else is reference → help.
+| Context | Items (in order) |
+|---------|------------------|
+| buckets (any) | Refresh |
+| tree, read-only | Refresh |
+| tree, writable, object selected | Delete, Copy, Move/Rename, Upload here, New folder, Refresh |
+| tree, writable, folder selected | Recursive delete, Upload here, New folder, Refresh |
+| tree, writable, empty/none | Upload here, New folder, Refresh |
 
-**Alternatives considered**: keep user on the identity row (frequently long emails push
-the row to wrap/truncate; low orientation value). Rejected.
+Refresh is always last and always present (sole refresh entry point after `r` removal).
 
-## D5 — Redesigned help surface
+**Rationale**: FR-023/024/025 + clarified menu-scope answer (buckets+tree; buckets =
+Refresh only). Object-only ops gated on `selKind==object`; recursive delete on folder.
 
-**Decision**: `helpLines` becomes a method `m.helpLines()` returning categorized groups —
-**Navigation**, **Search & View**, **Context**, **Write**, **Global** — each action
-listing all key aliases (from `defaultKeys()` so help can never drift from bindings), plus
-a **Connection** section (context, cluster, endpoint, region, user, s3s version) sourced
-from `m.info`/`m.ctxName`/`Version`. Write actions are shown only when `m.writable` (or
-shown dimmed/marked "(write mode)"); the surface ends with an explicit
-"press any key to close" line.
+**Alternatives considered**: show all items always, disabling invalid ones — noisier, and
+inconsistent with the footer's "only what applies" principle. Rejected.
 
-**Rationale**: FR-010..014a. Deriving the key column from `defaultKeys()` keeps help and
-bindings in lock-step (prevents the classic stale-help bug). The Connection section is the
-new home for footer-evicted metadata (D1/D4).
+## D4 — Keymap reduction & cancel folding
 
-**Alternatives considered**:
-- *Command palette / fuzzy action search* — explicitly out of scope (spec Assumptions);
-  larger surface, new input mode. Deferred.
-- *Keep flat help list* — fails FR-011 categorization and doesn't house connection
-  metadata cleanly. Rejected.
+**Decision**: In `keys.go`, add `Menu: []string{"a"}` and remove the `Cancel: []string{"x"}`
+binding. In `tree.go` `onTreeKey`, delete the `case`s for NewFolder/Delete/Upload/Copy/Move/
+DeleteAll/Refresh and add `case matches(key, m.keys.Menu): return m.openActionMenu()`.
+`onBucketsKey` gains the same Menu case. In `app.go`, replace the two cancel paths
+(`Cancel && m.loading` at the global level, and the `phaseRunning` modal's `Cancel`) with
+the Back key: when a load or a running op is in flight, `Esc`/Back cancels; otherwise Back
+navigates. The `start*`/`refresh` functions remain defined and are now called only from the
+menu. The keyMap fields for write ops stay (used by the menu items + help text) but are no
+longer matched at top level — so a stray `d`/`u`/`y`/`m`/`D`/`+`/`r`/`x` does nothing.
 
-## D6 — Named loading & search-pending status
+**Rationale**: FR-028/FR-029/FR-030. Reuses the existing `cancelLoad()` and `start*` plumbing;
+the only behavior delta is the routing table. Net top-level interactive actions: Up, Down,
+Top, Bottom, Enter, Back(+cancel), Search, Context, Menu, Help, Quit (+ digit context
+switch) ≈ 11–12 ≤ 12 (SC-008).
 
-**Decision**: `statusLine`'s loading branch names the in-flight target derived from
-current state: object load when `mode==modeObject` (or op browse), level/listing load in
-`modeTree`, bucket load in `modeBuckets` (e.g. `loading object…`, `loading contents…`,
-`loading buckets…`). Add a search-pending indicator: while `m.searching` and a debounced
-search is scheduled but unfired, show `searching…` rather than a blank/echoing input.
+**Alternatives considered**: keep `x` as an alias for cancel — contradicts "fewer keys"
+(FR-029). Rejected. Unbinding write keys entirely (removing keyMap fields) — loses the
+single-source-of-truth the help text reads. Rejected; keep fields, drop top-level routing.
 
-**Rationale**: FR-015/FR-016. The model already knows mode and search state; wording is a
-pure function of it. No new async machinery.
+## D5 — Arrow-primary, vim secondary (FR-031)
 
-**Alternatives considered**: a generic "loading…" (status quo — ambiguous, fails FR-015).
+**Decision**: Navigation keeps BOTH arrow and vim bindings in `defaultKeys()` (functional).
+Only the *advertising* changes: footer hints and the menu's nav cue render arrow glyphs
+(`↑/↓`, `Enter`, `Esc`); the help surface lists the vim aliases (`h/j/k/l`, `g/G`) alongside
+the arrows. No binding is removed.
+
+**Rationale**: FR-031/FR-014c/SC-009 — power users keep vim; the advertised surface stays
+clean and beginner-legible. Pure presentation change (hint label text), no routing change.
+
+**Alternatives considered**: drop vim bindings — breaks muscle memory, user explicitly wants
+them kept (just hidden). Rejected.
+
+## D6 — Footer composition & 3-row budget
+
+**Decision**: `footerBlock` → identity row + hints row + optional status row. Remove the
+separator rule and the endpoint row. Hints come from a catalog filtered by `hintCtx`, sorted
+by priority, **capped at `maxHints = 6`**, packed to one row, dropping lowest-prio first with
+a `? more` cue. Write-op hints are replaced by a single `a actions` hint; `r`/`x` hints are
+gone. Identity = `● <ctx> [RW|RO]` + optional `· <cluster>`.
+
+**Rationale**: FR-001/004/006/007 + prior clarifications (3-row budget, cap 6, `? more`,
+metadata→help). The `a actions` hint replaces six, making the cap easy to satisfy.
+
+**Alternatives considered**: keep per-op hints (status quo) — the clutter being removed.
 Rejected.
 
-## D7 — Success-notice vs error distinction
+## D7 — Help surface (categorized + Actions + Connection)
 
-**Decision**: Render transient success notices in a success hue (reuse `colOK` green via a
-dedicated `noticeStyle`) distinct from `errStyle` red; keep clear-on-next-interaction
-behavior (already implemented). Typed-confirmation prompt continues to show the exact
-required target alongside input (already in `opPromptLine`); add a regression test.
+**Decision**: `helpLines()` → method `m.helpLines()` returning categorized sections —
+Navigation, Search & View, **Actions** (the menu key + its items, marking write-only),
+Context, Global — plus a **Connection** section (context, cluster, endpoint, region, user,
+version). Key column derived from `defaultKeys()` (no drift); vim aliases listed alongside
+arrows. Ends with an explicit close instruction.
 
-**Rationale**: FR-017/FR-018 — make the categories visually unambiguous and lock current
-safe behavior with tests.
+**Rationale**: FR-010..014c. Help is now the discovery surface for both the full keymap
+(incl. vim) and the menu's contents. Connection houses the footer-evicted metadata.
 
-**Alternatives considered**: leave notice on accent/coral (too close to the keybinding
-accent and to warnings). Rejected for clarity.
+**Alternatives considered**: command palette / fuzzy finder — out of scope (Assumptions).
+Rejected.
+
+## D8 — Named loading, Esc-cancel hint, search-pending, notice hue
+
+**Decision**: `statusLine` loading text names the target by state (`loading buckets…` /
+`loading contents…` / `loading object…`) and shows `(Esc to cancel)` (was `x`). Add a
+`searching…` pending branch while a debounced search is scheduled-but-unfired. Render
+`m.notice` with a green `noticeStyle` distinct from red `errStyle`. Typed-confirm prompt
+keeps showing the required target (existing `opPromptLine`).
+
+**Rationale**: FR-015/016/017/018 + FR-029 (cancel now Esc). Pure functions of existing
+state.
+
+**Alternatives considered**: generic "loading…" / keep `x` hint — fail FR-015/FR-029.
+Rejected.
 
 ---
 

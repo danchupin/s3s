@@ -26,7 +26,34 @@ const (
 	modeObject // combined metadata + content view (opened with Enter)
 	modeContextSwitch
 	modeHelp
+	modeActionMenu // contextual action menu (opened with 'a')
 )
+
+// selKind classifies the current tree selection for contextual hints/menu items.
+type selKind int
+
+const (
+	selNone selKind = iota
+	selObject
+	selFolder
+)
+
+// selKind reports the kind of the current tree selection (selNone outside the tree
+// or when nothing is selected). Used by the action menu and the footer hint catalog.
+func (m App) selKind() selKind {
+	if m.mode != modeTree {
+		return selNone
+	}
+	e := m.selected()
+	switch {
+	case e == nil:
+		return selNone
+	case e.isDir:
+		return selFolder
+	default:
+		return selObject
+	}
+}
 
 // levelState is the accumulated, cached view of one tree node across pages.
 type levelState struct {
@@ -89,6 +116,10 @@ type App struct {
 
 	// context switcher
 	ctxSel int
+
+	// action menu (modeActionMenu)
+	menuItems []menuItem
+	menuSel   int
 
 	// search/filter input
 	searching   bool
@@ -258,16 +289,16 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onSearchKey(msg)
 	}
 
-	// A running mutation is modal: only cancel (x) and quit work. Navigation and
+	// A running mutation is modal: only cancel (Esc/Back) and quit work. Navigation and
 	// starting another mutation are blocked so a streaming op is never superseded
 	// out from under its progress reader (which would orphan the worker goroutine)
-	// and so two mutations can't run at once.
+	// and so two mutations can't run at once. Cancel is the back/escape key (FR-029).
 	if m.op != nil && m.op.phase == phaseRunning {
 		switch {
 		case matches(key, m.keys.Quit):
 			(&m).cancelLoad()
 			return m, tea.Quit
-		case matches(key, m.keys.Cancel):
+		case matches(key, m.keys.Back):
 			(&m).cancelLoad()
 			return m, nil
 		}
@@ -292,14 +323,22 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.mode = m.prevMode
 		return m, nil
 	}
+
+	// The action menu is modal: it owns keys (incl. Esc, which closes the menu) BEFORE
+	// the load-cancel binding below, so an open menu's Esc closes the menu and does NOT
+	// cancel a background load (FR-029 modal precedence).
+	if m.mode == modeActionMenu {
+		return m.onMenuKey(key)
+	}
+
 	if matches(key, m.keys.Help) {
 		m.prevMode = m.mode
 		m.mode = modeHelp
 		return m, nil
 	}
 
-	// Cancel in-flight load.
-	if matches(key, m.keys.Cancel) && m.loading {
+	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
+	if matches(key, m.keys.Back) && m.loading {
 		(&m).cancelLoad()
 		return m, nil
 	}
@@ -335,6 +374,8 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		m.bucketSel = max(0, n-1)
 	case matches(key, m.keys.Search):
 		return m.startSearch() // "/" filters bucket names (FR: bucket filter)
+	case matches(key, m.keys.Menu):
+		return m.openActionMenu()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
 	case len(key) == 1 && key[0] >= '1' && key[0] <= '9':
@@ -493,6 +534,12 @@ func (m App) View() tea.View {
 		return v
 	}
 
+	if m.mode == modeActionMenu {
+		v := tea.NewView(m.actionMenuView(w))
+		v.AltScreen = true
+		return v
+	}
+
 	footer := m.footerBlock(w)
 	footerH := strings.Count(footer, "\n") + 1
 	// Inner box height = total minus the footer and the two border lines. The box
@@ -538,16 +585,29 @@ func (m App) View() tea.View {
 // line, and a transient status line. Each line is fit to the width segment-by-
 // segment so nothing wraps (which would otherwise hide a line).
 func (m App) footerBlock(w int) string {
+	// ≤ 3 rows: compact identity, one contextual hint row, optional status (FR-006).
 	lines := []string{
-		ruleStyle.Render(strings.Repeat("─", w)),
-		footerIdentityLine(w, m.ctxName, m.info.Cluster, m.info.User, m.writable),
-		footerEndpointLine(w, m.info.Endpoint, m.info.Region, Version),
-		footerHintsLine(w, m.writable && m.mode == modeTree),
+		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable),
+		footerHints(hintCtx{
+			mode:         m.mode,
+			searchActive: m.searchActive(),
+			multiContext: len(m.contexts) > 1,
+			width:        w,
+		}),
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// searchActive reports whether a search/filter is applied or being typed (drives the
+// footer's esc-clear vs esc-back disambiguation, FR-009).
+func (m App) searchActive() bool {
+	if m.mode == modeBuckets {
+		return m.bucketFilter != "" || m.searching
+	}
+	return m.search != "" || m.searching
 }
 
 // statusLine is the transient bottom line: filter/search input, loading, or
@@ -567,19 +627,31 @@ func (m App) statusLine(w int) string {
 		}
 	}
 	if m.searching {
-		label := "search"
+		// Bucket filter is instant; a tree search is debounced — show it is pending
+		// (FR-016) so the delay reads as intentional.
+		label, suffix := "search", "▏  searching…  (Enter apply · Esc clear)"
 		if m.mode == modeBuckets {
-			label = "filter"
+			label, suffix = "filter", "▏  (Enter apply · Esc clear)"
 		}
-		const suffix = "▏  (Enter apply · Esc clear)"
 		input := truncate(m.searchInput, max(1, w-len(label)-2-len(suffix)))
 		return accentStyle.Render(label+": ") + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
 	}
 	if m.loading {
-		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" loading…  (x to cancel)")
+		// Name what is loading (FR-015); cancel is the back/escape key now (FR-029).
+		what := "loading…"
+		switch m.mode {
+		case modeBuckets:
+			what = "loading buckets…"
+		case modeTree:
+			what = "loading contents…"
+		case modeObject:
+			what = "loading object…"
+		}
+		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" "+what+"  (Esc to cancel)")
 	}
 	if m.notice != "" {
-		return accentStyle.Render(truncate(m.notice, max(1, w-1)))
+		// Success notices are green (noticeStyle), visually distinct from red errors (FR-018).
+		return noticeStyle.Render(truncate(m.notice, max(1, w-1)))
 	}
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))

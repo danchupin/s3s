@@ -55,20 +55,8 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.treeSel = max(0, n-1)
 	case matches(key, m.keys.Search):
 		return m.startSearch()
-	case matches(key, m.keys.Refresh):
-		return m.refresh()
-	case matches(key, m.keys.NewFolder):
-		return m.startCreateFolder()
-	case matches(key, m.keys.Delete):
-		return m.startRemoveObject()
-	case matches(key, m.keys.Upload):
-		return m.startUpload()
-	case matches(key, m.keys.Copy):
-		return m.startCopy()
-	case matches(key, m.keys.Move):
-		return m.startMove()
-	case matches(key, m.keys.DeleteAll):
-		return m.startRecursiveDelete()
+	case matches(key, m.keys.Menu):
+		return m.openActionMenu()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
 	case matches(key, m.keys.Enter):

@@ -1,4 +1,4 @@
-# Implementation Plan: UI/UX Refinement — Footer Redesign & Key Discoverability
+# Implementation Plan: UI/UX Refinement — Action Menu, Footer Redesign & Key Discoverability
 
 **Branch**: `004-ui-ux-refinement` | **Date**: 2026-06-05 | **Spec**: [spec.md](./spec.md)
 
@@ -6,48 +6,48 @@
 
 ## Summary
 
-Declutter the TUI footer and relocate shortcut discovery. Today `footerBlock`
-(`internal/ui/app.go:540`) stacks up to five rows — separator rule, identity line,
-endpoint line, a hints line that lists ~13 shortcuts via `wrapSegs` (which *wraps*
-rather than drops), and a status line — so on narrow terminals the footer eats 6+ rows.
-
-The redesign caps the footer at **3 rows** (identity + hints + optional status): a single
-compact identity row (context + `[RW]`/`[RO]`, cluster if it fits), a **contextual,
-priority-ordered, single-row** hints line scoped to the current mode + selection +
-context capability + width (dropping lowest-priority hints first and appending a
-`? more` cue when anything is hidden), and the existing transient status row. The full
-keymap plus the connection metadata removed from the footer (endpoint, region, user,
-version) move into a **redesigned, categorized help surface**. Loading/search/confirm
-status gets clearer wording. All changes are confined to `internal/ui` — no storage,
-SDK, write-semantics, or confirmation-model changes.
+Reduce the TUI keymap and declutter the footer. The six top-level write keys
+(`+ d u y m D`) and `r` refresh collapse into a single **contextual action menu** opened
+by `a`; `x` cancel folds into `Esc` (contextual: cancels an in-flight load). The menu is a
+new modal overlay in `internal/ui` that lists only the actions valid for the current
+selection/context and, when chosen, dispatches the **existing** `start*` operation
+functions unchanged — so name/destination entry and the two-tier confirmation are
+preserved exactly (Constitution V). The footer becomes ≤ 3 rows: a compact identity row,
+a single contextual hint row (capped at 6, advertising `a actions` instead of six write
+keys, arrow glyphs as primary nav), and an optional status row. Connection metadata and
+the full keymap (including the menu's contents and the vim aliases) move into a
+redesigned, categorized help surface. Status feedback names what is loading, shows
+search-pending, and distinguishes success (green) from error (red). All changes are
+confined to `internal/ui`; no `internal/storage`, SDK, or write-semantics change.
 
 ## Technical Context
 
-**Language/Version**: Go 1.25 (`go.mod`)
+**Language/Version**: Go 1.25 (`go.mod`).
 
 **Primary Dependencies**: Bubble Tea v2 (`charm.land/bubbletea/v2`), Lipgloss v2
-(`charm.land/lipgloss/v2`). No new dependency introduced.
+(`charm.land/lipgloss/v2`). No new dependency.
 
-**Storage**: N/A — this feature does not touch `internal/storage`; no S3 calls change.
+**Storage**: N/A — `internal/storage` untouched; no S3 calls change.
 
-**Testing**: `go test` white-box UI tests in `package ui` (drive the model with
-`press`/`deliver`, assert on `App.View().Content`); in-memory `storage.Fake` for any
-backend the model needs. No new integration tests (no storage-contract change).
+**Testing**: `go test` white-box UI tests in `package ui` (`press`/`deliver` helpers,
+assert on `App.View().Content`); in-memory `storage.Fake`. No new integration tests.
 
 **Target Platform**: Terminal (xterm-256color cell renderer; Bubble Tea v2 alt-screen).
 
-**Project Type**: Single-project Go TUI (CLI/desktop-app). Existing `internal/ui` package.
+**Project Type**: Single-project Go TUI. Existing `internal/ui` package.
 
-**Performance Goals**: Render stays non-blocking (Constitution II); footer/hints/help
-assembly is pure string work with no I/O — no measurable render-time impact.
+**Performance Goals**: Render stays non-blocking (Constitution II); menu/footer/help are
+pure string assembly; operations still dispatch via `tea.Cmd`.
 
-**Constraints**: Footer ≤ 3 rendered rows at any width; zero horizontal overflow for
-terminal widths 40–200; hint row is exactly one row (degrades, never wraps); `? help`
-and `q quit` affordances always reachable; secrets stay redacted; every existing
-keybinding keeps working and is discoverable in help in one step.
+**Constraints**: Footer ≤ 3 rows; hint row one line, ≤ 6 hints; zero overflow 40–200 cols
+(below 40 best-effort); top-level interactive actions ≤ 12 (aliases/`1-9` count once); arrows
+primary, Top/Bottom unadvertised (vim + Home/End help-only); single status row by precedence
+(op-prompt > running > loading > search-pending > notice > error, FR-018a); Esc modal
+precedence (open overlay closes first, no background-load cancel, FR-029); operation semantics
+& confirmation tiers preserved; secrets redacted.
 
-**Scale/Scope**: ~5 source files touched in `internal/ui` (`styles.go`, `app.go`,
-`keys.go`, plus tests; small helper additions). No new packages.
+**Scale/Scope**: ~7 files in `internal/ui` (1 new source + 1 new test + edits to
+`keys.go`, `app.go`, `tree.go`, `styles.go`, plus test files). No new packages.
 
 ## Constitution Check
 
@@ -55,13 +55,13 @@ keybinding keeps working and is discoverable in help in one step.
 
 | Principle | Assessment | Verdict |
 |-----------|------------|---------|
-| **I. Core/UI Separation** | All work is in `internal/ui`; no import of the S3 SDK; `internal/storage` untouched. Pure presentation. | PASS |
-| **II. Non-Blocking TUI** | No new I/O on the render path; footer/hints/help are synchronous string assembly. No `tea.Cmd` changes. | PASS |
-| **III. Test-First (NON-NEGOTIABLE)** | Each slice starts with a failing white-box UI test (footer row-count/width, contextual-hint visibility, `? more` cue, categorized help content, named loading). | PASS |
-| **IV. Integration Testing** | No storage-client contract change → no new real-backend tests required; existing integration suite unaffected. | PASS (N/A) |
-| **V. Observability & Safe Operations** | Two-tier confirmation and pre-execution logging are preserved exactly (FR-017, FR-020); secret redaction preserved (FR-021). No destructive behavior added. | PASS |
+| **I. Core/UI Separation** | All work in `internal/ui`; no S3 SDK import; `internal/storage` untouched. | PASS |
+| **II. Non-Blocking TUI** | Menu/footer/help are synchronous string work; operations still run in `tea.Cmd`; no new render-path I/O. | PASS |
+| **III. Test-First (NON-NEGOTIABLE)** | Each slice starts with failing white-box tests (menu contextual items, removed-keys-inert, footer rows/cap, help Actions/Connection, named loading). | PASS |
+| **IV. Integration Testing** | No storage-client contract change → no new real-backend tests; existing suite unaffected. | PASS (N/A) |
+| **V. Observability & Safe Operations** | Menu only re-enters the existing `start*` flows; two-tier confirmation + pre-execution logging preserved (FR-026/FR-020); secret redaction preserved (FR-021). No new destructive path. | PASS |
 
-**Result**: No violations. Complexity Tracking left empty.
+**Result**: No violations. Complexity Tracking empty.
 
 ## Project Structure
 
@@ -70,44 +70,57 @@ keybinding keeps working and is discoverable in help in one step.
 ```text
 specs/004-ui-ux-refinement/
 ├── plan.md              # This file
-├── research.md          # Phase 0 output
-├── data-model.md        # Phase 1 output
-├── quickstart.md        # Phase 1 output
-├── contracts/           # Phase 1 output
-│   ├── footer-hints-contract.md
-│   └── help-surface-contract.md
+├── research.md          # Phase 0
+├── data-model.md        # Phase 1
+├── quickstart.md        # Phase 1
+├── contracts/           # Phase 1
+│   ├── action-menu-contract.md     # NEW
+│   ├── footer-hints-contract.md    # UPDATED (a actions, arrows, no write/refresh/cancel keys)
+│   └── help-surface-contract.md    # UPDATED (Actions section, vim aliases, arrow-primary)
 ├── checklists/
-│   └── requirements.md  # from /speckit-specify + /speckit-clarify
-└── tasks.md             # /speckit-tasks output (NOT created here)
+│   ├── requirements.md
+│   └── ux.md
+└── tasks.md             # /speckit-tasks output (regenerated for new scope)
 ```
 
 ### Source Code (repository root)
 
 ```text
 internal/ui/
-├── styles.go        # CHANGE: replace footerHintsLine + footerEndpointLine usage;
-│                    #   add hint catalog (hint{key,label,prio,predicate}), the
-│                    #   single-row priority packer with "? more" cue, and a slimmer
-│                    #   compact identity builder. footerEndpointLine retired from footer.
-├── app.go           # CHANGE: footerBlock → identity + hints + status (drop separator
-│                    #   rule + endpoint line; ≤3 rows). statusLine: name what is loading;
-│                    #   add search-pending indicator. Pass mode/selection/contexts to hints.
-├── keys.go          # CHANGE: helpView/helpLines → method on App; categorized sections
-│                    #   (Navigation / Search & View / Context / Write / Global) + a
-│                    #   Connection section (endpoint, region, user, version, context,
-│                    #   cluster); reflect writable; explicit close hint.
-├── footer_test.go   # CHANGE/ADD: row-count ≤3, hint-row single line, contextual
-│                    #   visibility (RO hides writes; 1 context hides 1-9; selection-aware),
-│                    #   "? more" cue on overflow, width 40–200 no overflow.
-├── keys_test.go     # ADD: categorized help lists every action + aliases; connection
-│                    #   section present; writable reflected; close hint present. (new file)
-└── app_test.go      # CHANGE/ADD: named loading line; notice vs error distinct hue.
+├── actionmenu.go        # NEW: modeActionMenu state; contextual item builder
+│                        #   (buckets→[Refresh]; tree writable→selection-gated set; RO→[Refresh]);
+│                        #   menu overlay view; onMenuKey (↑/↓ + vim move, Enter→invoke start*,
+│                        #   Esc/Back→close). Items dispatch existing startCreateFolder/
+│                        #   startRemoveObject/startUpload/startCopy/startMove/
+│                        #   startRecursiveDelete/refresh — NO new op logic.
+├── actionmenu_test.go   # NEW: US1 white-box tests (contextual items, RO, removed-keys inert,
+│                        #   invoke enters existing op flow, Esc cancels load).
+├── keys.go              # CHANGE: keyMap adds Menu []string{"a"}; remove Cancel "x" (fold into
+│                        #   Back-when-loading); keep all write/refresh fields BOUND-but-not-top-
+│                        #   level-routed (invoked from menu). helpLines→ m.helpLines() categorized
+│                        #   (Navigation/Search & View/Actions/Context/Global + Connection),
+│                        #   listing vim aliases + the menu contents; arrow-primary.
+├── tree.go              # CHANGE onTreeKey: remove cases for NewFolder/Delete/Upload/Copy/Move/
+│                        #   DeleteAll/Refresh; add case Menu → openActionMenu(); Back unchanged.
+├── app.go               # CHANGE: onKey routes Menu (buckets+tree) and modeActionMenu; replace
+│                        #   `Cancel && loading` + phaseRunning Cancel with Back-key cancel (FR-029);
+│                        #   View() renders the menu overlay; footerBlock → 3 rows (identity+hints+
+│                        #   status), drop separator+endpoint; statusLine names load + "Esc to
+│                        #   cancel" + search-pending + notice hue. onBucketsKey adds Menu case.
+├── styles.go            # CHANGE: hint catalog (a actions, arrow glyphs, no d/u/y/m/D/+/r/x;
+│                        #   cap 6 + "? more"); compact identity builder; noticeStyle (green);
+│                        #   menu overlay render helper.
+├── footer_test.go       # CHANGE/ADD: footer ≤3 rows, one-line hint, a actions present & write
+│                        #   keys absent, cap 6, "? more", esc clear/back, width 40–200.
+├── keys_test.go         # NEW: categorized help lists all actions+aliases incl vim + Actions
+│                        #   (menu) section + Connection; writable reflection; close hint.
+└── app_test.go          # CHANGE/ADD: named loading + "Esc to cancel"; search-pending; notice
+                         #   vs error hue; Back cancels in-flight load; removed top-level keys inert.
 ```
 
-**Structure Decision**: Single Go project; all changes live in the existing
-`internal/ui` package. No new packages, files limited to UI presentation plus their
-white-box tests. `internal/storage`, `cmd/s3s`, and `scripts/check-readonly.sh` are
-untouched.
+**Structure Decision**: Single Go project; all changes in `internal/ui`. One new source
+file (`actionmenu.go`) for the menu modal; the rest are edits. `internal/storage`,
+`cmd/s3s`, and `scripts/check-readonly.sh` untouched.
 
 ## Complexity Tracking
 

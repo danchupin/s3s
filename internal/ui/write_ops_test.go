@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/danchupin/s3s/internal/localfs"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
@@ -59,9 +61,9 @@ func TestDeleteObjectTypedConfirmFlow(t *testing.T) {
 	m := treeApp(f, true)
 	selectObject(&m, "a.txt")
 
-	m = press(m, "d")
+	m = viaMenu(t, m, "delete")
 	if m.op == nil || m.op.kind != "delete_object" || m.op.tier != confirmTyped {
-		t.Fatalf("d should start a typed delete op; got %+v", m.op)
+		t.Fatalf("menu delete should start a typed delete op; got %+v", m.op)
 	}
 	if m.op.expect != "a.txt" {
 		t.Errorf("typed expect = %q, want a.txt", m.op.expect)
@@ -86,7 +88,10 @@ func TestDeleteObjectReadOnlyRefused(t *testing.T) {
 	f.Seed("b", "a.txt")
 	m := treeApp(f, false)
 	selectObject(&m, "a.txt")
-	m = press(m, "d")
+	// In a read-only context the menu offers no delete item; the defensive guard in
+	// the entry point still refuses if invoked directly.
+	mm, _ := m.startRemoveObject()
+	m = mm.(App)
 	if m.op != nil {
 		t.Error("read-only context must not start a delete op")
 	}
@@ -123,9 +128,9 @@ func TestUploadBrowserOverwriteEscalation(t *testing.T) {
 	mkFile(t, filepath.Join(dir, "fresh.txt"), "data")
 
 	m := treeApp(f, true)
-	m = press(m, "u")
+	m = viaMenu(t, m, "upload here")
 	if m.op == nil || m.op.phase != phaseBrowse {
-		t.Fatalf("u should open the file browser; got %+v", m.op)
+		t.Fatalf("menu upload should open the file browser; got %+v", m.op)
 	}
 	// Point the browser at our temp dir directly.
 	mm, _ := (&m).openBrowser(dir)
@@ -139,8 +144,7 @@ func TestUploadBrowserOverwriteEscalation(t *testing.T) {
 		t.Errorf("overwrite should be typed with expect=exists.txt; got tier=%v expect=%q", mcApp.op.tier, mcApp.op.expect)
 	}
 
-	// A non-colliding key uses the simple tier.
-	m = press(m, "u")
+	// A non-colliding key uses the simple tier (the upload op is still in browse).
 	mm, _ = (&m).openBrowser(dir)
 	m = mm.(App)
 	fresh := findEntry(t, m, "fresh.txt")
@@ -195,9 +199,9 @@ func TestCopyDestEntryAndTiers(t *testing.T) {
 	m := treeApp(f, true)
 	selectObject(&m, "src.txt")
 
-	m = press(m, "y")
+	m = viaMenu(t, m, "copy")
 	if m.op == nil || m.op.kind != "copy" || m.op.phase != phaseDest {
-		t.Fatalf("y should start a copy dest entry; got %+v", m.op)
+		t.Fatalf("menu copy should start a copy dest entry; got %+v", m.op)
 	}
 	if m.op.dstKey != "src.txt" {
 		t.Errorf("dest should be prefilled with source key; got %q", m.op.dstKey)
@@ -235,9 +239,9 @@ func TestMoveAlwaysTypedAndPartial(t *testing.T) {
 	m := treeApp(f, true)
 	selectObject(&m, "src.txt")
 
-	m = press(m, "m")
+	m = viaMenu(t, m, "move / rename")
 	if m.op == nil || m.op.kind != "move" {
-		t.Fatalf("m should start a move; got %+v", m.op)
+		t.Fatalf("menu move should start a move; got %+v", m.op)
 	}
 	// Even a free destination is typed (the source is removed).
 	m.op.dstKey = "dst.txt"
@@ -270,9 +274,9 @@ func TestRecursiveDeleteTypedAndPartialCounts(t *testing.T) {
 	m := treeApp(f, true)
 	selectDir(&m, "p/")
 
-	m = press(m, "D")
+	m = viaMenu(t, m, "recursive delete")
 	if m.op == nil || m.op.kind != "delete_recursive" || m.op.tier != confirmTyped {
-		t.Fatalf("D should start a typed recursive delete; got %+v", m.op)
+		t.Fatalf("menu recursive delete should start a typed recursive delete; got %+v", m.op)
 	}
 	if m.op.expect != "p/" {
 		t.Errorf("recursive expect = %q, want p/", m.op.expect)
@@ -305,23 +309,27 @@ func TestWriteOpsReadOnlyRefused(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "obj.txt", "p/a")
 	cases := []struct {
-		key string
-		sel func(*App)
+		name   string
+		sel    func(*App)
+		invoke func(App) (tea.Model, tea.Cmd)
 	}{
-		{"u", func(*App) {}},
-		{"y", func(m *App) { selectObject(m, "obj.txt") }},
-		{"m", func(m *App) { selectObject(m, "obj.txt") }},
-		{"D", func(m *App) { selectDir(m, "p/") }},
+		{"upload", func(*App) {}, App.startUpload},
+		{"copy", func(m *App) { selectObject(m, "obj.txt") }, App.startCopy},
+		{"move", func(m *App) { selectObject(m, "obj.txt") }, App.startMove},
+		{"recursive", func(m *App) { selectDir(m, "p/") }, App.startRecursiveDelete},
 	}
 	for _, c := range cases {
 		m := treeApp(f, false)
 		c.sel(&m)
-		m = press(m, c.key)
+		// The read-only menu offers no write item; the entry point's defensive guard
+		// still refuses with ErrReadOnly if invoked directly.
+		mm, _ := c.invoke(m)
+		m = mm.(App)
 		if m.op != nil {
-			t.Errorf("key %q: read-only must not start an op; got %+v", c.key, m.op)
+			t.Errorf("%s: read-only must not start an op; got %+v", c.name, m.op)
 		}
 		if !errors.Is(m.err, storage.ErrReadOnly) {
-			t.Errorf("key %q: err = %v, want ErrReadOnly", c.key, m.err)
+			t.Errorf("%s: err = %v, want ErrReadOnly", c.name, m.err)
 		}
 	}
 }
@@ -374,7 +382,7 @@ func TestMoveOntoExistingWarnsOverwrite(t *testing.T) {
 	f.Seed("b", "src.txt", "dst.txt")
 	m := treeApp(f, true)
 	selectObject(&m, "src.txt")
-	m = press(m, "m")
+	m = viaMenu(t, m, "move / rename")
 	m.op.dstKey = "dst.txt"
 	out, _ := m.submitDest()
 	app := out.(App)

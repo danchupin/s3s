@@ -114,24 +114,25 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 004-ui-ux-refinement (UI/UX refinement — declutter footer & key
-discoverability; presentation-only, no storage/SDK/write-semantics change). Builds on
-003-object-write-ops (object write ops) — complete. 002-write-foundation — complete.
+Active feature: 004-ui-ux-refinement (UI/UX refinement — action menu + keymap reduction,
+footer declutter, key discoverability; presentation-only, no storage/SDK/write-semantics
+change). Builds on 003-object-write-ops — complete. 002-write-foundation — complete.
 001-s3-readonly-browser — complete.
 
 Plan: specs/004-ui-ux-refinement/plan.md. Design artifacts
 (specs/004-ui-ux-refinement/): research.md, data-model.md, contracts/
-(footer-hints-contract, help-surface-contract), quickstart.md. Governed by
-Constitution v1.0.0. Key approach (all in `internal/ui`): cap `footerBlock` at 3 rows —
-one compact identity row (`● ctx [RW|RO] · cluster`), one contextual single-row hint line,
-one optional status row; drop the separator rule + `footerEndpointLine`. Hints become a
-static catalog (`hint{key,label,prio,visible(hintCtx)}`) filtered by mode/selection/
-writable/multiContext/width, sorted by priority, packed to ONE row, dropping lowest-prio
-first and appending a `? more` cue on overflow; P0 `? help`/`q quit` never dropped; no
-write hints when `!writable`. Redesigned help (`m.helpLines()`): categorized sections
-(Navigation/Search & View/Context/Write/Global) + a Connection section housing the
-footer-evicted endpoint/region/user/version; key column derived from `defaultKeys()`
-(no drift). Status: name what's loading (buckets/contents/object), `searching…` pending
-indicator, green `noticeStyle` vs red `errStyle`. Two-tier confirmation + redaction
-preserved; `check-readonly.sh` unaffected (no SDK changes).
+(action-menu-contract, footer-hints-contract, help-surface-contract), quickstart.md.
+Governed by Constitution v1.0.0. Key approach (all in `internal/ui`): NEW `actionmenu.go`
+adds `modeActionMenu` — `a` opens a contextual menu (buckets→[Refresh]; tree writable→
+selection-gated Delete/Copy/Move OR Recursive-delete + Upload/New-folder/Refresh; RO→
+[Refresh]); items dispatch the EXISTING `start*`/`refresh` funcs unchanged (two-tier confirm
+preserved). `keys.go`: add `Menu:"a"`, remove `Cancel:"x"`; `tree.go` onTreeKey drops the
+write/refresh cases, adds Menu; `app.go` folds cancel into Back-when-loading (+ phaseRunning),
+routes the menu, renders the overlay. Net top-level ≤ 12 keys (SC-008). Arrows are the
+advertised nav (footer/menu show arrow glyphs); vim (`hjkl`,`g/G`) stays bound, shown only in
+help (FR-031). `footerBlock` ≤ 3 rows (identity + capped-6 hint row with `a actions` instead
+of write keys + `? more`; drop separator + endpoint). Help (`m.helpLines()`): categorized
+Navigation/Search & View/Actions(menu)/Context/Global + Connection (footer-evicted metadata);
+keys from `defaultKeys()` incl vim. Status: named loading + `(Esc to cancel)`, `searching…`,
+green `noticeStyle` vs red `errStyle`. `check-readonly.sh` unaffected (no SDK changes).
 <!-- SPECKIT END -->

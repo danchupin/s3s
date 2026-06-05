@@ -1,86 +1,95 @@
 # Phase 1 Data Model: UI/UX Refinement
 
-This is a presentation feature; "entities" are in-memory view constructs in
-`internal/ui`, not persisted data. No storage schema changes.
+Presentation feature; "entities" are in-memory view constructs in `internal/ui`. No
+storage schema change.
 
-## Entity: Hint
+## Entity: MenuItem
 
-A single advertised footer action.
+A single action in the contextual action menu.
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `key` | string | Display key token, e.g. `enter`, `/`, `d`, `?`. May be a group (`1-9`). |
-| `label` | string | Short verb, e.g. `open`, `del`, `help`. |
-| `prio` | int | Degrade priority. Higher = kept longer under width pressure. P0 (help/quit) never dropped. |
-| `visible` | predicate over `hintCtx` | Returns whether the hint applies to current state. |
+| `label` | string | Display text, e.g. `delete`, `move / rename`, `refresh`. |
+| `invoke` | `func() (tea.Model, tea.Cmd)` | Bound to an existing entry point (`startRemoveObject`, `startCopy`, `startMove`, `startUpload`, `startCreateFolder`, `startRecursiveDelete`, `refresh`). |
+| `writeOnly` | bool | True for mutating items (hidden in read-only). |
 
-**Catalog** (static, see contracts/footer-hints-contract.md for exact priorities &
-labels). Derived key tokens reference `defaultKeys()` so they cannot drift from real
-bindings.
+## Entity: menuCtx (render/build input)
 
-## Entity: hintCtx (render input)
-
-Pure snapshot the footer hint builder reads — no I/O.
+Pure snapshot used to build the item list — no I/O.
 
 | Field | Type | Source |
 |-------|------|--------|
-| `mode` | mode | `m.mode` |
+| `mode` | mode | `m.mode` (buckets vs tree) |
 | `writable` | bool | `m.writable` |
 | `selKind` | enum {none, object, folder} | from `m.selected()` (`isDir`) / nil |
-| `searchActive` | bool | `m.search != ""` (tree) or `m.bucketFilter != ""` (buckets) |
-| `searching` | bool | `m.searching` (input open) |
-| `multiContext` | bool | `len(m.contexts) > 1` |
-| `opActive` | bool | `m.op != nil` |
-| `width` | int | terminal width |
 
-## Entity: Footer (render output)
+Build rules (see contracts/action-menu-contract.md C2): buckets→[Refresh];
+tree+RO→[Refresh]; tree+writable gated by `selKind`; Refresh always last/present.
 
-Composite bottom region, ≤ 3 rows.
-
-| Row | Content | Condition |
-|-----|---------|-----------|
-| identity | `● <ctx> [RW|RO]` + optional `· <cluster>` | always (1 row, never wraps) |
-| hints | top-`maxHints`(=6) by priority, packed to a single row + optional trailing `? more` | always (1 row, never wraps) |
-| status | loading / search / confirm / notice / error | only when a status exists |
-
-Invariant: total rendered rows ≤ 3; every row width ≤ terminal width.
-
-## Entity: HelpSection
-
-A labelled group in the help surface.
+## Entity: Action menu (mode state)
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `title` | string | One of: Navigation, Search & View, Context, Write, Global, Connection |
+| `mode == modeActionMenu` | mode flag | Active while the menu is open. |
+| `menuItems` | []MenuItem | Built on open from `menuCtx`. |
+| `menuSel` | int | Selected index (stateless window like other lists). |
+| `prevMode` | mode | Restored on close (reuse the existing help-overlay pattern). |
+
+Invariants: opening/closing does not cancel a background load; choosing an item transitions
+into the existing `operation` flow (the menu adds no operation/confirmation behavior).
+
+## Entity: Hint (footer)
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `key` | string | Display token; nav tokens render arrow glyphs (`↑/↓`, `Enter`, `Esc`), not vim letters. |
+| `label` | string | Short verb, e.g. `open`, `actions`, `help`. |
+| `prio` | int | Degrade priority; P0 (`? help`, `q quit`) never dropped. |
+| `visible` | predicate over `hintCtx` | Applies to current state. |
+
+The write-op hints (`d/u/y/m/D/+`) and `r`/`x` are **removed**; a single `a actions` hint
+replaces them.
+
+## Entity: Footer (render output, ≤ 3 rows)
+
+| Row | Content | Condition |
+|-----|---------|-----------|
+| identity | `● <ctx> [RW|RO]` + optional `· <cluster>` | always (1 row) |
+| hints | top-`maxHints`(=6) by priority, single row + optional `? more` | always (1 row) |
+| status | loading(named)/search-pending/prompt/notice/error | only when present |
+
+## Entity: HelpSection
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `title` | string | Navigation / Search & View / Actions / Context / Global / Connection |
 | `rows` | []HelpRow | action rows (or metadata rows for Connection) |
 
 ### HelpRow
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `keys` | string | All aliases for the action, e.g. `↑/k`, `→/l/Enter`, `q/Ctrl+C`. |
+| `keys` | string | All aliases incl. vim (e.g. `↑/k`, `←/h/Esc`, `q/Ctrl+C`). |
 | `desc` | string | Action description. |
-| `availability` | enum {always, writeOnly} | Write rows marked/hidden per `m.writable` (FR-013). |
+| `availability` | enum {always, writeOnly} | Write rows reflect `m.writable`. |
 
-Connection section rows carry metadata (`endpoint`, `region`, `user`, `s3s ver`,
-`context`, `cluster`) instead of keybindings; secret-bearing values redacted (FR-021).
+The **Actions** section documents the `a` menu key and lists the menu's items (marking
+write-only). The **Connection** section sources only non-secret `Backend` display fields +
+`ctxName`/`Version` (redaction guard, FR-021).
 
 ## Entity: StatusMessage
 
-Transient status-row content with a visual category.
-
 | Kind | Hue | Example |
 |------|-----|---------|
-| loading | accent + dim | `⠙ loading object…  (x to cancel)` (named per D6) |
+| loading | accent + dim | `⠙ loading object…  (Esc to cancel)` (named; Esc-cancel per FR-029) |
 | searchPending | dim | `searching…` |
 | prompt | accent/dim | name/dest entry, typed-confirm (target shown alongside input) |
 | notice (success) | `colOK` green (`noticeStyle`) | `recursive delete: 42 deleted, 2 failed` |
-| error | `colErr` red (`errStyle`) | `error: Not found — the bucket or object does not exist.` |
-
-`notice` and `error` MUST be visually distinct (FR-018): green vs red.
+| error | `colErr` red (`errStyle`) | `error: Not found …` |
 
 ## State transitions
 
-No new state machine. Footer/help/status are pure derivations of existing `App` state;
-they add no fields beyond the optional `noticeStyle` definition and (if needed) a
-transient "search scheduled" flag already implied by `m.searching` + `m.searchGen`.
+New mode edge: `modeBuckets`/`modeTree` --`a`--> `modeActionMenu` --`Esc`--> back to prev
+mode; --`Enter` on item--> existing `operation` flow (phaseName/phaseDest/phaseConfirm/…).
+Cancel edge: while `m.loading` or `op.phase==phaseRunning`, Back/Esc → `cancelLoad()`
+(replaces the removed `x`). No other state machine changes.
