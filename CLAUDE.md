@@ -114,23 +114,24 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 003-object-write-ops (object write operations — delete object,
-upload local file, copy, move/rename, and recursive prefix delete; destructive ops
-use the typed-confirmation tier). Builds on 002-write-foundation (write foundation
-& safety: `--write` + per-context `readonly`, two-tier confirmation, non-blocking
-logged execution, create-folder slice) — complete. 001-s3-readonly-browser
-(read-only browser) — complete.
+Active feature: 004-ui-ux-refinement (UI/UX refinement — declutter footer & key
+discoverability; presentation-only, no storage/SDK/write-semantics change). Builds on
+003-object-write-ops (object write ops) — complete. 002-write-foundation — complete.
+001-s3-readonly-browser — complete.
 
-Plan: specs/003-object-write-ops/plan.md. Design artifacts
-(specs/003-object-write-ops/): research.md, data-model.md, contracts/
-(object-mutator-interface, ui-write-flows-contract), quickstart.md. Governed by
-Constitution v1.0.0. Key approach: extend `storage.Mutator` (RemoveObject,
-UploadFile, CopyKey, MoveObject, DeleteRecursive — names avoid the
-`check-readonly.sh` verb+entity scan so UI may call them) inside `internal/storage`;
-`readOnlyGuard` MUST refuse EACH new method (single runtime enforcement point);
-move = copy+delete with `ErrMovePartial` no-data-loss; recursive delete = paginated
-best-effort returning `DeleteSummary{Deleted,Failed}`; upload + recursive delete
-stream progress via a channel + `waitForProgress` command; new `internal/localfs`
-backs the upload file browser. `check-readonly.sh` retained unchanged — new SDK
-mutations stay confined to `internal/storage`.
+Plan: specs/004-ui-ux-refinement/plan.md. Design artifacts
+(specs/004-ui-ux-refinement/): research.md, data-model.md, contracts/
+(footer-hints-contract, help-surface-contract), quickstart.md. Governed by
+Constitution v1.0.0. Key approach (all in `internal/ui`): cap `footerBlock` at 3 rows —
+one compact identity row (`● ctx [RW|RO] · cluster`), one contextual single-row hint line,
+one optional status row; drop the separator rule + `footerEndpointLine`. Hints become a
+static catalog (`hint{key,label,prio,visible(hintCtx)}`) filtered by mode/selection/
+writable/multiContext/width, sorted by priority, packed to ONE row, dropping lowest-prio
+first and appending a `? more` cue on overflow; P0 `? help`/`q quit` never dropped; no
+write hints when `!writable`. Redesigned help (`m.helpLines()`): categorized sections
+(Navigation/Search & View/Context/Write/Global) + a Connection section housing the
+footer-evicted endpoint/region/user/version; key column derived from `defaultKeys()`
+(no drift). Status: name what's loading (buckets/contents/object), `searching…` pending
+indicator, green `noticeStyle` vs red `errStyle`. Two-tier confirmation + redaction
+preserved; `check-readonly.sh` unaffected (no SDK changes).
 <!-- SPECKIT END -->
