@@ -504,7 +504,7 @@ func (m App) footerBlock(w int) string {
 		ruleStyle.Render(strings.Repeat("─", w)),
 		footerIdentityLine(w, m.ctxName, m.info.Cluster, m.info.User, m.writable),
 		footerEndpointLine(w, m.info.Endpoint, m.info.Region, Version),
-		footerHintsLine(w, m.writable),
+		footerHintsLine(w, m.writable && m.mode == modeTree),
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)

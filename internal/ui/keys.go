@@ -60,7 +60,7 @@ func (m App) helpView() string {
 // helpLines is the content of the help overlay (FR / tui-contract).
 func helpLines() []string {
 	return []string{
-		"s3s — read-only S3 browser",
+		"s3s — keyboard-driven S3 browser (read-only by default; --write to mutate)",
 		"",
 		"  ↑/k, ↓/j      move selection",
 		"  →/l/Enter     enter bucket/dir, or open an object (metadata + content)",

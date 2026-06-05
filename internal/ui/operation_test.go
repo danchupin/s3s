@@ -94,6 +94,9 @@ func TestCreateFolderInvalidNameStays(t *testing.T) {
 	if !errors.Is(m.err, storage.ErrInvalidName) {
 		t.Errorf("want ErrInvalidName hint, got %v", m.err)
 	}
+	if !strings.Contains(viewOf(m), "Invalid folder name") {
+		t.Errorf("invalid-name hint must be visible, not silent:\n%s", viewOf(m))
+	}
 }
 
 // TestCreateFolderSuccessRefreshesLevel: a successful op invalidates + re-fetches the

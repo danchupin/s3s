@@ -345,15 +345,15 @@ func footerEndpointLine(width int, endpoint, region, ver string) string {
 
 // footerHintsLine builds the colored keybinding line(s); wraps so every hint —
 // including help/quit — is always visible, even on narrow terminals. The "+ folder"
-// hint appears only when the active context is writable (--write, not readonly).
-func footerHintsLine(width int, writable bool) string {
+// hint appears only where the key actually does something: a writable tree level.
+func footerHintsLine(width int, canNewFolder bool) string {
 	h := func(k, a string) fseg {
 		return fseg{s: accentStyle.Render(k) + " " + dimCellStyle.Render(a), w: lipgloss.Width(k + " " + a)}
 	}
 	segs := []fseg{
 		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
 	}
-	if writable {
+	if canNewFolder {
 		segs = append(segs, h("+", "folder"))
 	}
 	segs = append(segs,

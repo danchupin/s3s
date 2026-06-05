@@ -151,15 +151,14 @@ func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	op.phase = phaseRunning
 	switch op.kind {
 	case "create_folder":
-		logMutationStart(op.kind, "bucket", op.bucket, "key", op.target+"/", "context", m.ctxName)
+		logMutationStart(op.kind, "bucket", op.bucket, "key", op.target, "context", m.ctxName)
 		ctx := (&m).beginLoad()
 		return m, tea.Batch(createFolderCmd(ctx, mut, op.bucket, op.target, m.gen), spinnerTick())
 	default:
 		// Test-only kinds (e.g. the typed-tier fixture): no real action; complete
 		// immediately as success so the confirmation flow can be exercised end-to-end.
-		ctx := (&m).beginLoad()
+		(&m).beginLoad()
 		gen := m.gen
-		_ = ctx
 		return m, func() tea.Msg { return operationDoneMsg{gen: gen} }
 	}
 }
@@ -191,9 +190,13 @@ func (m App) opPromptLine(w int) string {
 	switch op.phase {
 	case phaseName:
 		const label = "new folder: "
-		const suffix = "▏  (Enter create · Esc cancel)"
+		// Surface a validation hint inline so an invalid name is never silent (FR-003).
+		suffix, style := "▏  (Enter create · Esc cancel)", dimCellStyle
+		if txt := m.errorText(); txt != "" {
+			suffix, style = "▏  "+txt, errStyle
+		}
 		input := truncate(op.name, max(1, w-len(label)-len(suffix)))
-		return accentStyle.Render(label) + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
+		return accentStyle.Render(label) + objCellStyle.Render(input) + style.Render(suffix)
 	case phaseConfirm:
 		if op.tier == confirmTyped {
 			const label = "type to confirm: "
