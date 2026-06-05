@@ -189,23 +189,37 @@ docker run -p 9000:9000 -p 9001:9001 \
 
 ## Key Bindings
 
+Arrow keys are the primary, advertised navigation; the vim aliases (`h`/`j`/`k`/`l`,
+`g`/`G`) still work and are listed in the help overlay (`?`). The write operations and
+refresh live behind a single contextual **action menu** opened with `a` — the footer
+advertises just `a actions`, not a wall of per-op keys.
+
 | Key | Action |
 |-----|--------|
 | `↑`/`k`, `↓`/`j` | move selection |
 | `→`/`l`/`Enter` | enter bucket/dir, or open an object (metadata + content) |
-| `←`/`h`/`Esc` | back to parent (or clear an active filter/search) |
-| `g` / `G` | jump to top / bottom |
+| `←`/`h`/`Esc` | back to parent (or clear an active filter/search); cancels an in-flight load |
+| `g`/`Home`, `G`/`End` | jump to top / bottom |
 | `/` | filter buckets / search a level by prefix; `Esc` clears |
-| `r` | refresh current level (discard cache) |
-| `+` | new folder — write mode; readonly contexts refuse |
-| `d` | delete the selected object — write mode; typed confirm |
-| `u` | upload a local file into the current level — write mode; file browser |
-| `y` | copy the selected object to a new key — write mode |
-| `m` | move/rename the selected object — write mode; typed confirm |
-| `D` | recursively delete the selected folder — write mode; typed confirm |
+| `a` | **action menu** — contextual operations for the selection (see below) |
 | `c` | switch context · `1`–`9` jump to a context by number |
-| `x` | cancel in-flight load |
-| `?` | help · `q` / `Ctrl+C` quit |
+| `?` | help (full keymap, incl. vim aliases, + connection details) · `q` / `Ctrl+C` quit |
+
+The action menu (`a`) lists only what applies to the current selection and context:
+
+| Menu item | Notes |
+|-----------|-------|
+| refresh | reload the current list (always available, incl. the bucket list) |
+| new folder | write mode |
+| delete | object selected — write mode; typed confirm |
+| upload here | write mode; opens a local file browser |
+| copy | object selected — write mode |
+| move / rename | object selected — write mode; typed confirm |
+| recursive delete | folder selected — write mode; typed confirm |
+
+In a read-only context the menu offers only `refresh`. The footer stays at most three
+rows — a compact identity line (`● context [RW|RO] · cluster`), one contextual hint row
+(capped at six, with a `? more` cue when narrow), and a status line.
 
 Images render as ANSI half-block by default. Terminal graphics protocols
 (kitty/iTerm2) are available behind `S3S_IMAGE_PROTOCOL=kitty|iterm2|auto` but are

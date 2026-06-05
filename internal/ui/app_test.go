@@ -235,3 +235,88 @@ func TestResizeClampsSelection(t *testing.T) {
 		t.Errorf("selection should be preserved across resize, got %d", m.bucketSel)
 	}
 }
+
+// --- US4: status feedback (S1–S5) ---
+
+func TestStatusNamedLoading(t *testing.T) { // S1 / FR-015, FR-029
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	cases := map[mode]string{modeBuckets: "buckets", modeTree: "contents", modeObject: "object"}
+	for md, want := range cases {
+		m := treeApp(f, true)
+		m.mode = md
+		m.loading = true
+		s := m.statusLine(120)
+		if !strings.Contains(s, want) {
+			t.Errorf("mode %v: loading status %q should name %q", md, s, want)
+		}
+		if !strings.Contains(s, "Esc to cancel") {
+			t.Errorf("mode %v: loading status should say 'Esc to cancel'; got %q", md, s)
+		}
+	}
+}
+
+func TestStatusSearchPending(t *testing.T) { // S2 / FR-016
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.searching = true
+	m.searchInput = "ar"
+	if s := m.statusLine(120); !strings.Contains(s, "searching") {
+		t.Errorf("tree search input should show a pending indicator; got %q", s)
+	}
+}
+
+func TestStatusNoticeVsErrorHue(t *testing.T) { // S4 / FR-018
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.notice = "recursive delete: 3 removed"
+	notice := m.statusLine(120)
+	if !strings.Contains(notice, "108") { // colOK green
+		t.Errorf("notice should use the green success hue (108); got %q", notice)
+	}
+
+	m2 := treeApp(f, true)
+	m2.err = storage.ErrNotFound
+	errLine := m2.statusLine(120)
+	if !strings.Contains(errLine, "174") { // colErr red
+		t.Errorf("error should use the red hue (174); got %q", errLine)
+	}
+	if notice == errLine {
+		t.Error("notice and error must be visually distinct")
+	}
+}
+
+func TestStatusPrecedence(t *testing.T) { // S5 / FR-018a
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+
+	// loading + notice → loading wins (notice suppressed).
+	m := treeApp(f, true)
+	m.loading = true
+	m.notice = "SENTINEL_NOTICE"
+	if s := m.statusLine(120); !strings.Contains(s, "loading") || strings.Contains(s, "SENTINEL_NOTICE") {
+		t.Errorf("loading must outrank a notice; got %q", s)
+	}
+
+	// op prompt + load → op prompt wins (no loading line).
+	m2 := treeApp(f, true)
+	selectObject(&m2, "a.txt")
+	m2.op = &operation{kind: "delete_object", phase: phaseConfirm, tier: confirmTyped, expect: "a.txt", target: "a.txt"}
+	m2.loading = true
+	if s := m2.statusLine(120); strings.Contains(s, "loading buckets") || strings.Contains(s, "loading contents") {
+		t.Errorf("an op prompt must outrank loading; got %q", s)
+	}
+}
+
+func TestTypedConfirmShowsTarget(t *testing.T) { // S3 / FR-017
+	f := storage.NewFake()
+	f.Seed("b", "secret.txt")
+	m := treeApp(f, true)
+	selectObject(&m, "secret.txt")
+	m = viaMenu(t, m, "delete")
+	if !strings.Contains(m.opPromptLine(120), "secret.txt") {
+		t.Errorf("typed-confirm prompt must keep the required target visible; got %q", m.opPromptLine(120))
+	}
+}

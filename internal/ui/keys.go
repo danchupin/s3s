@@ -1,5 +1,11 @@
 package ui
 
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+)
+
 // keyMap maps logical actions to the key strings produced by KeyPressMsg.String().
 // Several keys may bind to one action. Matching is done via matches().
 type keyMap struct {
@@ -12,7 +18,7 @@ type keyMap struct {
 	Search    []string
 	Refresh   []string
 	Context   []string
-	Cancel    []string // cancel in-flight load
+	Menu      []string // open the contextual action menu
 	NewFolder []string // create an empty folder (write mode)
 	Delete    []string // delete the selected object (write mode)
 	Upload    []string // upload a local file into the current level (write mode)
@@ -35,7 +41,7 @@ func defaultKeys() keyMap {
 		Search:    []string{"/"},
 		Refresh:   []string{"r"},
 		Context:   []string{"c"},
-		Cancel:    []string{"x"},
+		Menu:      []string{"a"},
 		NewFolder: []string{"+"},
 		Delete:    []string{"d"},
 		Upload:    []string{"u"},
@@ -57,39 +63,94 @@ func matches(key string, binds []string) bool {
 	return false
 }
 
-// helpView renders the styled help overlay.
-func (m App) helpView() string {
-	lines := helpLines()
-	out := titleStyle.Render(lines[0])
-	for _, l := range lines[1:] {
-		out += "\n" + dimCellStyle.Render(l)
-	}
-	return out
+// keyGlyph maps raw binding strings to their display glyph; vim/letter keys pass
+// through unchanged (help is the only surface that advertises the vim aliases, FR-031).
+var keyGlyph = map[string]string{
+	"up": "↑", "down": "↓", "left": "←", "right": "→",
+	"enter": "Enter", "esc": "Esc", "home": "Home", "end": "End", "ctrl+c": "Ctrl+C",
 }
 
-// helpLines is the content of the help overlay (FR / tui-contract).
-func helpLines() []string {
-	return []string{
-		"s3s — keyboard-driven S3 browser (read-only by default; --write to mutate)",
-		"",
-		"  ↑/k, ↓/j      move selection",
-		"  →/l/Enter     enter bucket/dir, or open an object (metadata + content)",
-		"  ←/h/Esc       back to parent",
-		"  g / G         jump to top / bottom",
-		"  /             filter buckets / search a level (prefix)",
-		"  r             refresh current level",
-		"  +             new folder (write mode)",
-		"  d             delete the selected object (write mode; typed confirm)",
-		"  u             upload a local file here (write mode; file browser)",
-		"  y             copy the selected object to a new key (write mode)",
-		"  m             move/rename the selected object (write mode; typed confirm)",
-		"  D             recursively delete the selected folder (write mode; typed confirm)",
-		"  c             switch context",
-		"  1-9           switch to context by number",
-		"  x             cancel in-flight load",
-		"  ?             toggle this help",
-		"  q / Ctrl+C    quit",
-		"",
-		"  press any key to close help",
+func glyph(k string) string {
+	if g, ok := keyGlyph[k]; ok {
+		return g
 	}
+	return k
+}
+
+// formatKeys renders all aliases of an action as "↑/k", "→/l/Enter", etc. (FR-014).
+func formatKeys(binds []string) string {
+	parts := make([]string, len(binds))
+	for i, b := range binds {
+		parts[i] = glyph(b)
+	}
+	return strings.Join(parts, "/")
+}
+
+// helpView renders the styled, categorized help overlay (m.helpLines is already styled).
+func (m App) helpView() string {
+	return strings.Join(m.helpLines(), "\n")
+}
+
+// helpLines is the content of the categorized help surface (FR-010..FR-014c). Sections:
+// Navigation / Search & View / Actions (the `a` menu) / Context / Global / Connection.
+// The key column is derived from defaultKeys() so help can never drift from bindings.
+func (m App) helpLines() []string {
+	k := m.keys
+	sec := func(s string) string { return titleStyle.Render(s) }
+	row := func(keys, desc string) string {
+		return "  " + accentStyle.Render(pad(keys, 17)) + dimCellStyle.Render(desc)
+	}
+	conn := func(label, val string, st lipgloss.Style) string {
+		if val == "" {
+			val = "—"
+		}
+		return "  " + dimCellStyle.Render(pad(label, 14)) + st.Render(val)
+	}
+
+	// Write-capability tag for the Actions menu items (FR-013/H4).
+	wtag := dimCellStyle.Render("  (write)")
+	if !m.writable {
+		wtag = warnStyle.Render("  (needs --write)")
+	}
+
+	lines := []string{
+		titleStyle.Render("s3s — keyboard-driven S3 browser (read-only by default; --write to mutate)"),
+		"",
+		sec("Navigation"),
+		row(formatKeys(k.Up)+", "+formatKeys(k.Down), "move selection"),
+		row(formatKeys(k.Enter), "enter bucket/dir, or open an object"),
+		row(formatKeys(k.Back), "back to parent (Esc also cancels an in-flight load)"),
+		row(formatKeys(k.Top)+", "+formatKeys(k.Bottom), "jump to top / bottom"),
+		"",
+		sec("Search & View"),
+		row(formatKeys(k.Search), "filter buckets / search a level (prefix)"),
+		"",
+		sec("Actions") + dimCellStyle.Render("  ("+formatKeys(k.Menu)+" opens the contextual menu)"),
+		row("refresh", "reload the current list"),
+		row("new folder", "create a folder") + wtag,
+		row("delete", "delete the selected object") + wtag,
+		row("upload here", "upload a local file") + wtag,
+		row("copy", "copy the selected object to a new key") + wtag,
+		row("move / rename", "move/rename the selected object") + wtag,
+		row("recursive delete", "delete the selected folder") + wtag,
+		"",
+		sec("Context"),
+		row(formatKeys(k.Context), "switch context"),
+		row("1-9", "switch to context by number"),
+		"",
+		sec("Global"),
+		row(formatKeys(k.Help), "toggle this help"),
+		row(formatKeys(k.Quit), "quit"),
+		"",
+		sec("Connection"),
+		conn("context", m.ctxName, segCtxStyle),
+		conn("cluster", m.info.Cluster, segClusterStyle),
+		conn("endpoint", m.info.Endpoint, segEndpointStyle),
+		conn("region", m.info.Region, segRegionStyle),
+		conn("user", m.info.User, segUserStyle),
+		conn("s3s ver", Version, dimCellStyle),
+		"",
+		dimCellStyle.Render("  press any key to close help"),
+	}
+	return lines
 }

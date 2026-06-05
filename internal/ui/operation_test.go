@@ -29,8 +29,9 @@ func writableTreeApp() App {
 func TestCreateFolderRefusedReadOnly(t *testing.T) {
 	m := writableTreeApp()
 	m.writable = false
-	m2, cmd := pressCmd(m, "+")
-	m = m2
+	// Read-only menu offers no new-folder item; the entry point still refuses directly.
+	mm, cmd := m.startCreateFolder()
+	m = mm.(App)
 	if cmd != nil {
 		t.Error("read-only create must not dispatch a command")
 	}
@@ -50,9 +51,9 @@ func TestCreateFolderRefusedReadOnly(t *testing.T) {
 func TestCreateFolderSimpleConfirmFlow(t *testing.T) {
 	m := writableTreeApp()
 
-	m = press(m, "+")
+	m = viaMenu(t, m, "new folder")
 	if m.op == nil || m.op.phase != phaseName {
-		t.Fatalf("want name phase after +, op=%+v", m.op)
+		t.Fatalf("want name phase after menu new-folder, op=%+v", m.op)
 	}
 	m = typeStr(m, "reports")
 	if m.op.name != "reports" {
@@ -85,7 +86,7 @@ func TestCreateFolderSimpleConfirmFlow(t *testing.T) {
 // TestCreateFolderInvalidNameStays: a blank name keeps the name phase and shows a hint.
 func TestCreateFolderInvalidNameStays(t *testing.T) {
 	m := writableTreeApp()
-	m = press(m, "+")
+	m = viaMenu(t, m, "new folder")
 	m = typeStr(m, "   ")
 	m = press(m, "enter")
 	if m.op == nil || m.op.phase != phaseName {
@@ -161,24 +162,14 @@ func TestStaleOperationDropped(t *testing.T) {
 	}
 }
 
-// TestFooterWriteTag: the footer identity line reflects write mode — [RW] when
-// writable, [RO] otherwise.
+// TestFooterWriteTag: the compact identity row reflects write mode — [RW] when
+// writable, [RO] otherwise (FR-008).
 func TestFooterWriteTag(t *testing.T) {
-	if got := footerIdentityLine(80, "ctx", "cl", "u", true); !strings.Contains(got, "[RW]") {
+	if got := footerIdentityCompact(80, "ctx", "cl", true); !strings.Contains(got, "[RW]") {
 		t.Errorf("writable footer should show [RW]; got %q", got)
 	}
-	if got := footerIdentityLine(80, "ctx", "cl", "u", false); !strings.Contains(got, "[RO]") {
+	if got := footerIdentityCompact(80, "ctx", "cl", false); !strings.Contains(got, "[RO]") {
 		t.Errorf("read-only footer should show [RO]; got %q", got)
-	}
-}
-
-// TestFooterHintWritable: the "+ folder" hint appears only in write mode.
-func TestFooterHintWritable(t *testing.T) {
-	if got := footerHintsLine(120, true); !strings.Contains(got, "folder") {
-		t.Errorf("writable hints should include the + folder hint; got %q", got)
-	}
-	if got := footerHintsLine(120, false); strings.Contains(got, "folder") {
-		t.Errorf("read-only hints must not include the + folder hint; got %q", got)
 	}
 }
 
