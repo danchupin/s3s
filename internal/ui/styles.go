@@ -354,7 +354,10 @@ func footerHintsLine(width int, canNewFolder bool) string {
 		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
 	}
 	if canNewFolder {
-		segs = append(segs, h("+", "folder"))
+		segs = append(segs,
+			h("+", "folder"), h("d", "del"), h("u", "upload"),
+			h("y", "copy"), h("m", "move"), h("D", "rmdir"),
+		)
 	}
 	segs = append(segs,
 		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),

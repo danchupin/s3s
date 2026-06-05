@@ -44,13 +44,25 @@ type errMsg struct {
 // spinnerTickMsg advances the loading spinner frame.
 type spinnerTickMsg struct{}
 
+// operationProgressMsg delivers one tick of live progress for a streaming
+// operation (upload bytes, or recursive-delete counts). Carries the generation so a
+// superseded result is dropped (Constitution II / FR-010).
+type operationProgressMsg struct {
+	gen      int
+	progress opProgress
+}
+
 // operationDoneMsg delivers the terminal outcome of a mutating operation. It
 // carries the generation it was dispatched under so a superseded/cancelled result
 // is dropped (FR-007). A non-nil err (including context.Canceled) means the
-// operation is NOT a success.
+// operation is NOT a success. For recursive delete, summary holds the deleted/failed
+// counts; partial==true marks a non-clean outcome (recursive Failed>0 or a partial
+// move) that must never be reported as a clean success (FR-011).
 type operationDoneMsg struct {
-	gen int
-	err error
+	gen     int
+	err     error
+	summary *storage.DeleteSummary
+	partial bool
 }
 
 // searchFireMsg fires after the search debounce window elapses; it carries the

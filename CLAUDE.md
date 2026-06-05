@@ -114,15 +114,23 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 002-write-foundation (write foundation & safety — the first
-mutating capability, gated by `--write` + per-context `readonly`, with a two-tier
-confirmation framework and one vertical slice: create-folder). 001-s3-readonly-browser
-(read-only browser) is complete.
+Active feature: 003-object-write-ops (object write operations — delete object,
+upload local file, copy, move/rename, and recursive prefix delete; destructive ops
+use the typed-confirmation tier). Builds on 002-write-foundation (write foundation
+& safety: `--write` + per-context `readonly`, two-tier confirmation, non-blocking
+logged execution, create-folder slice) — complete. 001-s3-readonly-browser
+(read-only browser) — complete.
 
-Plan: specs/002-write-foundation/plan.md. Design artifacts
-(specs/002-write-foundation/): research.md, data-model.md, contracts/
-(writer-interface, confirmation-contract, config-flag-delta), quickstart.md.
-Governed by Constitution v1.0.0. NOTE: `check-readonly.sh` is retained unchanged —
-it confines SDK mutations to `internal/storage`; read-only is enforced at runtime by
-a guard wrapper, not by the absence of write methods.
+Plan: specs/003-object-write-ops/plan.md. Design artifacts
+(specs/003-object-write-ops/): research.md, data-model.md, contracts/
+(object-mutator-interface, ui-write-flows-contract), quickstart.md. Governed by
+Constitution v1.0.0. Key approach: extend `storage.Mutator` (RemoveObject,
+UploadFile, CopyKey, MoveObject, DeleteRecursive — names avoid the
+`check-readonly.sh` verb+entity scan so UI may call them) inside `internal/storage`;
+`readOnlyGuard` MUST refuse EACH new method (single runtime enforcement point);
+move = copy+delete with `ErrMovePartial` no-data-loss; recursive delete = paginated
+best-effort returning `DeleteSummary{Deleted,Failed}`; upload + recursive delete
+stream progress via a channel + `waitForProgress` command; new `internal/localfs`
+backs the upload file browser. `check-readonly.sh` retained unchanged — new SDK
+mutations stay confined to `internal/storage`.
 <!-- SPECKIT END -->

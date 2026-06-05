@@ -14,6 +14,11 @@ type keyMap struct {
 	Context   []string
 	Cancel    []string // cancel in-flight load
 	NewFolder []string // create an empty folder (write mode)
+	Delete    []string // delete the selected object (write mode)
+	Upload    []string // upload a local file into the current level (write mode)
+	Copy      []string // copy the selected object to a new key (write mode)
+	Move      []string // move/rename the selected object (write mode)
+	DeleteAll []string // recursively delete the selected folder/prefix (write mode)
 	Quit      []string
 	Help      []string
 }
@@ -32,6 +37,11 @@ func defaultKeys() keyMap {
 		Context:   []string{"c"},
 		Cancel:    []string{"x"},
 		NewFolder: []string{"+"},
+		Delete:    []string{"d"},
+		Upload:    []string{"u"},
+		Copy:      []string{"y"}, // "yank"; "c" is taken by context switch
+		Move:      []string{"m"},
+		DeleteAll: []string{"D"},
 		Quit:      []string{"ctrl+c", "q"},
 		Help:      []string{"?"},
 	}
@@ -68,7 +78,12 @@ func helpLines() []string {
 		"  g / G         jump to top / bottom",
 		"  /             filter buckets / search a level (prefix)",
 		"  r             refresh current level",
-		"  +             new folder (only with --write; readonly contexts refuse)",
+		"  +             new folder (write mode)",
+		"  d             delete the selected object (write mode; typed confirm)",
+		"  u             upload a local file here (write mode; file browser)",
+		"  y             copy the selected object to a new key (write mode)",
+		"  m             move/rename the selected object (write mode; typed confirm)",
+		"  D             recursively delete the selected folder (write mode; typed confirm)",
 		"  c             switch context",
 		"  1-9           switch to context by number",
 		"  x             cancel in-flight load",

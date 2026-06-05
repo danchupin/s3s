@@ -13,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/danchupin/s3s/internal/cache"
+	"github.com/danchupin/s3s/internal/localfs"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -103,7 +104,14 @@ type App struct {
 	err        error
 
 	// in-flight mutating operation (nil when none); see operation.go
-	op *operation
+	op     *operation
+	opCh   chan progressEvent // streaming progress channel (upload / recursive delete)
+	notice string             // transient non-error outcome line (e.g. partial counts)
+
+	// local file browser state (active during an upload's phaseBrowse)
+	fbDir     string
+	fbEntries []localfs.Entry
+	fbSel     int
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -223,6 +231,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case operationProgressMsg:
+		return m.onOperationProgress(msg)
+
 	case operationDoneMsg:
 		return m.onOperationDone(msg)
 
@@ -239,15 +250,34 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// A transient outcome notice (e.g. partial counts) clears on the next keypress.
+	m.notice = ""
+
 	// While typing a search query, the input owns most keys.
 	if m.searching {
 		return m.onSearchKey(msg)
 	}
 
-	// An interactive operation (name entry / confirmation) owns keys before the
-	// global bindings, so text input (incl. "q", "h", "+") is not intercepted.
-	// phaseRunning is NOT interactive — it falls through to the cancel path below.
-	if m.op != nil && m.op.phase != phaseRunning {
+	// A running mutation is modal: only cancel (x) and quit work. Navigation and
+	// starting another mutation are blocked so a streaming op is never superseded
+	// out from under its progress reader (which would orphan the worker goroutine)
+	// and so two mutations can't run at once.
+	if m.op != nil && m.op.phase == phaseRunning {
+		switch {
+		case matches(key, m.keys.Quit):
+			(&m).cancelLoad()
+			return m, tea.Quit
+		case matches(key, m.keys.Cancel):
+			(&m).cancelLoad()
+			return m, nil
+		}
+		return m, nil
+	}
+
+	// An interactive operation (name/dest entry, confirmation, file browser) owns
+	// keys before the global bindings, so text input (incl. "q", "h", "+") is not
+	// intercepted.
+	if m.op != nil {
 		return m.onOpKey(key, msg)
 	}
 
@@ -478,6 +508,14 @@ func (m App) View() tea.View {
 		dataRows = 1
 	}
 
+	// An upload's file browser takes over the body while choosing a source.
+	if m.op != nil && m.op.phase == phaseBrowse {
+		body := boxView(m.browserTitle(), "", m.fileBrowserView(w-2, dataRows), w, rows)
+		v := tea.NewView(body + "\n" + footer)
+		v.AltScreen = true
+		return v
+	}
+
 	var body string
 	switch m.mode {
 	case modeBuckets:
@@ -516,10 +554,17 @@ func (m App) footerBlock(w int) string {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
-	// An interactive operation prompt (name entry / confirmation) takes priority;
-	// phaseRunning falls through to the loading spinner below.
-	if m.op != nil && m.op.phase != phaseRunning {
-		return m.opPromptLine(w)
+	// An interactive operation prompt (name/dest entry, confirmation) takes priority.
+	// A running streaming op shows live progress; other phases fall through.
+	if m.op != nil {
+		switch m.op.phase {
+		case phaseRunning:
+			return m.opProgressLine()
+		case phaseBrowse:
+			return dimCellStyle.Render("↑/↓ select · →/Enter open · ←/h up · Esc cancel")
+		default:
+			return m.opPromptLine(w)
+		}
 	}
 	if m.searching {
 		label := "search"
@@ -532,6 +577,9 @@ func (m App) statusLine(w int) string {
 	}
 	if m.loading {
 		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" loading…  (x to cancel)")
+	}
+	if m.notice != "" {
+		return accentStyle.Render(truncate(m.notice, max(1, w-1)))
 	}
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))
