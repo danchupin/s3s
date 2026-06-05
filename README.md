@@ -43,9 +43,12 @@ _Coming soon — a recording of context switching, tree navigation, and previews
 - **kubectl-style contexts** — define clusters, users, and contexts in one YAML
   file; switch between them live (no restart) or jump by number (`1`–`9`).
 - **Read-only by default, safe writes opt-in** — without `--write` nothing can be
-  mutated. With it, the few write operations (currently: create folder) run behind
-  a confirmation gate; a context marked `readonly: true` refuses changes even under
-  `--write`. All S3 mutations are confined to the storage layer by a CI guard.
+  mutated. With it, the write operations (create folder, delete object, upload a
+  local file, copy, move/rename, recursive folder delete) run behind a confirmation
+  gate — a simple `y/N` for reversible actions and a typed confirmation of the exact
+  target for destructive ones (delete, move, overwrite, recursive delete). A context
+  marked `readonly: true` refuses changes even under `--write`. All S3 mutations are
+  confined to the storage layer by a CI guard.
 - **Tree navigation** — walk the key namespace by the `/` delimiter with
   on-demand pagination; never loads a whole bucket up front. Per-session cache
   with manual refresh.
@@ -194,7 +197,12 @@ docker run -p 9000:9000 -p 9001:9001 \
 | `g` / `G` | jump to top / bottom |
 | `/` | filter buckets / search a level by prefix; `Esc` clears |
 | `r` | refresh current level (discard cache) |
-| `+` | new folder — only with `--write`; readonly contexts refuse |
+| `+` | new folder — write mode; readonly contexts refuse |
+| `d` | delete the selected object — write mode; typed confirm |
+| `u` | upload a local file into the current level — write mode; file browser |
+| `y` | copy the selected object to a new key — write mode |
+| `m` | move/rename the selected object — write mode; typed confirm |
+| `D` | recursively delete the selected folder — write mode; typed confirm |
 | `c` | switch context · `1`–`9` jump to a context by number |
 | `x` | cancel in-flight load |
 | `?` | help · `q` / `Ctrl+C` quit |

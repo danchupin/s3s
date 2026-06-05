@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"os"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -99,6 +100,130 @@ func createFolderCmd(ctx context.Context, mut storage.Mutator, bucket, prefix st
 		err := mut.CreateFolder(ctx, bucket, prefix)
 		logMutationDone("create_folder", err, "bucket", bucket, "key", prefix)
 		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
+// removeObjectCmd deletes a single object. A not-found result is benign (the object
+// was already gone) and reported as a clean done so the refresh shows it absent
+// (US1 edge case, FR-001).
+func removeObjectCmd(ctx context.Context, mut storage.Mutator, bucket, key string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		err := mut.RemoveObject(ctx, bucket, key)
+		logMutationDone("delete_object", err, "bucket", bucket, "key", key)
+		if errors.Is(err, storage.ErrNotFound) {
+			return operationDoneMsg{gen: gen}
+		}
+		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
+// copyKeyCmd server-side copies an object to a new key (FR-004).
+func copyKeyCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		err := mut.CopyKey(ctx, bucket, srcKey, dstKey)
+		logMutationDone("copy", err, "bucket", bucket, "src", srcKey, "dst", dstKey)
+		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
+// moveObjectCmd moves/renames an object (copy then delete source). ErrMovePartial is
+// surfaced as a partial outcome — never a clean success (FR-006/FR-007).
+func moveObjectCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		err := mut.MoveObject(ctx, bucket, srcKey, dstKey)
+		logMutationDone("move", err, "bucket", bucket, "src", srcKey, "dst", dstKey)
+		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
+// progressEvent is one item on a streaming operation's progress channel. done marks
+// the terminal event carrying the final error/summary/partial flag.
+type progressEvent struct {
+	progress opProgress
+	done     bool
+	err      error
+	summary  *storage.DeleteSummary
+	partial  bool
+}
+
+// waitForProgress reads ONE event off the channel and turns it into a message,
+// re-issuing itself (via the Update handler) until the terminal done event arrives.
+// This keeps the event loop non-blocking during long operations (Constitution II).
+func waitForProgress(ch chan progressEvent, gen int) tea.Cmd {
+	return func() tea.Msg {
+		ev, ok := <-ch
+		if !ok || ev.done {
+			return operationDoneMsg{gen: gen, err: ev.err, summary: ev.summary, partial: ev.partial}
+		}
+		return operationProgressMsg{gen: gen, progress: ev.progress}
+	}
+}
+
+// countingReader wraps the upload source and reports bytes read onto ch (best-effort,
+// non-blocking so a fast read never stalls on the UI). It feeds the upload's live
+// byte progress (FR-010).
+type countingReader struct {
+	r     io.Reader
+	read  int64
+	total int64
+	ch    chan progressEvent
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if n > 0 {
+		c.read += int64(n)
+		select {
+		case c.ch <- progressEvent{progress: opProgress{uploaded: c.read, total: c.total}}:
+		default: // drop a tick rather than block the upload
+		}
+	}
+	return n, err
+}
+
+// uploadCmd opens the local file and streams it to the backend off the event loop,
+// emitting byte progress and a terminal outcome on ch (FR-002/FR-010). A bad source
+// (missing/unreadable) fails before any backend call.
+func uploadCmd(ctx context.Context, mut storage.Mutator, bucket, key, localPath string, size int64, ch chan progressEvent, gen int) tea.Cmd {
+	return func() tea.Msg {
+		go func() {
+			defer close(ch)
+			f, err := os.Open(localPath)
+			if err != nil {
+				logMutationDone("upload", err, "bucket", bucket, "key", key)
+				ch <- progressEvent{done: true, err: err}
+				return
+			}
+			defer func() { _ = f.Close() }()
+			cr := &countingReader{r: f, total: size, ch: ch}
+			err = mut.UploadFile(ctx, bucket, key, cr, size)
+			logMutationDone("upload", err, "bucket", bucket, "key", key)
+			ch <- progressEvent{done: true, err: err}
+		}()
+		return waitForProgress(ch, gen)()
+	}
+}
+
+// recursiveDeleteCmd deletes a prefix subtree best-effort off the event loop,
+// streaming deleted/failed progress and a terminal partial-aware outcome on ch
+// (FR-008/FR-009/FR-011).
+func recursiveDeleteCmd(ctx context.Context, mut storage.Mutator, bucket, prefix string, ch chan progressEvent, gen int) tea.Cmd {
+	return func() tea.Msg {
+		go func() {
+			defer close(ch)
+			onProg := func(s storage.DeleteSummary) {
+				select {
+				case ch <- progressEvent{progress: opProgress{deleted: s.Deleted, failed: s.Failed}}:
+				default:
+				}
+			}
+			sum, err := mut.DeleteRecursive(ctx, bucket, prefix, onProg)
+			summary := sum
+			logMutationDone("delete_recursive", err, "bucket", bucket, "prefix", prefix,
+				"deleted", sum.Deleted, "failed", sum.Failed)
+			ch <- progressEvent{done: true, err: err, summary: &summary, partial: err == nil && sum.Failed > 0}
+		}()
+		return waitForProgress(ch, gen)()
 	}
 }
 

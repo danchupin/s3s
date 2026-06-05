@@ -16,6 +16,10 @@ import (
 // real client's contract, with NO network or SDK dependency.
 type Fake struct {
 	Buckets map[string]*FakeBucket
+	// FailDelete marks full keys whose deletion fails (returns ErrAccessDenied),
+	// for exercising best-effort recursive-delete partials and move's no-data-loss
+	// branch. Key format: "<bucket>/<key>".
+	FailDelete map[string]bool
 }
 
 // FakeBucket is one seeded bucket.
@@ -190,6 +194,114 @@ func (f *Fake) CreateFolder(ctx context.Context, bucket, prefix string) error {
 	}
 	b.Objects[key] = FakeObject{}
 	return nil
+}
+
+var _ Mutator = (*Fake)(nil)
+
+// RemoveObject deletes one key from the in-memory bucket (FR-001). A key marked in
+// FailDelete returns ErrAccessDenied (simulating a backend refusal); a missing key
+// returns ErrNotFound.
+func (f *Fake) RemoveObject(ctx context.Context, bucket, key string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return fmt.Errorf("remove %q: %w", bucket, ErrNotFound)
+	}
+	if f.FailDelete[bucket+"/"+key] {
+		return fmt.Errorf("remove %q/%q: %w", bucket, key, ErrAccessDenied)
+	}
+	if _, ok := b.Objects[key]; !ok {
+		return fmt.Errorf("remove %q/%q: %w", bucket, key, ErrNotFound)
+	}
+	delete(b.Objects, key)
+	return nil
+}
+
+// UploadFile stores the bytes read from r at key (FR-002).
+func (f *Fake) UploadFile(ctx context.Context, bucket, key string, r io.Reader, _ int64) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return fmt.Errorf("upload %q: %w", bucket, ErrNotFound)
+	}
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+	b.Objects[key] = FakeObject{Data: data}
+	return nil
+}
+
+// CopyKey duplicates srcKey to dstKey within one bucket; the source is unchanged
+// (FR-004). Rejects an invalid or identical destination (FR-013).
+func (f *Fake) CopyKey(ctx context.Context, bucket, srcKey, dstKey string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := validateDestKey(srcKey, dstKey); err != nil {
+		return err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return fmt.Errorf("copy %q: %w", bucket, ErrNotFound)
+	}
+	src, ok := b.Objects[srcKey]
+	if !ok {
+		return fmt.Errorf("copy %q/%q: %w", bucket, srcKey, ErrNotFound)
+	}
+	b.Objects[dstKey] = src
+	return nil
+}
+
+// MoveObject = CopyKey then RemoveObject(src), with the no-data-loss guarantee
+// (FR-006/FR-007): copy failure leaves the source intact; a copy-ok/delete-fail
+// returns ErrMovePartial with both keys present.
+func (f *Fake) MoveObject(ctx context.Context, bucket, srcKey, dstKey string) error {
+	if err := f.CopyKey(ctx, bucket, srcKey, dstKey); err != nil {
+		return err
+	}
+	if err := f.RemoveObject(ctx, bucket, srcKey); err != nil {
+		return ErrMovePartial
+	}
+	return nil
+}
+
+// DeleteRecursive removes every key under prefix, best-effort: a key in FailDelete
+// is counted as Failed and left in place; the run continues (FR-009). onProgress is
+// invoked per batch; a cancelled ctx returns the partial counts with ctx.Err().
+func (f *Fake) DeleteRecursive(ctx context.Context, bucket, prefix string, onProgress func(DeleteSummary)) (DeleteSummary, error) {
+	var sum DeleteSummary
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return sum, fmt.Errorf("delete %q: %w", bucket, ErrNotFound)
+	}
+	keys := make([]string, 0, len(b.Objects))
+	for k := range b.Objects {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for i, k := range keys {
+		if err := ctx.Err(); err != nil {
+			return sum, err
+		}
+		if f.FailDelete[bucket+"/"+k] {
+			sum.Failed++
+		} else {
+			delete(b.Objects, k)
+			sum.Deleted++
+		}
+		// Report periodically so the UI can render running progress.
+		if onProgress != nil && ((i+1)%progressEvery == 0 || i == len(keys)-1) {
+			onProgress(sum)
+		}
+	}
+	return sum, nil
 }
 
 // GetObjectRange returns a reader over Data[start : end+1] (clamped).

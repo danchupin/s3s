@@ -29,15 +29,30 @@ var (
 	// readonly, or --write was not passed). Returned by readOnlyGuard before any
 	// network call, so storage is provably unchanged (FR-003, FR-011, FR-012).
 	ErrReadOnly = errors.New("storage: backend is read-only")
-	// ErrInvalidName: a create-folder target failed validation (empty/whitespace or
-	// control characters). Returned before any network call (FR-010).
+	// ErrInvalidName: a create-folder target or a destination key/prefix failed
+	// validation (empty/whitespace, control characters, or destination == source).
+	// Returned before any network call (FR-010, FR-013).
 	ErrInvalidName = errors.New("storage: invalid name")
+	// ErrMovePartial: a move copied the object to the destination but could not
+	// delete the source. The data is safe at the destination; the source still
+	// exists. Never a clean success (FR-007).
+	ErrMovePartial = errors.New("storage: move copied object but source delete failed")
 )
+
+// DeleteSummary is the truthful outcome of a recursive delete: how many objects
+// were removed and how many could not be (best-effort). Failed > 0 => partial,
+// never a clean success (FR-009, FR-011).
+type DeleteSummary struct {
+	Deleted int
+	Failed  int
+}
 
 // Mutator adds write capability on top of Storage. The real client, the in-memory
 // Fake, and readOnlyGuard all implement it; the read-only guard returns ErrReadOnly
 // without contacting the backend. Mutating S3 calls live ONLY in this package
-// (scripts/check-readonly.sh enforces it).
+// (scripts/check-readonly.sh enforces it). Method names deliberately avoid the
+// guard's verb+entity pattern (RemoveObject not DeleteObject, etc.) so UI code may
+// reference them without tripping the read-only scan.
 type Mutator interface {
 	// CreateFolder creates an empty folder at (bucket, prefix) by putting a
 	// zero-length object whose key is prefix normalised to exactly one trailing
@@ -45,6 +60,31 @@ type Mutator interface {
 	// ErrInvalidName when the prefix is empty/whitespace or has control chars.
 	// FR-009, FR-010.
 	CreateFolder(ctx context.Context, bucket, prefix string) error
+
+	// RemoveObject removes a single object. Returns ErrReadOnly when read-only and
+	// ErrNotFound if the key is already gone (the UI treats that as benign). FR-001.
+	RemoveObject(ctx context.Context, bucket, key string) error
+
+	// UploadFile creates (or overwrites) the object at key from r, streaming size
+	// bytes. Honors ctx cancellation; a cancelled upload is never a success. FR-002.
+	UploadFile(ctx context.Context, bucket, key string, r io.Reader, size int64) error
+
+	// CopyKey server-side copies srcKey to dstKey within the same bucket; the source
+	// is unchanged. Rejects an empty/whitespace/control dstKey or dstKey == srcKey
+	// with ErrInvalidName before any network call. FR-004, FR-005, FR-013.
+	CopyKey(ctx context.Context, bucket, srcKey, dstKey string) error
+
+	// MoveObject = CopyKey(src->dst) then RemoveObject(src). If the copy fails the
+	// source is left intact and dst is not claimed; if the copy succeeds but the
+	// source delete fails, returns ErrMovePartial (no data loss). FR-006, FR-007.
+	MoveObject(ctx context.Context, bucket, srcKey, dstKey string) error
+
+	// DeleteRecursive enumerates every object under prefix (paginated) and deletes
+	// them in batches, best-effort: a per-object failure does not abort the run.
+	// onProgress (may be nil) is called after each batch with cumulative counts. A
+	// cancelled ctx stops further work and returns the counts achieved with ctx.Err().
+	// FR-008, FR-009, FR-011.
+	DeleteRecursive(ctx context.Context, bucket, prefix string, onProgress func(DeleteSummary)) (DeleteSummary, error)
 }
 
 // Storage is a read-only view of one S3-compatible backend (bound to one context).

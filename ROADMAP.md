@@ -5,11 +5,19 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## In progress
 
+- **Object write operations (003)** — the day-to-day mutations on top of the 002
+  foundation: delete object, upload a local file (in-TUI file browser), copy,
+  move/rename (copy+delete, no data loss), and recursive folder/prefix delete
+  (best-effort, truthful deleted/failed counts). Destructive actions use the typed
+  confirmation tier; streaming ops (upload, recursive delete) show live progress.
+  See `specs/003-object-write-ops/`.
+
+## Done
+
 - **Write foundation & safety (002)** — the first mutating capability behind a
   global `--write` switch and a per-context `readonly` override, a two-tier
   confirmation framework (simple + typed), non-blocking logged operations, and one
-  vertical slice: create-folder. See `specs/002-write-foundation/`. Later features
-  (upload, delete, copy, sync, versions) build on this foundation.
+  vertical slice: create-folder. See `specs/002-write-foundation/`.
 
 ## UI / UX
 

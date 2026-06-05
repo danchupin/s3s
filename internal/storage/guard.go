@@ -1,6 +1,9 @@
 package storage
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // readOnlyGuard wraps a backend and refuses every mutation, returning ErrReadOnly
 // without contacting the wrapped client. Read methods pass straight through via the
@@ -14,6 +17,23 @@ type readOnlyGuard struct {
 // CreateFolder refuses the mutation; the wrapped backend is never called.
 func (readOnlyGuard) CreateFolder(context.Context, string, string) error {
 	return ErrReadOnly
+}
+
+// Every new mutating method (003) MUST be refused here too — this is the single
+// runtime enforcement point. Omitting one would let a write slip past a read-only
+// context (FR-012, SC-008). A guard test asserts each returns ErrReadOnly.
+func (readOnlyGuard) RemoveObject(context.Context, string, string) error { return ErrReadOnly }
+
+func (readOnlyGuard) UploadFile(context.Context, string, string, io.Reader, int64) error {
+	return ErrReadOnly
+}
+
+func (readOnlyGuard) CopyKey(context.Context, string, string, string) error { return ErrReadOnly }
+
+func (readOnlyGuard) MoveObject(context.Context, string, string, string) error { return ErrReadOnly }
+
+func (readOnlyGuard) DeleteRecursive(context.Context, string, string, func(DeleteSummary)) (DeleteSummary, error) {
+	return DeleteSummary{}, ErrReadOnly
 }
 
 var _ Mutator = readOnlyGuard{}
