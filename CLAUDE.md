@@ -43,32 +43,46 @@ go test -cover ./...                            # coverage
 
 ## Architecture (the big picture)
 
-The codebase enforces a **constitution** (`.specify/memory/constitution.md`) —
-five principles that constrain how everything fits together:
+The codebase is governed by a **constitution** (`.specify/memory/constitution.md`,
+v1.0.0). Its five principles are **I. Core/UI Separation**, **II. Non-Blocking
+TUI**, **III. Test-First**, **IV. Integration Testing**, **V. Observability & Safe
+Operations**. Note that principle V already anticipates *writes*: it mandates
+explicit confirmation + logging for destructive actions (delete object/bucket,
+overwrite, recursive remove). Adding mutations therefore does **not** require a
+constitution amendment.
 
-1. **Core/UI separation.** `internal/storage` is the *only* package that imports
-   `aws-sdk-go-v2/service/s3`. `internal/ui` depends on the `storage.Storage`
-   interface, never the SDK. `internal/{config,cache,preview,logging}` are
-   UI-agnostic and unit-tested without Bubble Tea.
-2. **Read-only by construction.** `storage.Storage` exposes only four read
-   methods (`ListBuckets`, `ListLevel`, `HeadObject`, `GetObjectRange`) — there is
-   no way to call a mutation. `scripts/check-readonly.sh` (run in `make
+**Read-only is a current implementation posture of the 001 feature, not a
+constitution principle** — it is enforced structurally and is expected to relax
+when write features land. How the principles + that posture show up in code:
+
+1. **Core/UI separation (constitution I).** `internal/storage` is the *only*
+   package that imports `aws-sdk-go-v2/service/s3`. `internal/ui` depends on the
+   `storage.Storage` interface, never the SDK. `internal/{config,cache,preview,logging}`
+   are UI-agnostic and unit-tested without Bubble Tea.
+2. **Read-only guard (implementation invariant, NOT a constitution principle).**
+   `storage.Storage` exposes only four read methods (`ListBuckets`, `ListLevel`,
+   `HeadObject`, `GetObjectRange`). `scripts/check-readonly.sh` (run in `make
    check-readonly`) fails the build if a write-capable S3 symbol (`PutObject`,
-   `DeleteObject`, `CreateBucket`, …) appears outside `internal/storage`.
-3. **Non-blocking TUI.** Every backend call runs in a `tea.Cmd`. The model holds a
-   monotonic generation id (`m.gen`) and a per-load `context.CancelFunc`
-   (`beginLoad`); navigating/searching cancels the previous load and bumps the
-   generation, so stale result messages are dropped (each message carries the gen
-   it was issued under). This is how superseded loads never corrupt the view.
-4. **Real-backend integration tests.** `internal/storage/s3client_integration_test.go`
-   (`//go:build integration`) exercises the real client against a MinIO container;
-   it seeds data via a raw write client (the only place writes are allowed, in a
-   test, inside `internal/storage`).
-5. **Observability & safety.** `log/slog` JSON to a file only (the TUI owns the
-   terminal). Secrets are a `logging.Secret` type that redacts in `String()`,
-   `%v/%s`, and slog; `storage.classify` maps SDK errors to sentinels
-   (`ErrNotFound`/`ErrAccessDenied`/`ErrUnreachable`/`ErrInvalidConfig`) without
-   leaking detail.
+   `DeleteObject`, `CreateBucket`, …) appears outside `internal/storage`. This is
+   the structural read-only invariant of the 001 browser — slated to change for the
+   write iteration (guard relaxed/inverted, interface gains write methods).
+3. **Non-blocking TUI (constitution II).** Every backend call runs in a `tea.Cmd`.
+   The model holds a monotonic generation id (`m.gen`) and a per-load
+   `context.CancelFunc` (`beginLoad`); navigating/searching cancels the previous
+   load and bumps the generation, so stale result messages are dropped (each
+   message carries the gen it was issued under). This is how superseded loads never
+   corrupt the view.
+4. **Real-backend integration tests (constitution IV).**
+   `internal/storage/s3client_integration_test.go` (`//go:build integration`)
+   exercises the real client against a MinIO container; it seeds data via a raw
+   write client (today the only place writes are allowed, in a test, inside
+   `internal/storage`).
+5. **Observability & safe operations (constitution V).** `log/slog` JSON to a file
+   only (the TUI owns the terminal). Secrets are a `logging.Secret` type that
+   redacts in `String()`, `%v/%s`, and slog; `storage.classify` maps SDK errors to
+   sentinels (`ErrNotFound`/`ErrAccessDenied`/`ErrUnreachable`/`ErrInvalidConfig`)
+   without leaking detail. When writes land, destructive ops must add the
+   confirmation + pre-execution log this principle requires.
 
 How the pieces connect at runtime (`cmd/s3s/main.go`): load + validate config →
 resolve the active context (flag > `S3S_CONTEXT` env > `current-context`) → build
@@ -100,9 +114,15 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 001-s3-readonly-browser (read-only S3 TUI browser).
+Active feature: 002-write-foundation (write foundation & safety — the first
+mutating capability, gated by `--write` + per-context `readonly`, with a two-tier
+confirmation framework and one vertical slice: create-folder). 001-s3-readonly-browser
+(read-only browser) is complete.
 
-Design artifacts (specs/001-s3-readonly-browser/): plan.md, research.md,
-data-model.md, contracts/ (storage interface, config schema, TUI contract),
-quickstart.md. Governed by Constitution v1.0.0.
+Plan: specs/002-write-foundation/plan.md. Design artifacts
+(specs/002-write-foundation/): research.md, data-model.md, contracts/
+(writer-interface, confirmation-contract, config-flag-delta), quickstart.md.
+Governed by Constitution v1.0.0. NOTE: `check-readonly.sh` is retained unchanged —
+it confines SDK mutations to `internal/storage`; read-only is enforced at runtime by
+a guard wrapper, not by the absence of write methods.
 <!-- SPECKIT END -->
