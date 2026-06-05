@@ -162,15 +162,21 @@ func waitForProgress(ch chan progressEvent, gen int) tea.Cmd {
 // countingReader wraps the upload source and reports bytes read onto ch (best-effort,
 // non-blocking so a fast read never stalls on the UI). It feeds the upload's live
 // byte progress (FR-010).
+//
+// It MUST stay seekable: SigV4 signs PutObject by reading the body to compute the
+// x-amz-content-sha256 hash, then Seek(0)s and reads again to send. Hiding the
+// underlying file's Seek makes the SDK send bytes that don't match the declared hash
+// (XAmzContentSHA256Mismatch on Ceph RGW). Seek delegates to the file and resets the
+// counter on a rewind-to-start so progress tracks the actual send pass.
 type countingReader struct {
-	r     io.Reader
+	rs    io.ReadSeeker
 	read  int64
 	total int64
 	ch    chan progressEvent
 }
 
 func (c *countingReader) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
+	n, err := c.rs.Read(p)
 	if n > 0 {
 		c.read += int64(n)
 		select {
@@ -179,6 +185,14 @@ func (c *countingReader) Read(p []byte) (int, error) {
 		}
 	}
 	return n, err
+}
+
+func (c *countingReader) Seek(offset int64, whence int) (int64, error) {
+	pos, err := c.rs.Seek(offset, whence)
+	if err == nil && pos == 0 {
+		c.read = 0 // SDK rewound before the send pass — count the send, not the hash pass
+	}
+	return pos, err
 }
 
 // uploadCmd opens the local file and streams it to the backend off the event loop,
@@ -195,7 +209,7 @@ func uploadCmd(ctx context.Context, mut storage.Mutator, bucket, key, localPath 
 				return
 			}
 			defer func() { _ = f.Close() }()
-			cr := &countingReader{r: f, total: size, ch: ch}
+			cr := &countingReader{rs: f, total: size, ch: ch}
 			err = mut.UploadFile(ctx, bucket, key, cr, size)
 			logMutationDone("upload", err, "bucket", bucket, "key", key)
 			ch <- progressEvent{done: true, err: err}

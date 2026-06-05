@@ -62,22 +62,16 @@ func TestIntegrationRemoveObject(t *testing.T) {
 	}
 }
 
-// readOnlyReader exposes ONLY Read (no Seek), reproducing the UI's progress-counting
-// reader. A bare PutObject can't sign a non-seekable body over http and fails — the
-// upload path MUST work through this (regression guard for the manager fix).
-type readOnlyReader struct{ r io.Reader }
-
-func (ro readOnlyReader) Read(p []byte) (int, error) { return ro.r.Read(p) }
-
-// TestIntegrationUploadFile uploads a small and a large file through a NON-seekable
-// reader and verifies the readback is byte-identical (US2, SC-003).
+// TestIntegrationUploadFile uploads a small and a large file (seekable body, as the
+// UI's countingReader provides) and verifies the readback is byte-identical. SigV4
+// needs a seekable body to hash-then-rewind; the UI guarantees that (US2, SC-003).
 func TestIntegrationUploadFile(t *testing.T) {
 	b := startBackend(t)
 	b.createBucket(t, "upb")
 	mut := b.mut(t)
 
 	small := []byte("small payload")
-	if err := mut.UploadFile(context.Background(), "upb", "s.txt", readOnlyReader{bytes.NewReader(small)}, int64(len(small))); err != nil {
+	if err := mut.UploadFile(context.Background(), "upb", "s.txt", bytes.NewReader(small), int64(len(small))); err != nil {
 		t.Fatalf("UploadFile small: %v", err)
 	}
 	if got := b.readback(t, "upb", "s.txt"); !bytes.Equal(got, small) {
@@ -85,7 +79,7 @@ func TestIntegrationUploadFile(t *testing.T) {
 	}
 
 	large := bytes.Repeat([]byte("0123456789abcdef"), 400*1024) // ~6 MiB
-	if err := mut.UploadFile(context.Background(), "upb", "big.bin", readOnlyReader{bytes.NewReader(large)}, int64(len(large))); err != nil {
+	if err := mut.UploadFile(context.Background(), "upb", "big.bin", bytes.NewReader(large), int64(len(large))); err != nil {
 		t.Fatalf("UploadFile large: %v", err)
 	}
 	if got := b.readback(t, "upb", "big.bin"); !bytes.Equal(got[:len(small)+1], large[:len(small)+1]) || len(got) == 0 {

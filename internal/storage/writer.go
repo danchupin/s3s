@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
@@ -93,17 +92,18 @@ func (c *s3Client) RemoveObject(ctx context.Context, bucket, key string) error {
 	return nil
 }
 
-// UploadFile streams r to the object at key via the multipart manager (FR-002). The
-// manager reads the body sequentially in parts, so it accepts a NON-seekable reader
-// (the UI wraps the file in a progress-counting reader) — a bare PutObject would need
-// a seekable stream to compute the SigV4 payload hash and fails over http otherwise.
-// It honors ctx cancellation, so a cancelled upload is never a success. size is the
-// caller's progress hint and is not needed by the manager.
-func (c *s3Client) UploadFile(ctx context.Context, bucket, key string, r io.Reader, _ int64) error {
-	_, err := c.uploader.UploadObject(ctx, &transfermanager.UploadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-		Body:   r,
+// UploadFile streams r (size bytes) to the object at key with a single PutObject
+// (FR-002). The body MUST be seekable: SigV4 reads it to compute the
+// x-amz-content-sha256 hash then rewinds to send, so a non-seekable body produces an
+// XAmzContentSHA256Mismatch. The UI's countingReader satisfies io.ReadSeeker. Honors
+// ctx cancellation, so a cancelled upload is never a success. (Multipart for >5 GiB
+// objects is out of scope.)
+func (c *s3Client) UploadFile(ctx context.Context, bucket, key string, r io.Reader, size int64) error {
+	_, err := c.api.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:        aws.String(bucket),
+		Key:           aws.String(key),
+		Body:          r,
+		ContentLength: aws.Int64(size),
 	})
 	if err != nil {
 		return classify(err)
