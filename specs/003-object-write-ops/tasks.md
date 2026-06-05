@@ -43,7 +43,7 @@ Single Go module: `cmd/s3s/`, `internal/{storage,config,ui,localfs,logging}/`. P
 **Purpose**: Clean baseline before changes.
 
 - [x] T001 Confirm branch `003-object-write-ops` and a green baseline: run `make build test check-readonly` and record they pass before edits.
-- [x] T002 Add the AWS multipart upload helper dependency. **DEVIATION**: not added — `UploadFile` streams via a single `PutObject` (the body reads from the source file, not buffered), which keeps the narrow `s3API` mock interface clean and works for the MinIO/RGW targets. Multipart for very large files is deferred. No new dependency.
+- [x] T002 No new dependency needed. Upload uses a single `PutObject` with a **seekable** body — SigV4 reads the body to hash it then rewinds to send, so the UI's progress reader (`countingReader`) implements `io.ReadSeeker`. (A non-seekable body causes `XAmzContentSHA256Mismatch` on Ceph RGW; the transfer manager was tried and dropped.) The client also sets `RequestChecksumCalculation=WhenRequired` so the SDK's default CRC32 trailer doesn't break older MinIO/RGW.
 
 ---
 
@@ -107,7 +107,7 @@ cancel/missing-file is never a success; object appears after refresh.
 
 ### Implementation
 
-- [x] T018 [US2] Implement `UploadFile` in `internal/storage/writer.go` (depends on T003). **DEVIATION**: streaming `PutObject` (reads from the file reader, honors ctx cancel) instead of `manager.Uploader` — see T002.
+- [x] T018 [US2] Implement `UploadFile` via a single streaming `PutObject` (seekable body for SigV4, `ContentLength` set, honors ctx cancel) in `internal/storage/writer.go` (depends on T003). The UI's `countingReader` is `io.ReadSeeker` (resets its counter on rewind-to-start); a UI test guards seekability, integration tests upload + read back byte-identical.
 - [x] T019 [US2] Implement the local file browser view + key handling (navigate in/out, select file, cancel) over `internal/localfs` in `internal/ui/filebrowser.go`, active during `phaseBrowse` (depends on T006, T007).
 - [x] T020 [US2] Implement the streaming-progress mechanism: `countingReader` (throttled ≤1/50 ms), `uploadCmd` (goroutine → `chan opProgress`), and `waitForProgress(ch, gen)` re-issuing until the terminal `operationDoneMsg`, in `internal/ui/commands.go` (depends on T018, T007).
 - [x] T021 [US2] Wire the upload intent: `u` keybinding → read-only guard → `phaseBrowse`; on file pick compute target key (`parent+filename`), do the advisory overwrite check against the loaded level (escalate to typed), then confirm → dispatch; handle `operationProgressMsg` (store progress, re-issue wait) and `operationDoneMsg`, in `internal/ui/keys.go` + `internal/ui/app.go` + `internal/ui/operation.go`.

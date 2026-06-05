@@ -62,8 +62,9 @@ func TestIntegrationRemoveObject(t *testing.T) {
 	}
 }
 
-// TestIntegrationUploadFile uploads a small and a large file and verifies the
-// readback is byte-identical (US2, SC-003).
+// TestIntegrationUploadFile uploads a small and a large file (seekable body, as the
+// UI's countingReader provides) and verifies the readback is byte-identical. SigV4
+// needs a seekable body to hash-then-rewind; the UI guarantees that (US2, SC-003).
 func TestIntegrationUploadFile(t *testing.T) {
 	b := startBackend(t)
 	b.createBucket(t, "upb")
@@ -74,7 +75,7 @@ func TestIntegrationUploadFile(t *testing.T) {
 		t.Fatalf("UploadFile small: %v", err)
 	}
 	if got := b.readback(t, "upb", "s.txt"); !bytes.Equal(got, small) {
-		t.Errorf("small readback mismatch")
+		t.Errorf("small readback mismatch: got %q want %q", got, small)
 	}
 
 	large := bytes.Repeat([]byte("0123456789abcdef"), 400*1024) // ~6 MiB

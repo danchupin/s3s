@@ -92,11 +92,12 @@ func (c *s3Client) RemoveObject(ctx context.Context, bucket, key string) error {
 	return nil
 }
 
-// UploadFile streams r (size bytes) to the object at key (FR-002). It uses a single
-// streaming PutObject — the body is read from r, not buffered in memory — and honors
-// ctx cancellation, so a cancelled upload returns context.Canceled and is never a
-// success. (Multipart for very large files is deferred; PutObject streams fine for
-// the MinIO/RGW targets in scope.)
+// UploadFile streams r (size bytes) to the object at key with a single PutObject
+// (FR-002). The body MUST be seekable: SigV4 reads it to compute the
+// x-amz-content-sha256 hash then rewinds to send, so a non-seekable body produces an
+// XAmzContentSHA256Mismatch. The UI's countingReader satisfies io.ReadSeeker. Honors
+// ctx cancellation, so a cancelled upload is never a success. (Multipart for >5 GiB
+// objects is out of scope.)
 func (c *s3Client) UploadFile(ctx context.Context, bucket, key string, r io.Reader, size int64) error {
 	_, err := c.api.PutObject(ctx, &s3.PutObjectInput{
 		Bucket:        aws.String(bucket),
