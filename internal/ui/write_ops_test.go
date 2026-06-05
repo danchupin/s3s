@@ -1,8 +1,10 @@
 package ui
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -384,6 +386,28 @@ func TestMoveOntoExistingWarnsOverwrite(t *testing.T) {
 	}
 	if !strings.Contains(app.opPromptLine(120), "OVERWRITES") {
 		t.Errorf("typed prompt should warn of overwrite; got %q", app.opPromptLine(120))
+	}
+}
+
+// TestCountingReaderSeekable: countingReader must stay seekable (SigV4 hash-rewind),
+// and a rewind to start resets the byte counter so progress tracks the send pass.
+// A non-seekable body causes XAmzContentSHA256Mismatch on real backends.
+func TestCountingReaderSeekable(t *testing.T) {
+	ch := make(chan progressEvent, 64)
+	cr := &countingReader{rs: bytes.NewReader([]byte("0123456789")), total: 10, ch: ch}
+
+	var _ io.ReadSeeker = cr // must satisfy io.ReadSeeker for the SDK to sign the body
+
+	buf := make([]byte, 4)
+	_, _ = cr.Read(buf)
+	if cr.read != 4 {
+		t.Fatalf("after read, counter = %d, want 4", cr.read)
+	}
+	if pos, err := cr.Seek(0, io.SeekStart); err != nil || pos != 0 {
+		t.Fatalf("Seek(0) = %d, %v; want 0, nil", pos, err)
+	}
+	if cr.read != 0 {
+		t.Errorf("rewind must reset the byte counter; got %d", cr.read)
 	}
 }
 

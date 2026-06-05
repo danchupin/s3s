@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -29,7 +30,7 @@ type s3API interface {
 	CopyObject(context.Context, *s3.CopyObjectInput, ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 }
 
-// s3Client is the aws-sdk-go-v2 backed read-only Storage implementation.
+// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation.
 type s3Client struct {
 	api s3API
 }
@@ -70,6 +71,14 @@ func New(cc ClientConfig) (Storage, error) {
 			o.BaseEndpoint = aws.String(cc.Endpoint)
 		}
 		o.UsePathStyle = cc.PathStyle
+		// aws-sdk-go-v2 (Jan 2025+) defaults to WhenSupported, which adds a CRC32
+		// data-integrity checksum and an aws-chunked trailer on writes. Many
+		// S3-compatible backends (older MinIO, Ceph RGW) reject that trailer with a
+		// 400, surfacing as an opaque write failure. WhenRequired adds a checksum only
+		// when the API actually requires one, restoring compatibility for PutObject /
+		// upload-part on non-AWS backends.
+		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
 	return &s3Client{api: client}, nil
 }
@@ -208,5 +217,17 @@ func classify(err error) error {
 		}
 	}
 
+	// Fell through: an error we couldn't map. If it carries an API error code or an
+	// HTTP status, the backend WAS reached and rejected the request — log the raw
+	// detail (code/status/message, never credentials) so an opaque "unreachable" can
+	// be diagnosed from the log file. A bare transport failure (no response) stays a
+	// genuine unreachable.
+	if errors.As(err, &apiErr) {
+		slog.Warn("s3 request rejected", "code", apiErr.ErrorCode(), "message", apiErr.ErrorMessage())
+	} else if errors.As(err, &respErr) {
+		slog.Warn("s3 request rejected", "status", respErr.HTTPStatusCode(), "err", respErr.Error())
+	} else {
+		slog.Debug("s3 transport error", "err", err.Error())
+	}
 	return fmt.Errorf("%w", ErrUnreachable)
 }
