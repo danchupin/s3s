@@ -95,7 +95,7 @@ in the log with no secret; cancelling the confirm changes nothing.
 
 - [ ] T015 [US2] Implement `CreateFolder` (PutObject of `<prefix>/` with empty body) plus key normalization/validation in `internal/storage/writer.go` (depends on T002).
 - [ ] T016 [US2] Implement the simple-tier confirmation overlay (state + `y`/`Enter`/`n`/`Esc`, rendered within the bordered layout) in `internal/ui/confirm.go`.
-- [ ] T017 [US2] Implement operation lifecycle state and rendering — spinner within 100 ms of `operationStarted`, cancel on `x` — in `internal/ui/operation.go` (SC-004).
+- [ ] T017 [US2] Implement operation lifecycle state and rendering — spinner within 100 ms of `operationStarted`, cancel on `x`; a cancelled `Running` op is never rendered as success and triggers a re-fetch of the affected level (FR-007) — in `internal/ui/operation.go` (SC-004).
 - [ ] T018 [US2] Add `createFolderCmd(gen, bucket, prefix)` (`tea.Cmd` with generation + `context.CancelFunc`) and `operationStarted/Progress/Done` messages in `internal/ui/commands.go` and `internal/ui/messages.go` (depends on T015, T017).
 - [ ] T019 [US2] Add the create-folder keybinding and wire the intent in `internal/ui/keys.go` + `internal/ui/app.go`; invalidate the affected level cache and refresh on success (depends on T016, T018) (SC-006).
 - [ ] T020 [US2] Emit `mutation.start` before dispatch and `mutation.done` on terminal state via `log/slog`, reusing `logging.Secret` redaction, in `internal/ui/operation.go`/`commands.go` (depends on T018) (FR-008, SC-005).
@@ -118,7 +118,7 @@ reversible action (create-folder) still needs only the simple confirm.
 
 ### Tests (write first — must fail)
 
-- [ ] T022 [P] [US3] Failing white-box UI test driving a test-only `MutatingOperation{Tier: ConfirmTyped}` fixture (no production destructive action): typed tier confirms only on an exact target match, aborts on mismatch with no command, and leaves the simple tier unchanged, in `internal/ui/confirm_test.go`.
+- [ ] T022 [P] [US3] Failing white-box UI test driving a test-only `MutatingOperation{Tier: ConfirmTyped}` fixture (no production destructive action): typed tier confirms only on a byte-for-byte exact target match (a trailing-space or wrong-case entry aborts), aborts on mismatch with no command, and leaves the simple tier unchanged, in `internal/ui/confirm_test.go`.
 
 ### Implementation
 

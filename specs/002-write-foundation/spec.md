@@ -22,6 +22,11 @@ slice (create an empty folder) to prove the framework end-to-end."
   writable except those marked `readonly: true` in config (opt-out per context).
 - Q: Within what time must progress feedback appear after a mutating operation
   starts (SC-004 "promptly")? → A: Within 100 ms (next render tick).
+- Q: How precise is the typed-confirmation match (whitespace/case)? → A:
+  Byte-for-byte exact — no trimming, no case folding (FR-005).
+- Q: What is the storage guarantee when an in-flight mutation is cancelled? → A:
+  Indeterminate outcome — never reported as success; the next refresh shows ground
+  truth (FR-007).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -145,6 +150,9 @@ folder) requires only the simple confirmation.
   attempt the operation.)
 - What happens when the network call hangs? (The operation is cancellable and the
   interface stays responsive.)
+- What happens to storage when the operator cancels mid-flight? (The outcome is
+  indeterminate — the call may already have applied; it is never shown as success,
+  and a refresh reveals the true state.)
 - What happens if the operator lacks permission on the backend? (Fail safely,
   unchanged storage, clear non-leaking error, logged outcome.)
 
@@ -167,14 +175,19 @@ folder) requires only the simple confirmation.
 - **FR-005**: The system MUST provide two confirmation tiers — a simple
   confirmation for reversible operations and a stronger, deliberate confirmation
   (typing the exact target identifier) for destructive/irreversible operations —
-  and MUST classify operations into the correct tier.
+  and MUST classify operations into the correct tier. The typed-tier match MUST be
+  byte-for-byte exact (no surrounding-whitespace trimming, no case folding); any
+  non-identical entry aborts the operation.
 - **FR-006**: The system MUST execute mutating operations without blocking the
   interface; the interface MUST remain responsive, surface progress, and surface
   the final success or failure outcome.
 - **FR-007**: The system MUST allow an in-flight mutating operation to be
   cancelled where the operation supports cancellation, and MUST ensure a
   superseded or cancelled operation cannot corrupt the view of another
-  context/level.
+  context/level. A cancelled in-flight mutation has an **indeterminate storage
+  outcome** (the backend call may already have applied): the system MUST NOT report
+  it as a success, and the next refresh of the affected level MUST reflect ground
+  truth rather than an assumed result.
 - **FR-008**: The system MUST log every mutating operation — its action, target,
   and context — before execution, and MUST log the outcome, writing only to the
   file log and never leaking secrets.

@@ -11,7 +11,7 @@ it unchanged.
 | Tier | Used by | Confirm | Abort |
 |---|---|---|---|
 | `ConfirmSimple` | reversible ops (create-folder) | `y` or `Enter` | `n` or `Esc` |
-| `ConfirmTyped` | destructive/irreversible ops (future delete/overwrite) | type the exact target identifier, then `Enter` | `Esc`, or `Enter` on a mismatch |
+| `ConfirmTyped` | destructive/irreversible ops (future delete/overwrite) | type the **byte-for-byte exact** target identifier (no trim/case-fold), then `Enter` | `Esc`, or `Enter` on any mismatch |
 
 - The op declares its tier; the UI must not let a `ConfirmTyped` op proceed on a
   non-matching entry (SC-003).
@@ -77,5 +77,7 @@ Driven with `deliver`/`press`, asserting on `App.View().Content` and model state
   hint and issues no command (FR-003).
 - **Non-blocking**: `operationStarted` renders a spinner; a delayed `operationDone`
   from a superseded generation is dropped (FR-006, FR-007).
+- **Cancel outcome**: cancelling a `Running` op never renders a success outcome; the
+  affected level is re-fetched (not assumed) so the view reflects ground truth (FR-007).
 - **Logging**: a fake/log sink records `mutation.start` before `mutation.done`, with
   no secret present (SC-005).

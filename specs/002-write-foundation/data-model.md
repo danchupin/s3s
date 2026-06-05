@@ -65,7 +65,11 @@ Pending ──confirm──▶ Confirmed ──dispatch──▶ Running ──�
   invalidated only on `Succeeded`.
 - **Invariant**: no transition into `Running` without passing `Confirmed`
   (SC-001 — 100% of mutations confirmed).
-- **Invariant**: `Failed`/`Cancelled` ⇒ storage unchanged (FR-011, SC-007).
+- **Invariant**: `Failed`, and `Cancelled` *before dispatch* (from `Pending`/
+  `Confirmed`), ⇒ storage unchanged (FR-011, SC-007).
+- **Invariant**: `Cancelled` *during* `Running` ⇒ **indeterminate** storage outcome
+  (the backend call may already have applied); never reported as success, and the
+  next refresh reflects ground truth (FR-007).
 
 ## Confirmation
 
@@ -79,8 +83,9 @@ Transient gate state bound to a `Pending`/`Confirmed` operation.
 | `Confirmed` | `bool` | simple: `y`/`Enter`; typed: `Input == Expect` |
 
 - **Simple tier**: `y`/`Enter` ⇒ confirmed; `n`/`Esc` ⇒ abort.
-- **Typed tier**: confirmed only when `Input == Expect` exactly; mismatch on submit
-  ⇒ abort, no change (SC-003).
+- **Typed tier**: confirmed only when `Input == Expect` **byte-for-byte exactly**
+  (no whitespace trimming, no case folding); any mismatch on submit ⇒ abort, no
+  change (SC-003, FR-005).
 - CreateFolder uses **Simple** (reversible). The **Typed** tier ships and is
   unit-tested in 002 but has no UI-triggerable destructive action yet (US3) — it is
   exercised by tests and consumed by 003.
