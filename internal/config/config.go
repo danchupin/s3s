@@ -50,11 +50,14 @@ type User struct {
 	SessionToken    logging.Secret `yaml:"sessionToken,omitempty"`
 }
 
-// Context binds a cluster and a user under a selectable name.
+// Context binds a cluster and a user under a selectable name. ReadOnly marks the
+// context as protected: it refuses all mutations even under the global --write
+// switch (FR-002).
 type Context struct {
-	Name    string `yaml:"name"`
-	Cluster string `yaml:"cluster"`
-	User    string `yaml:"user"`
+	Name     string `yaml:"name"`
+	Cluster  string `yaml:"cluster"`
+	User     string `yaml:"user"`
+	ReadOnly bool   `yaml:"readonly,omitempty"`
 }
 
 // DefaultRegion is used when a cluster omits region.

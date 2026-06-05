@@ -91,6 +91,37 @@ func loadPreview(ctx context.Context, st storage.Storage, bucket, key string, co
 	}
 }
 
+// createFolderCmd creates an empty folder off the event loop, logging the outcome
+// (Constitution V). The mutation.start record is emitted by the caller before
+// dispatch; this records mutation.done with the classified outcome (FR-008).
+func createFolderCmd(ctx context.Context, mut storage.Mutator, bucket, prefix string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		err := mut.CreateFolder(ctx, bucket, prefix)
+		logMutationDone("create_folder", err, "bucket", bucket, "key", prefix)
+		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
+// logMutationStart records the intent of a mutation BEFORE execution (Constitution
+// V). Only non-secret identifiers are logged (FR-008, SC-005).
+func logMutationStart(action string, attrs ...any) {
+	slog.Info("mutation.start", append([]any{"action", action}, attrs...)...)
+}
+
+// logMutationDone records the terminal outcome of a mutation. A context
+// cancellation is an indeterminate outcome, never "ok" (FR-007).
+func logMutationDone(action string, err error, attrs ...any) {
+	base := append([]any{"action", action}, attrs...)
+	switch {
+	case err == nil:
+		slog.Info("mutation.done", append(base, "outcome", "ok")...)
+	case errors.Is(err, context.Canceled):
+		slog.Info("mutation.done", append(base, "outcome", "cancelled")...)
+	default:
+		slog.Error("mutation.done", append(base, "outcome", "failed", "err", err)...)
+	}
+}
+
 // spinnerTick schedules the next spinner frame.
 func spinnerTick() tea.Cmd {
 	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg { return spinnerTickMsg{} })

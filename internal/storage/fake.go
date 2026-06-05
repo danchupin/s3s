@@ -174,6 +174,24 @@ func (f *Fake) HeadObject(ctx context.Context, bucket, key string) (ObjectMetada
 	}, nil
 }
 
+// CreateFolder creates a zero-length object at the normalised "<prefix>/" key in
+// the in-memory bucket, mirroring the real client (FR-009/FR-010).
+func (f *Fake) CreateFolder(ctx context.Context, bucket, prefix string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	key, err := normalizeFolderKey(prefix)
+	if err != nil {
+		return err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return fmt.Errorf("create folder %q: %w", bucket, ErrNotFound)
+	}
+	b.Objects[key] = FakeObject{}
+	return nil
+}
+
 // GetObjectRange returns a reader over Data[start : end+1] (clamped).
 func (f *Fake) GetObjectRange(ctx context.Context, bucket, key string, start, end int64) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {

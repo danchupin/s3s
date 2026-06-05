@@ -100,6 +100,55 @@ func (b *testBackend) put(t *testing.T, bucket, key, body, contentType string) {
 	}
 }
 
+// TestIntegrationCreateFolder creates an empty folder on a writable real backend
+// and verifies it shows up as a common prefix after a re-list (FR-009, SC-006).
+func TestIntegrationCreateFolder(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "wbucket")
+
+	mut, ok := b.store.(Mutator)
+	if !ok {
+		t.Fatal("real client must satisfy Mutator")
+	}
+	if err := mut.CreateFolder(context.Background(), "wbucket", "reports"); err != nil {
+		t.Fatalf("CreateFolder: %v", err)
+	}
+
+	page, err := b.store.ListLevel(context.Background(), LevelQuery{Bucket: "wbucket"})
+	if err != nil {
+		t.Fatalf("ListLevel: %v", err)
+	}
+	found := false
+	for _, d := range page.Dirs {
+		if d == "reports/" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("created folder not listed; dirs=%v", page.Dirs)
+	}
+}
+
+// TestIntegrationGuardRefuses verifies the read-only guard refuses a mutation
+// against a real backend without changing anything (SC-002, SC-007, FR-012).
+func TestIntegrationGuardRefuses(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "robucket")
+
+	ro := Guard(b.store, false).(Mutator)
+	if err := ro.CreateFolder(context.Background(), "robucket", "nope"); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("guarded CreateFolder = %v, want ErrReadOnly", err)
+	}
+
+	page, err := b.store.ListLevel(context.Background(), LevelQuery{Bucket: "robucket"})
+	if err != nil {
+		t.Fatalf("ListLevel: %v", err)
+	}
+	if len(page.Dirs) != 0 || len(page.Objects) != 0 {
+		t.Errorf("guard mutated storage: dirs=%v objects=%v", page.Dirs, page.Objects)
+	}
+}
+
 func TestIntegrationListBuckets(t *testing.T) {
 	b := startBackend(t)
 	b.createBucket(t, "alpha")

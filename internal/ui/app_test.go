@@ -198,7 +198,7 @@ func TestHelpOverlay(t *testing.T) {
 	if m.mode != modeHelp {
 		t.Fatalf("'?' should open help, mode = %v", m.mode)
 	}
-	if !strings.Contains(viewOf(m), "read-only S3 browser") {
+	if !strings.Contains(viewOf(m), "S3 browser") {
 		t.Errorf("help overlay content missing:\n%s", viewOf(m))
 	}
 	m = press(m, "x") // any key closes
