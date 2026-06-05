@@ -309,11 +309,17 @@ func labeledSeg(width int, label, val string, st lipgloss.Style, lim int) fseg {
 	}
 }
 
-// footerIdentityLine: who/where we're connected — context, cluster, user.
-func footerIdentityLine(width int, ctx, cluster, user string) string {
+// footerIdentityLine: who/where we're connected — context, cluster, user, plus a
+// read-only/write-mode tag. [RW] (accented) means mutations are enabled for this
+// context; [RO] means read-only (no --write, or the context is readonly).
+func footerIdentityLine(width int, ctx, cluster, user string, writable bool) string {
+	tag, dotStyle, tagStyle := "[RO]", roStyle, dimCellStyle
+	if writable {
+		tag, dotStyle, tagStyle = "[RW]", accentStyle, accentStyle
+	}
 	segs := []fseg{{
-		s: roStyle.Render("●") + " " + segCtxStyle.Render(truncate(ctx, max(1, width-6))) + dimCellStyle.Render(" [RO]"),
-		w: lipgloss.Width("● " + truncate(ctx, max(1, width-6)) + " [RO]"),
+		s: dotStyle.Render("●") + " " + segCtxStyle.Render(truncate(ctx, max(1, width-6))) + tagStyle.Render(" "+tag),
+		w: lipgloss.Width("● " + truncate(ctx, max(1, width-6)) + " " + tag),
 	}}
 	if cluster != "" {
 		segs = append(segs, labeledSeg(width, "cluster", cluster, segClusterStyle, 32))
@@ -338,15 +344,21 @@ func footerEndpointLine(width int, endpoint, region, ver string) string {
 }
 
 // footerHintsLine builds the colored keybinding line(s); wraps so every hint —
-// including help/quit — is always visible, even on narrow terminals.
-func footerHintsLine(width int) string {
+// including help/quit — is always visible, even on narrow terminals. The "+ folder"
+// hint appears only when the active context is writable (--write, not readonly).
+func footerHintsLine(width int, writable bool) string {
 	h := func(k, a string) fseg {
 		return fseg{s: accentStyle.Render(k) + " " + dimCellStyle.Render(a), w: lipgloss.Width(k + " " + a)}
 	}
 	segs := []fseg{
 		h("enter", "open"), h("/", "filter"), h("r", "refresh"),
-		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),
 	}
+	if writable {
+		segs = append(segs, h("+", "folder"))
+	}
+	segs = append(segs,
+		h("c", "context"), h("1-9", "switch"), h("?", "help"), h("q", "quit"),
+	)
 	return wrapSegs(width, segs)
 }
 

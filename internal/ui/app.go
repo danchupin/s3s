@@ -502,9 +502,9 @@ func (m App) View() tea.View {
 func (m App) footerBlock(w int) string {
 	lines := []string{
 		ruleStyle.Render(strings.Repeat("─", w)),
-		footerIdentityLine(w, m.ctxName, m.info.Cluster, m.info.User),
+		footerIdentityLine(w, m.ctxName, m.info.Cluster, m.info.User, m.writable),
 		footerEndpointLine(w, m.info.Endpoint, m.info.Region, Version),
-		footerHintsLine(w),
+		footerHintsLine(w, m.writable),
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)

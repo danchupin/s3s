@@ -158,6 +158,27 @@ func TestStaleOperationDropped(t *testing.T) {
 	}
 }
 
+// TestFooterWriteTag: the footer identity line reflects write mode — [RW] when
+// writable, [RO] otherwise.
+func TestFooterWriteTag(t *testing.T) {
+	if got := footerIdentityLine(80, "ctx", "cl", "u", true); !strings.Contains(got, "[RW]") {
+		t.Errorf("writable footer should show [RW]; got %q", got)
+	}
+	if got := footerIdentityLine(80, "ctx", "cl", "u", false); !strings.Contains(got, "[RO]") {
+		t.Errorf("read-only footer should show [RO]; got %q", got)
+	}
+}
+
+// TestFooterHintWritable: the "+ folder" hint appears only in write mode.
+func TestFooterHintWritable(t *testing.T) {
+	if got := footerHintsLine(120, true); !strings.Contains(got, "folder") {
+		t.Errorf("writable hints should include the + folder hint; got %q", got)
+	}
+	if got := footerHintsLine(120, false); strings.Contains(got, "folder") {
+		t.Errorf("read-only hints must not include the + folder hint; got %q", got)
+	}
+}
+
 // TestMutationLogging: start is logged before done, the outcome is recorded, and no
 // secret appears (FR-008, SC-005).
 func TestMutationLogging(t *testing.T) {
