@@ -12,6 +12,7 @@ import (
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	smithy "github.com/aws/smithy-go"
@@ -29,9 +30,13 @@ type s3API interface {
 	CopyObject(context.Context, *s3.CopyObjectInput, ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 }
 
-// s3Client is the aws-sdk-go-v2 backed read-only Storage implementation.
+// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation.
 type s3Client struct {
 	api s3API
+	// uploader streams uploads in parts. Unlike a bare PutObject, it accepts a
+	// non-seekable Body (e.g. the UI's progress-counting reader) — PutObject would
+	// need a seekable stream to compute the SigV4 payload hash and fails otherwise.
+	uploader *transfermanager.Client
 }
 
 // New builds a Storage from a resolved (cluster + user) ClientConfig. Anonymous
@@ -71,7 +76,7 @@ func New(cc ClientConfig) (Storage, error) {
 		}
 		o.UsePathStyle = cc.PathStyle
 	})
-	return &s3Client{api: client}, nil
+	return &s3Client{api: client, uploader: transfermanager.New(client)}, nil
 }
 
 func (c *s3Client) ListBuckets(ctx context.Context) ([]Bucket, error) {
