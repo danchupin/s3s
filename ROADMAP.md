@@ -3,6 +3,14 @@
 Backlog of improvements for s3s, captured from code review. Nothing here is a
 known bug — these are enhancements. Ordered roughly by value.
 
+## In progress
+
+- **Write foundation & safety (002)** — the first mutating capability behind a
+  global `--write` switch and a per-context `readonly` override, a two-tier
+  confirmation framework (simple + typed), non-blocking logged operations, and one
+  vertical slice: create-folder. See `specs/002-write-foundation/`. Later features
+  (upload, delete, copy, sync, versions) build on this foundation.
+
 ## UI / UX
 
 - [ ] **Full-quality image preview via external viewer.** Half-block is bounded

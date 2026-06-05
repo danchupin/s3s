@@ -108,7 +108,7 @@ cmd/
 internal/
 ├── config/
 │   ├── config.go            # + Context.ReadOnly field; ClientConfig unchanged
-│   └── resolve.go           # + WritePolicyFor(name, writeFlag) (Resolve/ClientConfig unchanged)
+│   └── resolve.go           # + WriteModeFor(name, writeFlag) (Resolve/ClientConfig unchanged)
 ├── storage/                 # ONLY package importing service/s3 (guard-enforced)
 │   ├── storage.go           # + Mutator interface (CreateFolder); ErrReadOnly sentinel
 │   ├── writer.go            # CreateFolder impl: PutObject of "<prefix>/" (zero bytes)

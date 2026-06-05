@@ -8,7 +8,7 @@ All Technical Context unknowns resolved. No outstanding NEEDS CLARIFICATION.
 `internal/storage`). The guard implements the same `storage.Storage` +
 `storage.Mutator` interfaces but, when read-only, returns `ErrReadOnly` from every
 mutating method **before** any network call. Reads pass through untouched. The
-resolver decides at construction time whether to wrap, from the `WritePolicy`
+resolver decides at construction time whether to wrap, from the `WriteMode`
 (global `--write` AND not per-context `readonly`).
 
 **Rationale**: A single enforcement point inside the storage layer cannot be
@@ -104,7 +104,7 @@ framework must generalise to slow ops (uploads) in 003.
 
 **Decision**: A global boolean flag `--write` (default false) on `cmd/s3s`. A new
 optional `readonly: true` field on a **context** in config. A new
-`config.WritePolicyFor(name, writeFlag)` method produces a `WritePolicy{Writable:
+`config.WriteModeFor(name, writeFlag)` method produces a `WriteMode{Writable:
 bool}` per active context as `writeFlag && !context.ReadOnly` — the existing
 `Resolve`/`ClientConfig` methods are left unchanged (a separate method, not an
 overload, so no current caller breaks). `main.go` threads `writeFlag` into the
@@ -145,7 +145,7 @@ trace of intent.
 | `storage` sentinels | `+ ErrReadOnly` |
 | `storage.readOnlyGuard` (new) | wraps backend; refuses mutations when read-only |
 | `config.Context` | `+ ReadOnly bool` (yaml `readonly`) |
-| `config.WritePolicyFor` (new) | `+ WritePolicy` (existing `Resolve`/`ClientConfig` unchanged) |
+| `config.WriteModeFor` (new) | `+ WriteMode` (existing `Resolve`/`ClientConfig` unchanged) |
 | `cmd/s3s` | `+ --write` flag |
 | `ui` | confirmation overlay (simple/typed) + operation/progress flow |
 | `scripts/check-readonly.sh` | unchanged |

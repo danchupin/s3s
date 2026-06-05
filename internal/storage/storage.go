@@ -25,7 +25,27 @@ var (
 	ErrUnreachable = errors.New("storage: backend unreachable")
 	// ErrInvalidConfig: client could not be constructed from the given config.
 	ErrInvalidConfig = errors.New("storage: invalid configuration")
+	// ErrReadOnly: a mutation was attempted on a read-only backend (the context is
+	// readonly, or --write was not passed). Returned by readOnlyGuard before any
+	// network call, so storage is provably unchanged (FR-003, FR-011, FR-012).
+	ErrReadOnly = errors.New("storage: backend is read-only")
+	// ErrInvalidName: a create-folder target failed validation (empty/whitespace or
+	// control characters). Returned before any network call (FR-010).
+	ErrInvalidName = errors.New("storage: invalid name")
 )
+
+// Mutator adds write capability on top of Storage. The real client, the in-memory
+// Fake, and readOnlyGuard all implement it; the read-only guard returns ErrReadOnly
+// without contacting the backend. Mutating S3 calls live ONLY in this package
+// (scripts/check-readonly.sh enforces it).
+type Mutator interface {
+	// CreateFolder creates an empty folder at (bucket, prefix) by putting a
+	// zero-length object whose key is prefix normalised to exactly one trailing
+	// "/". Returns ErrReadOnly (no network call) when the backend is read-only and
+	// ErrInvalidName when the prefix is empty/whitespace or has control chars.
+	// FR-009, FR-010.
+	CreateFolder(ctx context.Context, bucket, prefix string) error
+}
 
 // Storage is a read-only view of one S3-compatible backend (bound to one context).
 type Storage interface {

@@ -44,6 +44,15 @@ type errMsg struct {
 // spinnerTickMsg advances the loading spinner frame.
 type spinnerTickMsg struct{}
 
+// operationDoneMsg delivers the terminal outcome of a mutating operation. It
+// carries the generation it was dispatched under so a superseded/cancelled result
+// is dropped (FR-007). A non-nil err (including context.Canceled) means the
+// operation is NOT a success.
+type operationDoneMsg struct {
+	gen int
+	err error
+}
+
 // searchFireMsg fires after the search debounce window elapses; it carries the
 // search generation so only the latest keystroke triggers a request (FR-017a).
 type searchFireMsg struct {

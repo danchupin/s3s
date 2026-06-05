@@ -63,13 +63,15 @@ func (readOnlyGuard) CreateFolder(context.Context, string, string) error {
     return ErrReadOnly
 }
 
-// Guard wraps b in a read-only guard unless policy.Writable.
-func Guard(b Storage, policy WritePolicy) Storage { ... }
+// Guard wraps b in a read-only guard unless writable. A plain bool (not the
+// config.WriteMode type) avoids a storage→config import cycle; the resolver passes
+// policy.Writable.
+func Guard(b Storage, writable bool) Storage { ... }
 ```
 
-- When `policy.Writable == false`, `Guard` returns a `readOnlyGuard` whose mutating
+- When `writable == false`, `Guard` returns a `readOnlyGuard` whose mutating
   methods all return `ErrReadOnly`; reads delegate to the wrapped backend.
-- When `policy.Writable == true`, `Guard` returns the backend unwrapped.
+- When `writable == true`, `Guard` returns the backend unwrapped.
 - Resolution happens at construction (in the resolver closure that rebuilds the
   backend on context switch), so the UI holds an already-correct backend.
 
@@ -81,8 +83,8 @@ the client. The resolver composes them:
 ```go
 clientCfg, err := cfg.ClientConfig(name)        // unchanged
 backend, err := storage.New(clientCfg)          // unchanged
-policy, err := cfg.WritePolicyFor(name, writeFlag) // new method; existing Resolve untouched
-backend = storage.Guard(backend, policy)        // read-only unless Writable
+policy, err := cfg.WriteModeFor(name, writeFlag) // new method; existing Resolve untouched
+backend = storage.Guard(backend, policy.Writable) // read-only unless writable
 ```
 
 ## Test contract

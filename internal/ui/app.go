@@ -45,6 +45,7 @@ type Backend struct {
 	User     string
 	Endpoint string
 	Region   string
+	Writable bool // true when --write is set and the context is not readonly
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil
@@ -59,6 +60,7 @@ type App struct {
 	contexts []string
 	resolve  Resolver
 	imgProto preview.Protocol
+	writable bool // active context permits mutations (Backend.Writable)
 
 	keys  keyMap
 	cache *cache.Cache[*levelState]
@@ -99,6 +101,9 @@ type App struct {
 	loadCancel context.CancelFunc
 	spin       int
 	err        error
+
+	// in-flight mutating operation (nil when none); see operation.go
+	op *operation
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -114,6 +119,7 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, i
 		contexts: contexts,
 		resolve:  resolve,
 		imgProto: imgProto,
+		writable: initial.Writable,
 		keys:     defaultKeys(),
 		cache:    cache.New[*levelState](),
 		mode:     modeBuckets,
@@ -217,6 +223,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 
+	case operationDoneMsg:
+		return m.onOperationDone(msg)
+
 	case searchFireMsg:
 		return m.onSearchFire(msg)
 
@@ -233,6 +242,13 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// While typing a search query, the input owns most keys.
 	if m.searching {
 		return m.onSearchKey(msg)
+	}
+
+	// An interactive operation (name entry / confirmation) owns keys before the
+	// global bindings, so text input (incl. "q", "h", "+") is not intercepted.
+	// phaseRunning is NOT interactive — it falls through to the cancel path below.
+	if m.op != nil && m.op.phase != phaseRunning {
+		return m.onOpKey(key, msg)
 	}
 
 	// Global quit.
@@ -376,6 +392,8 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	}
 	m.store = be.Store
 	m.info = be
+	m.writable = be.Writable
+	m.op = nil
 	m.ctxName = target
 	m.cache.Clear()
 	m.buckets = nil
@@ -421,6 +439,14 @@ func (m App) errorText() string {
 		return "Backend unreachable — check the endpoint and your network."
 	case errors.Is(m.err, storage.ErrInvalidConfig):
 		return "Invalid configuration for this context."
+	case errors.Is(m.err, storage.ErrReadOnly):
+		return "This context is read-only — start s3s with --write to enable changes."
+	case errors.Is(m.err, storage.ErrInvalidName):
+		return "Invalid folder name — use a non-empty name without control characters."
+	case errors.Is(m.err, errFolderExists):
+		return "A folder with that name already exists here."
+	case errors.Is(m.err, errConfirmMismatch):
+		return "Confirmation did not match — nothing was changed."
 	default:
 		return "Something went wrong. Press a key to continue."
 	}
@@ -490,6 +516,11 @@ func (m App) footerBlock(w int) string {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
+	// An interactive operation prompt (name entry / confirmation) takes priority;
+	// phaseRunning falls through to the loading spinner below.
+	if m.op != nil && m.op.phase != phaseRunning {
+		return m.opPromptLine(w)
+	}
 	if m.searching {
 		label := "search"
 		if m.mode == modeBuckets {

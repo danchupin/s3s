@@ -57,6 +57,8 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startSearch()
 	case matches(key, m.keys.Refresh):
 		return m.refresh()
+	case matches(key, m.keys.NewFolder):
+		return m.startCreateFolder()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
 	case matches(key, m.keys.Enter):

@@ -46,6 +46,23 @@ func (c *Config) Resolve(name string) (Cluster, User, error) {
 	return cl, u, nil
 }
 
+// WriteMode is the resolved write capability for one context.
+type WriteMode struct {
+	Writable bool
+}
+
+// WriteModeFor returns the write policy for the named context: writable only when
+// the global --write switch is on AND the context is not marked readonly (read-only
+// always wins — FR-001/FR-002, opt-out model). The existing Resolve/ClientConfig
+// methods are intentionally left unchanged so their callers do not break.
+func (c *Config) WriteModeFor(name string, writeFlag bool) (WriteMode, error) {
+	cx, ok := c.context(name)
+	if !ok {
+		return WriteMode{}, fmt.Errorf("%w: no such context %q", ErrInvalid, name)
+	}
+	return WriteMode{Writable: writeFlag && !cx.ReadOnly}, nil
+}
+
 // ClientConfig builds a storage.ClientConfig for the named context. This is the
 // single trust boundary where secrets are revealed (to construct the client).
 func (c *Config) ClientConfig(name string) (storage.ClientConfig, error) {

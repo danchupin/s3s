@@ -45,15 +45,15 @@ The existing `Resolve(name) (Cluster, User, error)` and `ClientConfig(name)
 **separate** method so no current caller breaks:
 
 ```go
-type WritePolicy struct { Writable bool }
+type WriteMode struct { Writable bool }
 
-// WritePolicyFor returns the write policy for the named context.
+// WriteModeFor returns the write policy for the named context.
 // Writable == writeFlag && !context.ReadOnly.
-func (c *Config) WritePolicyFor(name string, writeFlag bool) (WritePolicy, error)
+func (c *Config) WriteModeFor(name string, writeFlag bool) (WriteMode, error)
 ```
 
 `main.go` threads the `--write` flag into the resolver closure, which calls
-`WritePolicyFor` and wraps the backend with `storage.Guard(backend, policy)`.
+`WriteModeFor` and wraps the backend with `storage.Guard(backend, policy)`.
 
 Truth table:
 
@@ -72,7 +72,7 @@ Truth table:
 
 ## Test contract
 
-- **Unit**: `WritePolicyFor` truth table (all four rows); absent `readonly` ⇒
+- **Unit**: `WriteModeFor` truth table (all four rows); absent `readonly` ⇒
   `false`; malformed `readonly` value ⇒ validation error at load.
 - **Unit**: a context marked `readonly: true` yields `Writable == false` even with
   `writeFlag == true` (SC-002).

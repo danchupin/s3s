@@ -13,7 +13,9 @@ think [`k9s`](https://github.com/derailed/k9s), but for your buckets.**
 
 Point it at Ceph RGW or MinIO, switch clusters like kubectl contexts, and walk
 millions of keys, inspect metadata, and preview files without ever leaving the
-terminal — **fully read-only**, so you can explore production safely.
+terminal. **Read-only by default** — safe to point at production — with opt-in
+writes (`--write`) for the small, growing set of mutating operations, and a
+per-context `readonly` flag that keeps protected environments untouchable.
 
 </div>
 
@@ -40,9 +42,10 @@ _Coming soon — a recording of context switching, tree navigation, and previews
 
 - **kubectl-style contexts** — define clusters, users, and contexts in one YAML
   file; switch between them live (no restart) or jump by number (`1`–`9`).
-- **Read-only by construction** — the storage interface exposes no mutating
-  method, and a CI guard fails the build if any write-capable S3 symbol appears
-  outside the storage layer. Safe to point at prod.
+- **Read-only by default, safe writes opt-in** — without `--write` nothing can be
+  mutated. With it, the few write operations (currently: create folder) run behind
+  a confirmation gate; a context marked `readonly: true` refuses changes even under
+  `--write`. All S3 mutations are confined to the storage layer by a CI guard.
 - **Tree navigation** — walk the key namespace by the `/` delimiter with
   on-demand pagination; never loads a whole bucket up front. Per-session cache
   with manual refresh.
@@ -167,8 +170,9 @@ Active-context precedence: `--context <name>` > `S3S_CONTEXT` env >
 ## Running
 
 ```bash
-s3s                  # uses current-context
+s3s                  # uses current-context (read-only)
 s3s --context local  # explicit context
+s3s --write          # enable mutating operations (readonly contexts stay protected)
 s3s --version        # print version
 ```
 
@@ -190,6 +194,7 @@ docker run -p 9000:9000 -p 9001:9001 \
 | `g` / `G` | jump to top / bottom |
 | `/` | filter buckets / search a level by prefix; `Esc` clears |
 | `r` | refresh current level (discard cache) |
+| `+` | new folder — only with `--write`; readonly contexts refuse |
 | `c` | switch context · `1`–`9` jump to a context by number |
 | `x` | cancel in-flight load |
 | `?` | help · `q` / `Ctrl+C` quit |

@@ -3,35 +3,37 @@ package ui
 // keyMap maps logical actions to the key strings produced by KeyPressMsg.String().
 // Several keys may bind to one action. Matching is done via matches().
 type keyMap struct {
-	Up      []string
-	Down    []string
-	Top     []string
-	Bottom  []string
-	Enter   []string // drill in / open object
-	Back    []string // up a level
-	Search  []string
-	Refresh []string
-	Context []string
-	Cancel  []string // cancel in-flight load
-	Quit    []string
-	Help    []string
+	Up        []string
+	Down      []string
+	Top       []string
+	Bottom    []string
+	Enter     []string // drill in / open object
+	Back      []string // up a level
+	Search    []string
+	Refresh   []string
+	Context   []string
+	Cancel    []string // cancel in-flight load
+	NewFolder []string // create an empty folder (write mode)
+	Quit      []string
+	Help      []string
 }
 
 // defaultKeys is the keybinding contract (contracts/tui-contract.md).
 func defaultKeys() keyMap {
 	return keyMap{
-		Up:      []string{"up", "k"},
-		Down:    []string{"down", "j"},
-		Top:     []string{"g", "home"},
-		Bottom:  []string{"G", "end"},
-		Enter:   []string{"enter", "right", "l"},
-		Back:    []string{"esc", "left", "h"},
-		Search:  []string{"/"},
-		Refresh: []string{"r"},
-		Context: []string{"c"},
-		Cancel:  []string{"x"},
-		Quit:    []string{"ctrl+c", "q"},
-		Help:    []string{"?"},
+		Up:        []string{"up", "k"},
+		Down:      []string{"down", "j"},
+		Top:       []string{"g", "home"},
+		Bottom:    []string{"G", "end"},
+		Enter:     []string{"enter", "right", "l"},
+		Back:      []string{"esc", "left", "h"},
+		Search:    []string{"/"},
+		Refresh:   []string{"r"},
+		Context:   []string{"c"},
+		Cancel:    []string{"x"},
+		NewFolder: []string{"+"},
+		Quit:      []string{"ctrl+c", "q"},
+		Help:      []string{"?"},
 	}
 }
 
@@ -66,6 +68,7 @@ func helpLines() []string {
 		"  g / G         jump to top / bottom",
 		"  /             filter buckets / search a level (prefix)",
 		"  r             refresh current level",
+		"  +             new folder (only with --write; readonly contexts refuse)",
 		"  c             switch context",
 		"  1-9           switch to context by number",
 		"  x             cancel in-flight load",

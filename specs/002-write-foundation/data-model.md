@@ -3,7 +3,7 @@
 Entities derived from the spec (Key Entities + FRs). Types are illustrative Go
 shapes; field names finalise during implementation.
 
-## WritePolicy
+## WriteMode
 
 Resolved per active context; decides whether the backend is wrapped in the
 read-only guard.
@@ -12,7 +12,7 @@ read-only guard.
 |---|---|---|
 | `Writable` | `bool` | `globalWriteFlag && !context.ReadOnly` (FR-001, FR-002) |
 
-- **Derivation**: produced by `config.WritePolicyFor(name, writeFlag)` (a new
+- **Derivation**: produced by `config.WriteModeFor(name, writeFlag)` (a new
   method; the existing `Resolve`/`ClientConfig` are unchanged).
 - **Invariant**: `context.ReadOnly == true` ⇒ `Writable == false`, regardless of
   `writeFlag` (read-only always wins, SC-002).
