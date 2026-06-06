@@ -111,8 +111,9 @@ func TestActionMenuBuckets(t *testing.T) {
 	if m.mode != modeActionMenu {
 		t.Fatalf("'a' should open menu in bucket list; mode=%v", m.mode)
 	}
-	if got := menuLabels(m); len(got) != 1 || got[0] != "refresh" {
-		t.Fatalf("bucket menu = %v, want [refresh] only", got)
+	// Analyze (du) is a read — offered for the highlighted bucket; then refresh.
+	if got := menuLabels(m); len(got) != 2 || got[0] != "analyze" || got[1] != "refresh" {
+		t.Fatalf("bucket menu = %v, want [analyze refresh]", got)
 	}
 }
 

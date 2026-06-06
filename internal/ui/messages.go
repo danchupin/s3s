@@ -71,3 +71,17 @@ type searchFireMsg struct {
 	searchGen int
 	term      string
 }
+
+// usageProgressMsg delivers one running-totals tick during a du scan (005 US2/FR-011).
+type usageProgressMsg struct {
+	gen int
+	p   storage.UsageProgress
+}
+
+// usageDoneMsg delivers the terminal du report (or error). A cancelled scan carries a
+// partial report with Complete=false (005 FR-011).
+type usageDoneMsg struct {
+	gen    int
+	report storage.UsageReport
+	err    error
+}

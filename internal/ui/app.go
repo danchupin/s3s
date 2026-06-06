@@ -27,6 +27,7 @@ const (
 	modeContextSwitch
 	modeHelp
 	modeActionMenu // contextual action menu (opened with 'a')
+	modeUsage      // du analytics view (opened via the action menu) — 005 US2
 )
 
 // selKind classifies the current tree selection for contextual hints/menu items.
@@ -147,6 +148,14 @@ type App struct {
 
 	// write-mode arm confirmation pending (005 US5): true while awaiting y/N to arm write
 	armConfirm bool
+
+	// du analytics (005 US2 / modeUsage)
+	usage       *storage.UsageReport // completed report (nil while scanning)
+	usageSel    int                  // selected child row (for drill-down)
+	usageBucket string
+	usagePrefix string
+	usageProg   storage.UsageProgress // running totals during a scan
+	usageCh     chan usageEvent       // scan progress channel
 
 	// local file browser state (active during an upload's phaseBrowse)
 	fbDir     string
@@ -289,6 +298,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case operationDoneMsg:
 		return m.onOperationDone(msg)
 
+	case usageProgressMsg:
+		return m.onUsageProgress(msg)
+
+	case usageDoneMsg:
+		return m.onUsageDone(msg)
+
 	case searchFireMsg:
 		return m.onSearchFire(msg)
 
@@ -384,6 +399,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
+	case modeUsage:
+		return m.onUsageKey(key)
 	}
 	return m, nil
 }
@@ -613,6 +630,8 @@ func (m App) View() tea.View {
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
 		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
+	case modeUsage:
+		body = boxView(m.usageTitle(), "", m.usageView(w-2, dataRows), w, rows)
 	}
 
 	v := tea.NewView(body + "\n" + footer)

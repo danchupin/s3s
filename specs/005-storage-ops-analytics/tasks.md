@@ -160,14 +160,14 @@ largest-first; cancel a long scan shows partial totals; empty prefix shows zero.
 
 - [X] T046 [P] [US2] Unit test in `internal/storage/fake_test.go`: `UsageOf` totals + child ranking (size desc, name tiebreak) + share for a known distribution; empty prefix → zero report, no error (storage-read-ops-contract C2, FR-012).
 - [X] T047 [P] [US2] Integration test in `internal/storage/s3client_integration_test.go` (`//go:build integration`): `UsageOf` across a >1000-key pagination boundary and a deep nested prefix; cancellation returns `Complete=false` with partial counts.
-- [ ] T048 [P] [US2] UI test in `internal/ui/analyze_test.go`: `modeUsage` renders totals + ranked children with size + %; Enter on a child sub-prefix drills down (re-analyze); empty prefix shows zero (FR-008/009/012/013, action-menu-selection-contract C5).
+- [X] T048 [P] [US2] UI test in `internal/ui/analyze_test.go`: `modeUsage` renders totals + ranked children with size + %; Enter on a child sub-prefix drills down (re-analyze); empty prefix shows zero (FR-008/009/012/013, action-menu-selection-contract C5).
 
 ### Implementation for User Story 2
 
 - [X] T049 [US2] Implement `UsageOf` in `internal/storage/s3client.go`: paginated delimiter-less list under prefix, immediate-child bucketing, ranking, periodic `onProgress`, cancellable partial result (storage-read-ops-contract C2). Share the paginating helper with the existing recursive-delete enumerator where practical.
-- [ ] T050 [US2] Add `modeUsage` + the analyze view (ranked children, size bars, totals, human-readable units) in `internal/ui/analyze.go`; render live progress + Esc-to-cancel during the scan (FR-011/012).
-- [ ] T051 [US2] Implement analyze dispatch + drill-down (Enter on a child re-runs `UsageOf` under it; back returns) in `internal/ui/analyze.go`, under the existing `gen`/`loadCtx`/progress machinery (FR-013, non-blocking).
-- [ ] T052 [US2] Add the `analyze` item to the action menu in `internal/ui/actionmenu.go` for a bucket (bucket list) or folder/level selection (read — available in RO). Menu-only — no dedicated top-level key (FR-023).
+- [X] T050 [US2] Add `modeUsage` + the analyze view (ranked children, size bars, totals, human-readable units) in `internal/ui/analyze.go`; render live progress + Esc-to-cancel during the scan (FR-011/012).
+- [X] T051 [US2] Implement analyze dispatch + drill-down (Enter on a child re-runs `UsageOf` under it; back returns) in `internal/ui/analyze.go`, under the existing `gen`/`loadCtx`/progress machinery (FR-013, non-blocking).
+- [X] T052 [US2] Add the `analyze` item to the action menu in `internal/ui/actionmenu.go` for a bucket (bucket list) or folder/level selection (read — available in RO). Menu-only — no dedicated top-level key (FR-023).
 
 **Checkpoint**: US2 fully functional; "what's eating space" answerable in-TUI.
 

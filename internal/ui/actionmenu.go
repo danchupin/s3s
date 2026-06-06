@@ -19,9 +19,12 @@ type menuItem struct {
 // capability (contract action-menu C2). Refresh is always present and always last
 // (FR-025); write items are omitted in read-only contexts (FR-024).
 func (m App) menuItemsFor() []menuItem {
-	// Bucket list: only Refresh (no bucket-level write ops exist yet).
+	// Bucket list: analyze the highlighted bucket (read), then Refresh.
 	if m.mode == modeBuckets {
-		return []menuItem{{label: "refresh", invoke: App.refreshBuckets}}
+		return []menuItem{
+			{label: "analyze", invoke: App.startAnalyze},
+			{label: "refresh", invoke: App.refreshBuckets},
+		}
 	}
 
 	var items []menuItem
@@ -29,6 +32,11 @@ func (m App) menuItemsFor() []menuItem {
 	// read-only (005 US1, FR-002). Menu-only: no dedicated top-level key (FR-023).
 	if m.selKind() == selObject {
 		items = append(items, menuItem{label: "download", invoke: App.startDownload})
+	}
+	// Analyze (du) is a read — available on a folder selection or the current level,
+	// in any context (005 US2, FR-010).
+	if m.selKind() != selObject {
+		items = append(items, menuItem{label: "analyze", invoke: App.startAnalyze})
 	}
 	if m.writable() {
 		switch m.selKind() {
