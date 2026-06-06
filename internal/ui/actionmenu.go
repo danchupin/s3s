@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -37,6 +38,17 @@ func (m App) menuItemsFor() []menuItem {
 	// in any context (005 US2, FR-010).
 	if m.selKind() != selObject {
 		items = append(items, menuItem{label: "analyze", invoke: App.startAnalyze})
+	}
+	// Bulk actions over the multi-select (005 US3). Download is a read; delete/copy are
+	// write-gated. Recursive folder deletion is NOT here (FR-016).
+	if m.selCount() > 0 {
+		items = append(items, menuItem{label: fmt.Sprintf("download selected (%d)", m.selCount()), invoke: App.startBulkDownload})
+		if m.writable() {
+			items = append(items,
+				menuItem{label: "delete selected", writeOnly: true, invoke: App.startBulkDelete},
+				menuItem{label: "copy selected", writeOnly: true, invoke: App.startBulkCopy},
+			)
+		}
 	}
 	if m.writable() {
 		switch m.selKind() {

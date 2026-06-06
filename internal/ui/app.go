@@ -149,6 +149,13 @@ type App struct {
 	// write-mode arm confirmation pending (005 US5): true while awaiting y/N to arm write
 	armConfirm bool
 
+	// multi-select (005 US3): marked OBJECT keys in the current level, cleared on nav
+	sel map[string]bool
+
+	// sort order (005 US4): session-persistent across navigation
+	sortBy  sortCol
+	sortAsc bool
+
 	// du analytics (005 US2 / modeUsage)
 	usage       *storage.UsageReport // completed report (nil while scanning)
 	usageSel    int                  // selected child row (for drill-down)
@@ -524,6 +531,7 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	m.bucketFilter = ""
 	m.bucket, m.prefix, m.search = "", "", ""
 	m.level = nil
+	m.sel = nil
 	m.mode = modeBuckets
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
@@ -719,6 +727,10 @@ func (m App) statusLine(w int) string {
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))
 	}
+	// Multi-select summary (005 US3): count + combined size of the marked objects.
+	if m.selCount() > 0 {
+		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (a: bulk actions)", m.selCount(), humanSize(m.selSize())))
+	}
 	return ""
 }
 
@@ -741,7 +753,7 @@ func (m App) resourceTitle() string {
 		if m.search != "" {
 			loc += fmt.Sprintf("/%s*", sanitizeLabel(m.search))
 		}
-		return fmt.Sprintf("%s[%d%s]", loc, n, more)
+		return fmt.Sprintf("%s[%d%s] %s", loc, n, more, m.sortIndicator())
 	case modeContextSwitch:
 		return fmt.Sprintf("contexts[%d]", len(m.contexts))
 	case modeObject:

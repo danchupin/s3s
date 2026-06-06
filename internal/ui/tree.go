@@ -23,11 +23,15 @@ func (m App) treeEntries() []treeEntry {
 		return nil
 	}
 	out := make([]treeEntry, 0, m.level.count())
-	for _, d := range m.level.dirs {
+	// Apply the session sort at build time so selection indices match the display and
+	// resize/reflow stays trivial (005 US4, FR-020). Dirs sort by name (FR-021).
+	dirs := m.sortedDirs(m.level.dirs)
+	objs := m.sortedObjects(m.level.objects)
+	for _, d := range dirs {
 		out = append(out, treeEntry{label: sanitizeLabel(strings.TrimPrefix(d, m.prefix)), isDir: true, full: d})
 	}
-	for i := range m.level.objects {
-		o := &m.level.objects[i]
+	for i := range objs {
+		o := &objs[i]
 		out = append(out, treeEntry{label: sanitizeLabel(strings.TrimPrefix(o.Key, m.prefix)), isDir: false, full: o.Key, obj: o})
 	}
 	return out
@@ -57,6 +61,12 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.startSearch()
 	case matches(key, m.keys.Menu):
 		return m.openActionMenu()
+	case matches(key, m.keys.Mark):
+		return m.toggleMark()
+	case matches(key, m.keys.Sort):
+		return m.cycleSort()
+	case matches(key, m.keys.SortDir):
+		return m.toggleSortDir()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
 	case matches(key, m.keys.Enter):
@@ -90,6 +100,7 @@ func (m App) selected() *treeEntry {
 func (m App) enterLevel() (tea.Model, tea.Cmd) {
 	m.mode = modeTree
 	m.treeSel = 0
+	m.sel = nil // selection is per-level — cleared on navigation (005 FR-019)
 	key := m.levelKey()
 	if cached, ok := m.cache.Get(key); ok {
 		m.level = cached
@@ -131,6 +142,7 @@ func (m App) goBack() (tea.Model, tea.Cmd) {
 	if m.prefix == "" {
 		m.mode = modeBuckets
 		m.level = nil
+		m.sel = nil
 		return m, nil
 	}
 	m.prefix = parentPrefix(m.prefix)
@@ -198,7 +210,11 @@ func (m App) treeView(w, rows int) string {
 		if e.isDir {
 			data = append(data, []string{e.label, "dir", "—", "—"})
 		} else {
-			data = append(data, []string{e.label, "obj", humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
+			label := e.label
+			if m.sel[e.full] { // marked for multi-select (005 US3)
+				label = "✓ " + label
+			}
+			data = append(data, []string{label, "obj", humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
 		}
 		dirs = append(dirs, e.isDir)
 	}

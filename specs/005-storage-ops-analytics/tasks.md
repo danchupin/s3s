@@ -185,16 +185,16 @@ subdirs + per-item summary; navigating away clears the selection.
 
 ### Tests for User Story 3 (write first, must FAIL)
 
-- [ ] T053 [P] [US3] Selection test in `internal/ui/selection_test.go`: Mark toggles an object into `sel` and updates count/combined size; marking a folder is a no-op; navigating away clears `sel` (FR-014/019, action-menu-selection-contract C2).
-- [ ] T054 [P] [US3] Bulk download test in `internal/ui/bulk_test.go`: N marked keys → N files in mirrored local subdirs + truthful per-item summary; one failing item does not abort the rest (FR-015a/018, contract C3); runs in RO.
-- [ ] T055 [P] [US3] Bulk mutate test in `internal/ui/bulk_test.go`: bulk delete requires armed write + typed count confirm + logs each op (FR-017); bulk delete/copy refused while RO (FR-016); recursive delete is not reachable via multi-select.
+- [X] T053 [P] [US3] Selection test in `internal/ui/selection_test.go`: Mark toggles an object into `sel` and updates count/combined size; marking a folder is a no-op; navigating away clears `sel` (FR-014/019, action-menu-selection-contract C2).
+- [X] T054 [P] [US3] Bulk download test in `internal/ui/bulk_test.go`: N marked keys → N files in mirrored local subdirs + truthful per-item summary; one failing item does not abort the rest (FR-015a/018, contract C3); runs in RO.
+- [X] T055 [P] [US3] Bulk mutate test in `internal/ui/bulk_test.go`: bulk delete requires armed write + typed count confirm + logs each op (FR-017); bulk delete/copy refused while RO (FR-016); recursive delete is not reachable via multi-select.
 
 ### Implementation for User Story 3
 
-- [ ] T056 [US3] Implement per-level selection in `internal/ui/selection.go`: `sel map[string]bool` (objects only), derived count + combined size; clear on enter-level / back / bucket-entry / context-switch (FR-019); render a marker glyph + the `<n> selected · <size>` header.
-- [ ] T057 [US3] Add the `Mark` (space) binding in `internal/ui/keys.go` + help; wire it in `onTreeKey` to toggle the current object row.
-- [ ] T058 [US3] Implement bulk execution in `internal/ui/bulk.go`: iterate marked keys applying the per-item backend call (download via `GetObject`→local mirrored path; delete via `RemoveObject`; copy via `CopyKey`), report per-item `progressEvent`, continue past failures, end with `succeeded/failed` summary (FR-015/018, contract C3).
-- [ ] T059 [US3] Add bulk menu items (download always; delete/copy only when `writable()` and a selection exists) in `internal/ui/actionmenu.go`; bulk delete uses the typed-count confirm and logs each op before execution (FR-016/017).
+- [X] T056 [US3] Implement per-level selection in `internal/ui/selection.go`: `sel map[string]bool` (objects only), derived count + combined size; clear on enter-level / back / bucket-entry / context-switch (FR-019); render a marker glyph + the `<n> selected · <size>` header.
+- [X] T057 [US3] Add the `Mark` (space) binding in `internal/ui/keys.go` + help; wire it in `onTreeKey` to toggle the current object row.
+- [X] T058 [US3] Implement bulk execution in `internal/ui/bulk.go`: iterate marked keys applying the per-item backend call (download via `GetObject`→local mirrored path; delete via `RemoveObject`; copy via `CopyKey`), report per-item `progressEvent`, continue past failures, end with `succeeded/failed` summary (FR-015/018, contract C3).
+- [X] T059 [US3] Add bulk menu items (download always; delete/copy only when `writable()` and a selection exists) in `internal/ui/actionmenu.go`; bulk delete uses the typed-count confirm and logs each op before execution (FR-016/017).
 
 **Checkpoint**: US3 fully functional; batch operations with truthful results.
 
@@ -209,13 +209,13 @@ into a newly entered level; sort composes with active search.
 
 ### Tests for User Story 4 (write first, must FAIL)
 
-- [ ] T060 [P] [US4] Sort test in `internal/ui/sort_test.go`: size-desc orders largest object first; direction toggle reverses; dirs ordered consistently when sorting by size/modified (FR-020/021, action-menu-selection-contract C6).
-- [ ] T061 [P] [US4] Persistence test in `internal/ui/sort_test.go`: the chosen sort persists across navigation into a newly entered level; sort + an active search/filter both apply (FR-020).
+- [X] T060 [P] [US4] Sort test in `internal/ui/sort_test.go`: size-desc orders largest object first; direction toggle reverses; dirs ordered consistently when sorting by size/modified (FR-020/021, action-menu-selection-contract C6).
+- [X] T061 [P] [US4] Persistence test in `internal/ui/sort_test.go`: the chosen sort persists across navigation into a newly entered level; sort + an active search/filter both apply (FR-020).
 
 ### Implementation for User Story 4
 
-- [ ] T062 [US4] Implement render-time sort in `internal/ui/sort.go`: `sortBy`/`sortAsc` session fields; sort a copy of `level.dirs`+`level.objects` at render time; dirs grouped consistently for size/modified (FR-021).
-- [ ] T063 [US4] Add `Sort` (cycle column) + direction-toggle bindings in `internal/ui/keys.go` + help; show the active column + direction in the box header/footer; apply in `treeView`/`bucketsView` render (FR-020).
+- [X] T062 [US4] Implement render-time sort in `internal/ui/sort.go`: `sortBy`/`sortAsc` session fields; sort a copy of `level.dirs`+`level.objects` at render time; dirs grouped consistently for size/modified (FR-021).
+- [X] T063 [US4] Add `Sort` (cycle column) + direction-toggle bindings in `internal/ui/keys.go` + help; show the active column + direction in the box header/footer; apply in `treeView`/`bucketsView` render (FR-020).
 
 **Checkpoint**: all six user stories independently functional.
 

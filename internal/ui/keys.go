@@ -26,6 +26,9 @@ type keyMap struct {
 	Move        []string // move/rename the selected object (write mode)
 	DeleteAll   []string // recursively delete the selected folder/prefix (write mode)
 	WriteToggle []string // arm/disarm write at runtime (005 US5)
+	Mark        []string // mark/unmark an object for multi-select (005 US3)
+	Sort        []string // cycle the sort column (005 US4)
+	SortDir     []string // toggle the sort direction (005 US4)
 	Quit        []string
 	Help        []string
 }
@@ -49,7 +52,10 @@ func defaultKeys() keyMap {
 		Copy:        []string{"y"}, // "yank"; "c" is taken by context switch
 		Move:        []string{"m"},
 		DeleteAll:   []string{"D"},
-		WriteToggle: []string{"w"}, // arm/disarm write at runtime (005 US5)
+		WriteToggle: []string{"w"},          // arm/disarm write at runtime (005 US5)
+		Mark:        []string{" ", "space"}, // multi-select (005 US3)
+		Sort:        []string{"s"},          // cycle sort column (005 US4)
+		SortDir:     []string{"S"},          // toggle sort direction (005 US4)
 		Quit:        []string{"ctrl+c", "q"},
 		Help:        []string{"?"},
 	}
@@ -126,6 +132,8 @@ func (m App) helpLines() []string {
 		"",
 		sec("Search & View"),
 		row(formatKeys(k.Search), "filter buckets / search a level (prefix)"),
+		row(formatKeys(k.Mark), "mark/unmark an object (multi-select → a: bulk)"),
+		row(formatKeys(k.Sort)+", "+formatKeys(k.SortDir), "cycle sort column · toggle direction"),
 		"",
 		sec("Actions") + dimCellStyle.Render("  ("+formatKeys(k.Menu)+" opens the contextual menu)"),
 		row("refresh", "reload the current list"),
