@@ -114,25 +114,28 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 004-ui-ux-refinement (UI/UX refinement — action menu + keymap reduction,
-footer declutter, key discoverability; presentation-only, no storage/SDK/write-semantics
-change). Builds on 003-object-write-ops — complete. 002-write-foundation — complete.
-001-s3-readonly-browser — complete.
+Active feature: 005-storage-ops-analytics (storage ops + analytics + safety/credential backbone;
+6 user stories). Builds on 004-ui-ux-refinement — complete. 003/002/001 — complete.
 
-Plan: specs/004-ui-ux-refinement/plan.md. Design artifacts
-(specs/004-ui-ux-refinement/): research.md, data-model.md, contracts/
-(action-menu-contract, footer-hints-contract, help-surface-contract), quickstart.md.
-Governed by Constitution v1.0.0. Key approach (all in `internal/ui`): NEW `actionmenu.go`
-adds `modeActionMenu` — `a` opens a contextual menu (buckets→[Refresh]; tree writable→
-selection-gated Delete/Copy/Move OR Recursive-delete + Upload/New-folder/Refresh; RO→
-[Refresh]); items dispatch the EXISTING `start*`/`refresh` funcs unchanged (two-tier confirm
-preserved). `keys.go`: add `Menu:"a"`, remove `Cancel:"x"`; `tree.go` onTreeKey drops the
-write/refresh cases, adds Menu; `app.go` folds cancel into Back-when-loading (+ phaseRunning),
-routes the menu, renders the overlay. Net top-level ≤ 12 keys (SC-008). Arrows are the
-advertised nav (footer/menu show arrow glyphs); vim (`hjkl`,`g/G`) stays bound, shown only in
-help (FR-031). `footerBlock` ≤ 3 rows (identity + capped-6 hint row with `a actions` instead
-of write keys + `? more`; drop separator + endpoint). Help (`m.helpLines()`): categorized
-Navigation/Search & View/Actions(menu)/Context/Global + Connection (footer-evicted metadata);
-keys from `defaultKeys()` incl vim. Status: named loading + `(Esc to cancel)`, `searching…`,
-green `noticeStyle` vs red `errStyle`. `check-readonly.sh` unaffected (no SDK changes).
+Plan: specs/005-storage-ops-analytics/plan.md. Design artifacts (specs/005-storage-ops-analytics/):
+research.md (R1–R13), data-model.md, quickstart.md, contracts/ (storage-read-ops-contract,
+credential-source-contract, write-toggle-contract, action-menu-selection-contract). Governed by
+Constitution v1.0.0; no amendment needed. Recommended 3 slices: (1) US5 runtime read-only↔write
+toggle + US6 credential sources [P1 backbone]; (2) US1 download + US2 `du` analytics [reads];
+(3) US3 multi-select bulk + US4 sort.
+
+Key approach. storage: add TWO READ methods to `Storage` — `GetObject` (full stream, US1) and
+`UsageOf` (recursive aggregate + progress, US2); both pass through `readOnlyGuard` (reads), so
+`check-readonly.sh` stays green and UI stays SDK-free. ui: NEW download.go (temp-file+atomic
+rename+cancel; non-Mutator read path), analyze.go (`modeUsage`, ranked children, drill-down),
+selection.go (`sel map[string]bool`, objects-only, cleared on nav), bulk.go (per-item results,
+continue-past-failure, hierarchy-preserving download), sort.go (render-time, session-persistent),
+writemode.go. US5 = DYNAMIC guard: `App` holds raw store + `ctxReadOnly` + `armed`; derived
+`writable=armed&&!ctxReadOnly`; `activeStore()=Guard(raw,writable)`; `--write` sets initial armed;
+loud always-on `WRITE` badge on every screen incl overlays (FR-027); transitions logged (FR-032);
+`main.go` stops pre-guarding, returns raw store + ReadOnly. US6 = NEW `internal/secret` pkg
+(keychain via `zalando/go-keyring`, `cmd:` with owner-only perms gate, `awsProfile` ini parse,
+`${ENV}` kept, `x/term` no-echo prompt fallback); config `User` gains exactly-one-source rule
+(FR-041); `s3s cred set|rotate|rm` subcommand + wizard extension store secret in keystore, never
+config (FR-035/037). Secrets stay `logging.Secret`-redacted.
 <!-- SPECKIT END -->
