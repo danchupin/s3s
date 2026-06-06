@@ -15,7 +15,7 @@ func helpApp(writable bool) App {
 	return New(Backend{
 		Store: f, Cluster: "cl", User: "alice@example.com",
 		Endpoint: "http://ep:9000", Region: "us-east-1", Writable: writable,
-	}, "myctx", []string{"myctx"}, nil, preview.ProtoNone)
+	}, "myctx", []string{"myctx"}, nil, nil, preview.ProtoNone)
 }
 
 func TestHelpCategoriesAndAliases(t *testing.T) { // H2/H3, obligation 1 (incl vim, FR-014c)
@@ -34,12 +34,12 @@ func TestHelpCategoriesAndAliases(t *testing.T) { // H2/H3, obligation 1 (incl v
 
 func TestHelpActionsSection(t *testing.T) { // obligation 1a (FR-014b)
 	h := helpApp(true).helpView()
-	if !strings.Contains(h, "opens the contextual menu") {
-		t.Error("Actions section should document the menu key")
+	if !strings.Contains(h, "single key on the selection") {
+		t.Error("Actions section should document the menu-less direct keys")
 	}
-	for _, item := range []string{"new folder", "delete", "upload here", "copy", "move / rename", "recursive delete", "refresh"} {
+	for _, item := range []string{"download", "analyze", "create a folder", "delete the selected object", "upload a local file", "move/rename", "recursively delete"} {
 		if !strings.Contains(h, item) {
-			t.Errorf("Actions section missing menu item %q", item)
+			t.Errorf("Actions section missing item %q", item)
 		}
 	}
 }

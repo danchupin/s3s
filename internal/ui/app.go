@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/localfs"
@@ -26,8 +27,10 @@ const (
 	modeObject // combined metadata + content view (opened with Enter)
 	modeContextSwitch
 	modeHelp
-	modeActionMenu // contextual action menu (opened with 'a')
-	modeUsage      // du analytics view (opened via the action menu) — 005 US2
+	modeUsage       // du analytics view — 005 US2
+	modeCommand     // `:` command bar — 006 US3
+	modeConnections // in-app connection manager list — 006 US4
+	modeConnForm    // add-connection form — 006 US4
 )
 
 // selKind classifies the current tree selection for contextual hints/menu items.
@@ -124,9 +127,20 @@ type App struct {
 	// context switcher
 	ctxSel int
 
-	// action menu (modeActionMenu)
-	menuItems []menuItem
-	menuSel   int
+	// details/preview pane (006 US2) — debounced per-selection load; NEVER flips modeObject
+	paneGen     int
+	paneSelKey  string                  // key the in-flight/loaded pane data belongs to
+	paneMeta    *storage.ObjectMetadata // debounced HeadObject result
+	panePrev    *preview.Payload        // debounced ranged-GET preview
+	paneVisible bool                    // false collapses the pane on narrow terminals
+
+	// command bar (006 US3 / modeCommand)
+	cmdInput string
+
+	// connection manager (006 US4)
+	connect Connector // nil disables in-app connection add
+	connSel int       // selection in modeConnections list
+	form    *connForm // active add-connection form (modeConnForm)
 
 	// search/filter input
 	searching   bool
@@ -176,17 +190,19 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // New builds the root model for an initial backend. resolve rebuilds the backend
 // on context change (nil disables switching). imgProto is the detected terminal
 // image protocol for previews.
-func New(initial Backend, ctxName string, contexts []string, resolve Resolver, imgProto preview.Protocol) App {
+func New(initial Backend, ctxName string, contexts []string, resolve Resolver, connect Connector, imgProto preview.Protocol) App {
 	m := App{
 		raw:         initial.Store,
 		info:        initial,
 		ctxName:     ctxName,
 		contexts:    contexts,
 		resolve:     resolve,
+		connect:     connect,
 		imgProto:    imgProto,
 		armed:       initial.Writable,
 		ctxReadOnly: initial.ReadOnly,
 		sortAsc:     true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
+		paneVisible: true, // details pane on by default; collapses on narrow terminals (006 US2)
 		keys:        defaultKeys(),
 		cache:       cache.New[*levelState](),
 		mode:        modeBuckets,
@@ -239,6 +255,41 @@ func (m *App) cancelLoad() {
 		m.loadCancel = nil
 	}
 	m.loading = false
+}
+
+// afterSelectionMove rearms the debounced details-pane load for the new tree selection
+// (006 US2). It bumps the pane generation (superseding any in-flight pane load for the
+// previous row), clears the stale pane data, and — for an object selection — schedules a
+// paneTick. Folders/levels need no fetch (instant summary), so no tick is scheduled.
+func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
+	m.paneGen++
+	m.paneMeta = nil
+	m.panePrev = nil
+	if e := m.selected(); e != nil && !e.isDir {
+		m.paneSelKey = e.full
+		return m, paneTickCmd(m.paneGen, m.paneSelKey)
+	}
+	m.paneSelKey = ""
+	return m, nil
+}
+
+// onPaneTick fires the debounced pane fetch if the selection is unchanged (gen+key match)
+// and still on an object; otherwise the tick is for a scrolled-past row and is dropped
+// (006 US2, FR-009/FR-012). Pane loads use a background context — they are cheap, bounded,
+// and superseded by the generation check, so they never disturb the main load.
+func (m App) onPaneTick(msg paneTickMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.paneGen || msg.key != m.paneSelKey || m.paneSelKey == "" {
+		return m, nil
+	}
+	e := m.selected()
+	if e == nil || e.isDir || e.obj == nil || e.full != msg.key {
+		return m, nil
+	}
+	st := m.activeStore()
+	return m, tea.Batch(
+		loadPaneMeta(context.Background(), st, m.bucket, e.full, m.paneGen),
+		loadPanePreview(context.Background(), st, m.bucket, e.full, e.obj.Size, m.paneGen),
+	)
 }
 
 // levelKey is the cache coordinate for the current tree node.
@@ -313,6 +364,31 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageDoneMsg:
 		return m.onUsageDone(msg)
 
+	case paneTickMsg:
+		return m.onPaneTick(msg)
+
+	case paneMetaMsg:
+		if msg.gen != m.paneGen || msg.key != m.paneSelKey {
+			return m, nil // scrolled past — drop
+		}
+		md := msg.md
+		m.paneMeta = &md
+		return m, nil
+
+	case panePreviewMsg:
+		if msg.gen != m.paneGen || msg.key != m.paneSelKey {
+			return m, nil
+		}
+		p := msg.payload
+		m.panePrev = &p
+		return m, nil
+
+	case connTestedMsg:
+		return m.onConnTested(msg)
+
+	case connSavedMsg:
+		return m.onConnSaved(msg)
+
 	case contextResolvedMsg:
 		return m.onContextResolved(msg)
 
@@ -335,6 +411,18 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// While typing a search query, the input owns most keys.
 	if m.searching {
 		return m.onSearchKey(msg)
+	}
+
+	// The command bar / connection form own all keys while open (text input) — modal,
+	// before the global bindings so typing "q"/":" is not intercepted (006 US3/US4).
+	if m.mode == modeCommand {
+		return m.onCommandKey(key, msg)
+	}
+	if m.mode == modeConnForm {
+		return m.onConnFormKey(key, msg)
+	}
+	if m.mode == modeConnections {
+		return m.onConnectionsKey(key)
 	}
 
 	// A pending write-arm confirmation is modal: y/N resolves it (005 US5).
@@ -377,17 +465,16 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The action menu is modal: it owns keys (incl. Esc, which closes the menu) BEFORE
-	// the load-cancel binding below, so an open menu's Esc closes the menu and does NOT
-	// cancel a background load (FR-029 modal precedence).
-	if m.mode == modeActionMenu {
-		return m.onMenuKey(key)
-	}
-
 	if matches(key, m.keys.Help) {
 		m.prevMode = m.mode
 		m.mode = modeHelp
 		return m, nil
+	}
+
+	// `:` opens the command bar (006 US3). Search/op/form already own keys above, so it
+	// never interferes with in-progress text entry (FR-019).
+	if matches(key, m.keys.Command) && m.canOpenCommand() {
+		return m.startCommand()
 	}
 
 	// Write-arm toggle: a global safety primitive (005 US5). Arming prompts to
@@ -435,8 +522,6 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		m.bucketSel = max(0, n-1)
 	case matches(key, m.keys.Search):
 		return m.startSearch() // "/" filters bucket names (FR: bucket filter)
-	case matches(key, m.keys.Menu):
-		return m.openActionMenu()
 	case matches(key, m.keys.Context):
 		return m.openContextSwitch()
 	case len(key) == 1 && key[0] >= '1' && key[0] <= '9':
@@ -453,6 +538,11 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		m.prefix = ""
 		m.search = ""
 		return m.enterLevel()
+	default:
+		// Direct single-key actions (006 US1): analyze / refresh on the bucket list.
+		if mm, cmd, ok := m.dispatchActionKey(key); ok {
+			return mm, cmd
+		}
 	}
 	return m, nil
 }
@@ -616,19 +706,13 @@ func (m App) errorText() string {
 func (m App) View() tea.View {
 	w := clampW(m.width)
 
-	// The alt-screen overlays (help, action menu) render without the footer, so the
-	// loud WRITE/RO badge is injected here too — it must be present on EVERY screen
-	// (005 FR-027, write-toggle-contract C3).
+	// The alt-screen help overlay renders without the footer, so the loud WRITE/RO
+	// badge is injected here too — it must be present on EVERY screen (005 FR-027,
+	// write-toggle-contract C3).
 	badge := writeBadge(m.writable()) + "\n"
 
 	if m.mode == modeHelp {
 		v := tea.NewView(badge + m.helpView())
-		v.AltScreen = true
-		return v
-	}
-
-	if m.mode == modeActionMenu {
-		v := tea.NewView(badge + m.actionMenuView(w))
 		v.AltScreen = true
 		return v
 	}
@@ -656,23 +740,60 @@ func (m App) View() tea.View {
 		return v
 	}
 
+	// The command bar overlays the footer; its body is the underlying (prev) view (006 US3).
+	bodyMode := m.mode
+	if m.mode == modeCommand {
+		bodyMode = m.prevMode
+	}
+
 	var body string
-	switch m.mode {
+	switch bodyMode {
 	case modeBuckets:
-		body = boxView(m.resourceTitle(), m.selectionName(), m.bucketsView(w-2, dataRows), w, rows)
+		body = m.listWithPane(m.resourceTitle(), m.selectionName(), w, rows, dataRows,
+			func(lw, dr int) string { return m.bucketsView(lw, dr) })
 	case modeTree:
-		body = boxView(m.resourceTitle(), m.selectionName(), m.treeView(w-2, dataRows), w, rows)
+		body = m.listWithPane(m.resourceTitle(), m.selectionName(), w, rows, dataRows,
+			func(lw, dr int) string { return m.treeView(lw, dr) })
 	case modeContextSwitch:
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
 		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
 	case modeUsage:
 		body = boxView(m.usageTitle(), "", m.usageView(w-2, dataRows), w, rows)
+	case modeConnections:
+		body = boxView("connections", "", m.connectionsView(w-2, dataRows), w, rows)
+	case modeConnForm:
+		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
 	}
 
 	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true
 	return v
+}
+
+// paneSplitMin is the minimum terminal width at which the details pane is shown beside
+// the list; below it the list spans full width and the pane collapses (006 US2, FR-013).
+const paneSplitMin = 100
+
+// listWithPane composes the browse body: on a wide terminal it joins the list (bounded
+// width) and the persistent details pane side by side; on a narrow terminal it returns
+// the full-width list and the pane collapses (FR-008/FR-013). renderList draws the list
+// table at the width it is given.
+func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList func(lw, dr int) string) string {
+	if w < paneSplitMin || !m.paneVisible {
+		return boxView(title, sel, renderList(w-2, dataRows), w, rows)
+	}
+	paneW := w / 3
+	if paneW > 40 {
+		paneW = 40
+	}
+	if paneW < 24 {
+		paneW = 24
+	}
+	listW := w - paneW
+	listBody := boxView(title, sel, renderList(listW-2, dataRows), listW, rows)
+	paneBody := boxView("details", "", m.paneView(paneW-2, rows-2), paneW, rows)
+	return lipgloss.JoinHorizontal(lipgloss.Top, listBody, paneBody)
 }
 
 // footerBlock is the Claude Code-style status footer: a thin separator, an info
@@ -681,14 +802,21 @@ func (m App) View() tea.View {
 // segment so nothing wraps (which would otherwise hide a line).
 func (m App) footerBlock(w int) string {
 	// ≤ 3 rows: compact identity, one contextual hint row, optional status (FR-006).
+	// In the list modes the always-visible hint bar advertises the valid direct actions
+	// for the current selection/capability (006 US1, FR-003); other modes keep the
+	// legacy contextual hints.
+	hintLine := footerHints(hintCtx{
+		mode:         m.mode,
+		searchActive: m.searchActive(),
+		multiContext: len(m.contexts) > 1,
+		width:        w,
+	})
+	if m.mode == modeBuckets || m.mode == modeTree {
+		hintLine = m.hintBarView(w)
+	}
 	lines := []string{
 		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()),
-		footerHints(hintCtx{
-			mode:         m.mode,
-			searchActive: m.searchActive(),
-			multiContext: len(m.contexts) > 1,
-			width:        w,
-		}),
+		hintLine,
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)
@@ -709,6 +837,10 @@ func (m App) searchActive() bool {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
+	// The command bar owns the status line while open (006 US3).
+	if m.mode == modeCommand {
+		return m.commandLine(w)
+	}
 	// A pending write-arm confirmation owns the status line (005 US5).
 	if m.armConfirm {
 		return m.armConfirmLine()

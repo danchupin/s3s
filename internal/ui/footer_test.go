@@ -63,7 +63,7 @@ func TestFooterFitsWidthAndShowsHints(t *testing.T) {
 	f.Seed("hot")
 	m := New(Backend{Store: f, Cluster: "c", User: "u",
 		Endpoint: "https://very-long-endpoint.example.storage.internal:9000", Region: "us-east-1"},
-		"my-context", []string{"my-context"}, nil, 0)
+		"my-context", []string{"my-context"}, nil, nil, 0)
 	m.width, m.height = 60, 16
 	m = deliver(m, bucketsMsg{gen: m.gen, buckets: []storage.Bucket{{Name: "hot"}}})
 

@@ -272,3 +272,53 @@ func debounceSearch(searchGen int, term string) tea.Cmd {
 		return searchFireMsg{searchGen: searchGen, term: term}
 	})
 }
+
+// paneDebounce coalesces fast selection movement: the details-pane fetch fires only
+// after the selection settles, so scrolling never triggers a per-row backend call
+// (006 US2, FR-009).
+const paneDebounce = 180 * time.Millisecond
+
+// paneTickMsg fires after the pane debounce window; it carries the pane generation +
+// key it was scheduled for, so a tick for a row the user has scrolled past is ignored.
+type paneTickMsg struct {
+	gen int
+	key string
+}
+
+// paneTickCmd schedules a debounced pane load for (gen, key).
+func paneTickCmd(gen int, key string) tea.Cmd {
+	return tea.Tick(paneDebounce, func(time.Time) tea.Msg {
+		return paneTickMsg{gen: gen, key: key}
+	})
+}
+
+// loadPaneMeta fetches object metadata for the details pane off the event loop. Unlike
+// loadMetadata it emits paneMetaMsg (which does NOT flip modeObject) under the pane gen.
+func loadPaneMeta(ctx context.Context, st storage.Storage, bucket, key string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		md, err := st.HeadObject(ctx, bucket, key)
+		if err != nil {
+			logOpErr("pane head object", err, "bucket", bucket, "key", key)
+			return nil // pane errors are non-fatal — leave the instant fields shown
+		}
+		return paneMetaMsg{gen: gen, key: key, md: md}
+	}
+}
+
+// loadPanePreview fetches a bounded preview for the details pane off the event loop,
+// emitting panePreviewMsg under the pane gen.
+func loadPanePreview(ctx context.Context, st storage.Storage, bucket, key string, size int64, gen int) tea.Cmd {
+	return func() tea.Msg {
+		rc, err := st.GetObjectRange(ctx, bucket, key, 0, preview.Limit-1)
+		if err != nil {
+			logOpErr("pane preview", err, "bucket", bucket, "key", key)
+			return nil
+		}
+		defer func() { _ = rc.Close() }()
+		data, err := io.ReadAll(io.LimitReader(rc, preview.Limit))
+		if err != nil {
+			return nil
+		}
+		return panePreviewMsg{gen: gen, key: key, payload: preview.Build(key, "", data, size > preview.Limit)}
+	}
+}

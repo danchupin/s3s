@@ -46,21 +46,27 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Up):
 		if m.treeSel > 0 {
 			m.treeSel--
+			return m.afterSelectionMove() // rearm the debounced details pane (006 US2)
 		}
 	case matches(key, m.keys.Down):
 		if m.treeSel < n-1 {
 			m.treeSel++
+			return m.afterSelectionMove()
 		} else if m.level != nil && !m.level.complete && !m.loading {
 			return m.fetchNextPage() // paging-on-scroll: exactly one load
 		}
 	case matches(key, m.keys.Top):
-		m.treeSel = 0
+		if m.treeSel != 0 {
+			m.treeSel = 0
+			return m.afterSelectionMove()
+		}
 	case matches(key, m.keys.Bottom):
-		m.treeSel = max(0, n-1)
+		if nb := max(0, n-1); m.treeSel != nb {
+			m.treeSel = nb
+			return m.afterSelectionMove()
+		}
 	case matches(key, m.keys.Search):
 		return m.startSearch()
-	case matches(key, m.keys.Menu):
-		return m.openActionMenu()
 	case matches(key, m.keys.Mark):
 		return m.toggleMark()
 	case matches(key, m.keys.Sort):
@@ -82,6 +88,12 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openObject(e.obj)
 	case matches(key, m.keys.Back):
 		return m.goBack()
+	default:
+		// Direct single-key actions (006 US1): download/analyze/delete/copy/move/upload/
+		// mkdir/recursive-delete/refresh — straight into the existing flow, no menu.
+		if mm, cmd, ok := m.dispatchActionKey(key); ok {
+			return mm, cmd
+		}
 	}
 	return m, nil
 }

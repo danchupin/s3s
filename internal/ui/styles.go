@@ -58,7 +58,23 @@ var (
 	warnStyle   = lipgloss.NewStyle().Foreground(colWarn)
 	noticeStyle = lipgloss.NewStyle().Foreground(colOK) // success notices (green) — distinct from errStyle red
 	emptyStyle  = lipgloss.NewStyle().Faint(true).Foreground(colDim)
+
+	// 006 visual backbone — new surfaces REUSE the tokens above (FR-031/FR-032): no new
+	// hue is introduced. The hint bar advertises action keys (accent) + labels (dim);
+	// the pane reuses the metadata key/value styles; the command bar/form reuse accent
+	// for the active cue and dim for the rest, keeping the screen calm (FR-037/FR-038).
+	hintKeyStyle    = accentStyle                               // single-key glyph in the hint bar
+	hintLabelStyle  = dimCellStyle                              // its label
+	paneKeyStyle    = metaKeyStyle                              // pane field labels
+	paneValStyle    = metaValStyle                              // pane field values
+	formActiveStyle = lipgloss.NewStyle().Foreground(colAccent) // focused form field label
+	formErrStyle    = errStyle                                  // form/test error line
 )
+
+// NOTE on NO_COLOR (FR-034/FR-041/FR-042): every color-carried meaning also has a
+// redundant non-color cue — the `▶` selection gutter, the `✓` multi-select mark, the
+// `[RW]`/`[RO]` badge TEXT, and the `error:`/`loading…` prefixes — so the UI stays legible
+// when lipgloss strips color under NO_COLOR.
 
 // column is a table column; width 0 means flex (absorbs remaining width).
 type column struct {

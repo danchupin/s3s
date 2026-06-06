@@ -86,6 +86,30 @@ type usageDoneMsg struct {
 	err    error
 }
 
+// paneMetaMsg / panePreviewMsg deliver the debounced details-pane loads (006 US2).
+// They carry the selection key + pane generation and DO NOT set modeObject (distinct
+// from the Enter object view). A msg whose gen ≠ paneGen is dropped (scrolled past).
+type paneMetaMsg struct {
+	gen int
+	key string
+	md  storage.ObjectMetadata
+}
+
+type panePreviewMsg struct {
+	gen     int
+	key     string
+	payload preview.Payload
+}
+
+// connTestedMsg / connSavedMsg deliver the off-loop connection test/save results
+// (006 US4). connSavedMsg carries the updated context-name list on success.
+type connTestedMsg struct{ err error }
+
+type connSavedMsg struct {
+	names []string
+	err   error
+}
+
 // contextResolvedMsg delivers the result of resolving a context switch off the event
 // loop. Credential resolution (keychain unlock / external command) can be slow, so it
 // MUST NOT run synchronously in Update (Constitution II, 005 US6). Carries the gen it
