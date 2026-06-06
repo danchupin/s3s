@@ -1,8 +1,10 @@
 package config
 
 import (
+	"context"
 	"fmt"
 
+	"github.com/danchupin/s3s/internal/secret"
 	"github.com/danchupin/s3s/internal/storage"
 )
 
@@ -46,26 +48,47 @@ func (c *Config) Resolve(name string) (Cluster, User, error) {
 	return cl, u, nil
 }
 
-// WriteMode is the resolved write capability for one context.
+// WriteMode is the resolved write capability for one context. ReadOnly reports the
+// context's hard lock (readonly: true), independent of the runtime arm state — the UI
+// needs it to refuse arming a locked context (005 FR-028).
 type WriteMode struct {
 	Writable bool
+	ReadOnly bool
 }
 
 // WriteModeFor returns the write policy for the named context: writable only when
 // the global --write switch is on AND the context is not marked readonly (read-only
-// always wins — FR-001/FR-002, opt-out model). The existing Resolve/ClientConfig
-// methods are intentionally left unchanged so their callers do not break.
+// always wins — FR-001/FR-002, opt-out model). ReadOnly carries the context lock so
+// the UI can keep it absolute under the runtime toggle. The existing Resolve/
+// ClientConfig methods are intentionally left unchanged so their callers do not break.
 func (c *Config) WriteModeFor(name string, writeFlag bool) (WriteMode, error) {
 	cx, ok := c.context(name)
 	if !ok {
 		return WriteMode{}, fmt.Errorf("%w: no such context %q", ErrInvalid, name)
 	}
-	return WriteMode{Writable: writeFlag && !cx.ReadOnly}, nil
+	return WriteMode{Writable: writeFlag && !cx.ReadOnly, ReadOnly: cx.ReadOnly}, nil
 }
 
-// ClientConfig builds a storage.ClientConfig for the named context. This is the
-// single trust boundary where secrets are revealed (to construct the client).
-func (c *Config) ClientConfig(name string) (storage.ClientConfig, error) {
+// secretRequest builds the single-source resolution request for a non-anonymous user
+// (005 FR-041). configPath feeds the command source's owner-only perms gate.
+func (u User) secretRequest(configPath string) (secret.Request, error) {
+	switch {
+	case u.Keychain:
+		return secret.Request{Kind: secret.Keychain, AccessKeyID: u.AccessKeyID, Ref: u.Name}, nil
+	case u.Command != "":
+		return secret.Request{Kind: secret.Command, AccessKeyID: u.AccessKeyID, Ref: u.Command, ConfigPath: configPath}, nil
+	case u.AWSProfile != "":
+		return secret.Request{Kind: secret.AWSProfile, Ref: u.AWSProfile}, nil
+	case !u.SecretAccessKey.IsEmpty():
+		return secret.Request{Kind: secret.Inline, AccessKeyID: u.AccessKeyID, Ref: u.SecretAccessKey.Reveal()}, nil
+	default:
+		return secret.Request{}, fmt.Errorf("%w: user %q has no credential source", ErrInvalid, u.Name)
+	}
+}
+
+// ClientConfigWithSecret builds a ClientConfig using an explicitly provided secret —
+// the interactive startup prompt fallback (005 FR-038) — bypassing source resolution.
+func (c *Config) ClientConfigWithSecret(name, sec string) (storage.ClientConfig, error) {
 	cl, u, err := c.Resolve(name)
 	if err != nil {
 		return storage.ClientConfig{}, err
@@ -77,7 +100,57 @@ func (c *Config) ClientConfig(name string) (storage.ClientConfig, error) {
 		TLSSkipVerify: cl.TLSSkipVerify,
 		Anonymous:     u.Anonymous,
 		AccessKeyID:   u.AccessKeyID,
-		SecretKey:     u.SecretAccessKey.Reveal(),
-		SessionToken:  u.SessionToken.Reveal(),
+		SecretKey:     sec,
+		SessionToken:  u.SessionToken.Reveal(), // preserve a config-declared STS token
 	}, nil
+}
+
+// KeychainAccount returns the keystore account for the named context's user (the user
+// name), so `s3s cred` and runtime resolution agree on the key (005 R9).
+func (c *Config) KeychainAccount(name string) (string, error) {
+	cx, ok := c.context(name)
+	if !ok {
+		return "", fmt.Errorf("%w: no such context %q", ErrInvalid, name)
+	}
+	return cx.User, nil
+}
+
+// ClientConfig builds a storage.ClientConfig for the named context, resolving the
+// user's single credential source (keychain / command / aws-profile / inline) via
+// internal/secret. This is the single trust boundary where the secret is revealed (to
+// construct the client); it is never written to an s3s file (005 FR-035). A resolution
+// failure surfaces a clear error and never connects with an empty secret (FR-043).
+func (c *Config) ClientConfig(ctx context.Context, name string) (storage.ClientConfig, error) {
+	cl, u, err := c.Resolve(name)
+	if err != nil {
+		return storage.ClientConfig{}, err
+	}
+	cc := storage.ClientConfig{
+		Endpoint:      cl.Endpoint,
+		Region:        cl.Region,
+		PathStyle:     cl.PathStyle,
+		TLSSkipVerify: cl.TLSSkipVerify,
+		Anonymous:     u.Anonymous,
+	}
+	if u.Anonymous {
+		return cc, nil
+	}
+	req, err := u.secretRequest(c.path)
+	if err != nil {
+		return storage.ClientConfig{}, err
+	}
+	res, rerr := secret.Resolve(ctx, req)
+	if rerr != nil {
+		return storage.ClientConfig{}, rerr
+	}
+	cc.AccessKeyID = res.AccessKeyID
+	cc.SecretKey = res.SecretKey.Reveal()
+	cc.SessionToken = res.SessionToken.Reveal()
+	// Only the AWS-profile source supplies its own session token; every other source
+	// takes the (optional) sessionToken from config — keychain/cmd/env credentials can
+	// be STS temporary credentials with a config-declared token (005 US6).
+	if req.Kind != secret.AWSProfile && cc.SessionToken == "" {
+		cc.SessionToken = u.SessionToken.Reveal()
+	}
+	return cc, nil
 }

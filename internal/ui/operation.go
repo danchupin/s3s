@@ -55,9 +55,10 @@ type operation struct {
 	localSize int64  // upload source size (progress total)
 	target    string // resolved identifier acted on; for confirm + logging
 	tier      confirmTier
-	expect    string // typed tier: the exact string the operator must type
-	input     string // typed tier: the operator's entry
-	overwrite bool   // target already exists in the loaded level (advisory) — clobber warning
+	expect    string   // typed tier: the exact string the operator must type
+	input     string   // typed tier: the operator's entry
+	overwrite bool     // target already exists in the loaded level (advisory) — clobber warning
+	bulkKeys  []string // marked object keys for a bulk_* operation (005 US3)
 	phase     opPhase
 	progress  opProgress
 }
@@ -71,7 +72,7 @@ var (
 // startCreateFolder begins a create-folder intent at the current tree level. On a
 // read-only context it issues no command and shows the read-only hint (FR-003).
 func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -89,7 +90,7 @@ func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
 // startRemoveObject begins a single-object delete (typed tier — destructive). Only
 // valid on an object selection; refused on a read-only context (FR-001/FR-012).
 func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -114,7 +115,7 @@ func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 // startUpload opens the local file browser to pick an upload source for the current
 // level. Refused on a read-only context (FR-002/FR-012).
 func (m App) startUpload() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -134,7 +135,7 @@ func (m App) startUpload() (tea.Model, tea.Cmd) {
 func (m App) startCopy() (tea.Model, tea.Cmd) { return m.startCopyMove("copy") }
 func (m App) startMove() (tea.Model, tea.Cmd) { return m.startCopyMove("move") }
 func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -157,7 +158,7 @@ func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
 // startRecursiveDelete begins a recursive prefix delete (typed tier — highest risk).
 // Only valid on a folder/common-prefix selection (FR-008/FR-012).
 func (m App) startRecursiveDelete() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -269,6 +270,15 @@ func (m App) submitDest() (tea.Model, tea.Cmd) {
 		m.err = storage.ErrInvalidName
 		return m, nil // stay in the dest phase
 	}
+	// Bulk copy: dst is a destination PREFIX (normalized to a trailing "/"); copy is
+	// reversible, so dispatch directly without a confirmation (005 US3).
+	if m.op.kind == "bulk_copy" {
+		if !strings.HasSuffix(dst, "/") {
+			dst += "/"
+		}
+		m.op.dstKey = dst
+		return m.dispatchOp()
+	}
 	m.op.target = dst
 	m.op.overwrite = m.levelHasKey(dst)
 	// Move always uses the typed tier (the source is removed). Copy uses simple
@@ -324,7 +334,14 @@ func hasControl(s string) bool {
 // a progress channel consumed by a waitForProgress command.
 func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	op := m.op
-	mut, ok := m.store.(storage.Mutator)
+	// Download and bulk-download are READS (US1/US3) — no Mutator, work read-only.
+	if op.kind == "download" {
+		return m.dispatchDownload(op)
+	}
+	if op.kind == "bulk_download" || op.kind == "bulk_delete" || op.kind == "bulk_copy" {
+		return m.dispatchBulk(op)
+	}
+	mut, ok := m.activeStore().(storage.Mutator)
 	if !ok {
 		m.op = nil
 		m.err = storage.ErrReadOnly
@@ -383,14 +400,52 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.gen {
 		return m, nil // superseded — drop
 	}
+	// Download is a read: it changes nothing remote, so it reports a notice and skips
+	// the post-mutation refresh (005 US1).
+	isDownload := m.op != nil && m.op.kind == "download"
+	dlDest := ""
+	if isDownload {
+		dlDest = m.op.localPath
+	}
+	isBulk := m.op != nil && strings.HasPrefix(m.op.kind, "bulk_")
+	bulkVerb := ""
+	if isBulk {
+		bulkVerb = strings.TrimPrefix(m.op.kind, "bulk_")
+	}
 	m.loading = false
 	m.op = nil
 	m.opCh = nil
 	switch {
+	case isBulk:
+		// Truthful per-batch summary; the selection is consumed (005 FR-018/FR-019).
+		m.sel = nil
+		done, failed := 0, 0
+		if msg.summary != nil {
+			done, failed = msg.summary.Deleted, msg.summary.Failed
+		}
+		if msg.err != nil && errors.Is(msg.err, context.Canceled) {
+			m.notice = fmt.Sprintf("bulk %s cancelled: %d done, %d failed", bulkVerb, done, failed)
+		} else {
+			m.notice = fmt.Sprintf("bulk %s: %d done, %d failed", bulkVerb, done, failed)
+		}
+		if bulkVerb == "download" {
+			return m, nil // read — nothing remote changed
+		}
+		return m.refresh()
 	case msg.err != nil && errors.Is(msg.err, context.Canceled):
-		// Indeterminate outcome: never success; refresh to ground truth (FR-007).
+		// Indeterminate outcome: never success (FR-004/FR-007).
+		if isDownload {
+			m.notice = "cancelled — partial download removed"
+			return m, nil
+		}
 		m.notice = "operation cancelled — nothing reported as done"
 		return m.refresh()
+	case isDownload && msg.err != nil:
+		m.err = msg.err
+		return m, nil
+	case isDownload:
+		m.notice = "downloaded to " + dlDest
+		return m, nil
 	case msg.err != nil && errors.Is(msg.err, storage.ErrMovePartial):
 		// No data loss: copied to the destination, source remains (FR-007).
 		m.notice = "moved partially: copied to destination, source still present"
@@ -460,6 +515,8 @@ func (m App) simpleConfirmText() string {
 		return fmt.Sprintf("copy to %s ?", sanitizeLabel(op.target))
 	case "upload":
 		return fmt.Sprintf("upload to %s ?", sanitizeLabel(op.target))
+	case "download":
+		return fmt.Sprintf("overwrite local %s ?", sanitizeLabel(op.target))
 	default:
 		return fmt.Sprintf("%s %s ?", op.kind, sanitizeLabel(op.target))
 	}
@@ -473,6 +530,14 @@ func (m App) opProgressLine() string {
 		return accentStyle.Render(m.spinnerView()) +
 			dimCellStyle.Render(fmt.Sprintf(" uploading %s / %s  (x to cancel)",
 				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
+	case "download":
+		return accentStyle.Render(m.spinnerView()) +
+			dimCellStyle.Render(fmt.Sprintf(" downloading %s / %s  (x to cancel)",
+				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
+	case "bulk_download", "bulk_delete", "bulk_copy":
+		return accentStyle.Render(m.spinnerView()) +
+			dimCellStyle.Render(fmt.Sprintf(" %s… %d/%d done, %d failed  (x to cancel)",
+				strings.TrimPrefix(op.kind, "bulk_"), op.progress.deleted, op.progress.total, op.progress.failed))
 	case "delete_recursive":
 		return accentStyle.Render(m.spinnerView()) +
 			dimCellStyle.Render(fmt.Sprintf(" deleting… %d removed, %d failed  (x to cancel)",

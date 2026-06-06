@@ -30,6 +30,23 @@ type Config struct {
 	Users          []User    `yaml:"users"`
 	Contexts       []Context `yaml:"contexts"`
 	CurrentContext string    `yaml:"current-context"`
+	DownloadDir    string    `yaml:"downloadDir,omitempty"` // default local download dir (005 FR-007)
+
+	path string // source file path (set by Load) — for the cmd-source owner-only gate
+}
+
+// Path returns the file this config was loaded from (empty for an in-memory config).
+func (c *Config) Path() string { return c.path }
+
+// InsecurePerms reports whether the file at path is group/world readable — a config
+// holding or referencing secrets should be owner-only (005 FR-040). Missing/unstattable
+// files are treated as not-insecure (other code reports the real error).
+func InsecurePerms(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	return fi.Mode().Perm()&0o077 != 0
 }
 
 // Cluster is a named S3-compatible endpoint.
@@ -41,13 +58,38 @@ type Cluster struct {
 	TLSSkipVerify bool   `yaml:"tlsSkipVerify,omitempty"`
 }
 
-// User is a named credential. Secrets are redacted everywhere (FR-005).
+// User is a named credential. Secrets are redacted everywhere (FR-005). A
+// non-anonymous user names exactly ONE credential source (005 FR-041): an inline
+// secretAccessKey (literal or ${ENV}), the OS keychain, an external command, or an
+// AWS shared profile.
 type User struct {
 	Name            string         `yaml:"name"`
 	Anonymous       bool           `yaml:"anonymous,omitempty"`
 	AccessKeyID     string         `yaml:"accessKeyId,omitempty"`
-	SecretAccessKey logging.Secret `yaml:"secretAccessKey,omitempty"`
+	SecretAccessKey logging.Secret `yaml:"secretAccessKey,omitempty"` // inline / ${ENV} source
 	SessionToken    logging.Secret `yaml:"sessionToken,omitempty"`
+	Keychain        bool           `yaml:"keychain,omitempty"`   // OS keystore source (005 US6)
+	Command         string         `yaml:"cmd,omitempty"`        // external-command source (005 US6)
+	AWSProfile      string         `yaml:"awsProfile,omitempty"` // ~/.aws/credentials source (005 US6)
+}
+
+// sourceCount reports how many credential sources the user declares. Exactly one is
+// required for a non-anonymous user (005 FR-041).
+func (u User) sourceCount() int {
+	n := 0
+	if !u.SecretAccessKey.IsEmpty() {
+		n++
+	}
+	if u.Keychain {
+		n++
+	}
+	if u.Command != "" {
+		n++
+	}
+	if u.AWSProfile != "" {
+		n++
+	}
+	return n
 }
 
 // Context binds a cluster and a user under a selectable name. ReadOnly marks the
@@ -97,6 +139,7 @@ func Load(path string) (*Config, error) {
 	if err := c.Validate(); err != nil {
 		return nil, err
 	}
+	c.path = path
 	return &c, nil
 }
 
@@ -171,8 +214,17 @@ func (c *Config) Validate() error {
 		}
 		users[us.Name] = true
 		if !us.Anonymous {
-			if us.AccessKeyID == "" || us.SecretAccessKey.IsEmpty() {
+			switch us.sourceCount() {
+			case 0:
 				return fmt.Errorf("%w: user %q is not anonymous but missing credentials", ErrInvalid, us.Name)
+			case 1:
+				// AWS profile supplies its own access key; every other source needs the
+				// (non-secret) accessKeyId from config.
+				if us.AWSProfile == "" && us.AccessKeyID == "" {
+					return fmt.Errorf("%w: user %q is missing accessKeyId", ErrInvalid, us.Name)
+				}
+			default:
+				return fmt.Errorf("%w: user %q declares more than one credential source — choose exactly one (secretAccessKey | keychain | cmd | awsProfile)", ErrInvalid, us.Name)
 			}
 		}
 	}

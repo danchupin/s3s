@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,6 +59,7 @@ func TestRunInitWritesEnvRefNotSecret(t *testing.T) {
 		"",                      // path-style default yes
 		"",                      // tls skip default no
 		"n",                     // anonymous no
+		"env",                   // credential source (env / ${ENV})
 		"AKIAEXAMPLE",           // access key id
 		"",                      // current context default yes
 	}, "\n") + "\n")
@@ -95,7 +97,7 @@ func TestRunInitWritesEnvRefNotSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("written config does not load: %v", err)
 	}
-	cc, err := cfg.ClientConfig("local")
+	cc, err := cfg.ClientConfig(context.Background(), "local")
 	if err != nil {
 		t.Fatalf("ClientConfig: %v", err)
 	}
@@ -126,7 +128,7 @@ func TestRunInitAnonymous(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	cc, err := cfg.ClientConfig("pub")
+	cc, err := cfg.ClientConfig(context.Background(), "pub")
 	if err != nil {
 		t.Fatalf("ClientConfig: %v", err)
 	}

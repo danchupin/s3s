@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/danchupin/s3s/internal/logging"
+	"github.com/danchupin/s3s/internal/secret"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -148,9 +149,29 @@ func RunInit(in io.Reader, out io.Writer, path string) error {
 	if anonymous {
 		u.Anonymous = true
 	} else {
-		u.AccessKeyID = ask(out, sc, "Access key ID", "")
-		envVar = EnvVarName(ctxName)
-		u.SecretAccessKey = logging.Secret("${" + envVar + "}")
+		// Credential source (005 US6): keychain stores the secret in the OS keystore;
+		// cmd/awsProfile reference external sources; env keeps the ${ENV} reference.
+		switch strings.ToLower(ask(out, sc, "Credential source [env/keychain/cmd/awsProfile]", "env")) {
+		case "keychain":
+			u.AccessKeyID = ask(out, sc, "Access key ID", "")
+			u.Keychain = true
+			sec, perr := secret.Prompt("Secret access key (no echo): ")
+			if perr != nil {
+				return perr
+			}
+			if serr := secret.StoreKeychain(userName, sec); serr != nil {
+				return serr
+			}
+		case "cmd":
+			u.AccessKeyID = ask(out, sc, "Access key ID", "")
+			u.Command = ask(out, sc, "Command that prints the secret to stdout", "")
+		case "awsprofile", "aws", "profile":
+			u.AWSProfile = ask(out, sc, "AWS profile name", "default")
+		default: // env — unchanged ${ENV} reference
+			u.AccessKeyID = ask(out, sc, "Access key ID", "")
+			envVar = EnvVarName(ctxName)
+			u.SecretAccessKey = logging.Secret("${" + envVar + "}")
+		}
 	}
 
 	cx := Context{Name: ctxName, Cluster: clusterName, User: userName}

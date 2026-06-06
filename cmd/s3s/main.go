@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -12,10 +13,12 @@ import (
 	"path/filepath"
 
 	tea "charm.land/bubbletea/v2"
+	"golang.org/x/term"
 
 	"github.com/danchupin/s3s/internal/config"
 	"github.com/danchupin/s3s/internal/logging"
 	"github.com/danchupin/s3s/internal/preview"
+	"github.com/danchupin/s3s/internal/secret"
 	"github.com/danchupin/s3s/internal/storage"
 	"github.com/danchupin/s3s/internal/ui"
 )
@@ -37,11 +40,15 @@ func run() error {
 	if args := os.Args[1:]; len(args) >= 2 && args[0] == "config" && args[1] == "init" {
 		return runConfigInit(args[2:])
 	}
+	// Subcommand: `s3s cred <set|rotate|rm> <context>` — keystore secret management.
+	if args := os.Args[1:]; len(args) >= 1 && args[0] == "cred" {
+		return runCred(args[1:])
+	}
 
 	var ctxFlag, cfgPath string
 	var showVersion, writeEnabled bool
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
-	flag.BoolVar(&writeEnabled, "write", false, "enable mutating operations (default: read-only); a context marked readonly stays protected")
+	flag.BoolVar(&writeEnabled, "write", false, "start in write mode (default: read-only); toggle at runtime with the write key; a context marked readonly stays protected")
 	flag.StringVar(&ctxFlag, "context", "", "active context name (overrides $S3S_CONTEXT and current-context)")
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: XDG ~/.config/s3s/config.yaml)")
 	flag.Parse()
@@ -68,6 +75,11 @@ func run() error {
 		return errors.New("no context selected: set current-context in config or pass --context")
 	}
 
+	// Insecure-permissions warning (005 FR-040) — printed pre-TUI to stderr.
+	if config.InsecurePerms(cfgPath) {
+		fmt.Fprintf(os.Stderr, "s3s: warning — %s is group/world-readable; run: chmod 600 %s\n", cfgPath, cfgPath)
+	}
+
 	// File logging only — the TUI owns the terminal (Constitution V).
 	if logger, closer, lerr := logging.New(defaultLogPath(), slog.LevelInfo); lerr == nil {
 		defer func() { _ = closer.Close() }()
@@ -75,45 +87,66 @@ func run() error {
 		slog.Info("s3s start", "context", active, "config", cfgPath)
 	}
 
-	// resolve builds the storage client + header metadata for a context.
-	resolve := func(name string) (ui.Backend, error) {
+	// backendFrom assembles a ui.Backend from a resolved ClientConfig. The UI guards
+	// the backend dynamically (runtime read-only↔write toggle, 005 US5), so it gets the
+	// RAW store plus the context's hard lock. Writable carries the *initial* arm intent
+	// (--write); ReadOnly carries the absolute readonly:true lock (FR-028/FR-031).
+	backendFrom := func(name string, cc storage.ClientConfig) (ui.Backend, error) {
 		cl, u, rerr := cfg.Resolve(name)
 		if rerr != nil {
 			return ui.Backend{}, rerr
-		}
-		cc, cerr := cfg.ClientConfig(name)
-		if cerr != nil {
-			return ui.Backend{}, cerr
 		}
 		st, serr := storage.New(cc)
 		if serr != nil {
 			return ui.Backend{}, serr
 		}
-		// Resolve the write policy and wrap the backend in the read-only guard
-		// unless this context is writable. This is the single runtime enforcement
-		// point for read-only (FR-003/FR-012).
 		policy, perr := cfg.WriteModeFor(name, writeEnabled)
 		if perr != nil {
 			return ui.Backend{}, perr
 		}
-		st = storage.Guard(st, policy.Writable)
 		userLabel := u.Name
 		if u.Anonymous {
 			userLabel += " (anonymous)"
 		}
 		return ui.Backend{
-			Store:    st,
-			Cluster:  cl.Name,
-			User:     userLabel,
-			Endpoint: cl.Endpoint,
-			Region:   cl.Region,
-			Writable: policy.Writable,
+			Store: st, Cluster: cl.Name, User: userLabel,
+			Endpoint: cl.Endpoint, Region: cl.Region,
+			Writable: writeEnabled, ReadOnly: policy.ReadOnly,
+			DownloadDir: cfg.DownloadDir,
 		}, nil
 	}
 
+	// resolve resolves a context's secret NON-interactively (used on in-TUI context
+	// switch, where the TUI owns the terminal — no prompting).
+	resolve := func(name string) (ui.Backend, error) {
+		cc, cerr := cfg.ClientConfig(context.Background(), name)
+		if cerr != nil {
+			return ui.Backend{}, cerr
+		}
+		return backendFrom(name, cc)
+	}
+
+	// The active context resolves at startup, where an interactive secure prompt IS
+	// allowed (before the TUI starts — Constitution V, 005 R12). On a resolution
+	// failure (e.g. an empty keystore) fall back to the prompt and offer to save.
 	initial, err := resolve(active)
 	if err != nil {
-		return err
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return err
+		}
+		fmt.Fprintf(os.Stderr, "s3s: %v\n", err)
+		sec, perr := secret.Prompt(fmt.Sprintf("secret for context %q: ", active))
+		if perr != nil {
+			return perr
+		}
+		cc, cerr := cfg.ClientConfigWithSecret(active, sec)
+		if cerr != nil {
+			return cerr
+		}
+		if initial, err = backendFrom(active, cc); err != nil {
+			return err
+		}
+		offerSaveToKeychain(cfg, active, sec)
 	}
 
 	// Image rendering. Default to ANSI half-block: Bubble Tea v2's cell renderer

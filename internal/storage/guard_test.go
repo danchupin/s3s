@@ -39,3 +39,25 @@ func TestGuardRefusesMutation(t *testing.T) {
 		t.Errorf("guard must delegate reads: %v", err)
 	}
 }
+
+// TestGuardDelegatesNewReads: the 005 read methods (GetObject, UsageOf) pass through
+// the read-only guard unchanged — no ErrReadOnly (storage-read-ops-contract C3).
+func TestGuardDelegatesNewReads(t *testing.T) {
+	f := NewFake()
+	f.SeedObject("b", "a.txt", FakeObject{Data: []byte("hello")})
+
+	ro := Guard(f, false)
+	rc, err := ro.GetObject(context.Background(), "b", "a.txt")
+	if err != nil {
+		t.Fatalf("guarded GetObject = %v, want pass-through", err)
+	}
+	_ = rc.Close()
+
+	rep, err := ro.UsageOf(context.Background(), "b", "", nil)
+	if err != nil {
+		t.Fatalf("guarded UsageOf = %v, want pass-through", err)
+	}
+	if rep.TotalCount != 1 || rep.TotalSize != 5 {
+		t.Errorf("UsageOf through guard = %d objs / %d bytes, want 1/5", rep.TotalCount, rep.TotalSize)
+	}
+}

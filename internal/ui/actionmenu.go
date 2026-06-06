@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -19,13 +20,37 @@ type menuItem struct {
 // capability (contract action-menu C2). Refresh is always present and always last
 // (FR-025); write items are omitted in read-only contexts (FR-024).
 func (m App) menuItemsFor() []menuItem {
-	// Bucket list: only Refresh (no bucket-level write ops exist yet).
+	// Bucket list: analyze the highlighted bucket (read), then Refresh.
 	if m.mode == modeBuckets {
-		return []menuItem{{label: "refresh", invoke: App.refreshBuckets}}
+		return []menuItem{
+			{label: "analyze", invoke: App.startAnalyze},
+			{label: "refresh", invoke: App.refreshBuckets},
+		}
 	}
 
 	var items []menuItem
-	if m.writable {
+	// Download is a read — available for an object selection in any context, incl.
+	// read-only (005 US1, FR-002). Menu-only: no dedicated top-level key (FR-023).
+	if m.selKind() == selObject {
+		items = append(items, menuItem{label: "download", invoke: App.startDownload})
+	}
+	// Analyze (du) is a read — available on a folder selection or the current level,
+	// in any context (005 US2, FR-010).
+	if m.selKind() != selObject {
+		items = append(items, menuItem{label: "analyze", invoke: App.startAnalyze})
+	}
+	// Bulk actions over the multi-select (005 US3). Download is a read; delete/copy are
+	// write-gated. Recursive folder deletion is NOT here (FR-016).
+	if m.selCount() > 0 {
+		items = append(items, menuItem{label: fmt.Sprintf("download selected (%d)", m.selCount()), invoke: App.startBulkDownload})
+		if m.writable() {
+			items = append(items,
+				menuItem{label: "delete selected", writeOnly: true, invoke: App.startBulkDelete},
+				menuItem{label: "copy selected", writeOnly: true, invoke: App.startBulkCopy},
+			)
+		}
+	}
+	if m.writable() {
 		switch m.selKind() {
 		case selObject:
 			items = append(items,
@@ -120,5 +145,5 @@ func (m App) actionMenuView(width int) string {
 // sole refresh entry point now that top-level `r` is removed — FR-025/FR-028).
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
 }

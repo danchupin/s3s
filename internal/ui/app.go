@@ -27,6 +27,7 @@ const (
 	modeContextSwitch
 	modeHelp
 	modeActionMenu // contextual action menu (opened with 'a')
+	modeUsage      // du analytics view (opened via the action menu) — 005 US2
 )
 
 // selKind classifies the current tree selection for contextual hints/menu items.
@@ -66,14 +67,19 @@ type levelState struct {
 func (l *levelState) count() int { return len(l.dirs) + len(l.objects) }
 
 // Backend describes the storage client plus the display metadata for the active
-// context (shown in the header). The UI never builds clients itself.
+// context (shown in the header). The UI never builds clients itself. Store is the
+// RAW (unguarded) client — the UI guards it dynamically per the runtime write-arm
+// state (005 US5). Writable is the *initial* arm intent (the --write flag); ReadOnly
+// is the context's absolute readonly:true lock.
 type Backend struct {
-	Store    storage.Storage
-	Cluster  string
-	User     string
-	Endpoint string
-	Region   string
-	Writable bool // true when --write is set and the context is not readonly
+	Store       storage.Storage
+	Cluster     string
+	User        string
+	Endpoint    string
+	Region      string
+	Writable    bool   // initial write-arm intent (--write)
+	ReadOnly    bool   // context is readonly:true — never armable (FR-028)
+	DownloadDir string // default local download dir from config (005 FR-007)
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil
@@ -82,13 +88,14 @@ type Resolver func(context string) (Backend, error)
 
 // App is the root Bubble Tea model.
 type App struct {
-	store    storage.Storage
-	info     Backend
-	ctxName  string
-	contexts []string
-	resolve  Resolver
-	imgProto preview.Protocol
-	writable bool // active context permits mutations (Backend.Writable)
+	raw         storage.Storage // RAW (unguarded) client; guarded dynamically per arm state
+	info        Backend
+	ctxName     string
+	contexts    []string
+	resolve     Resolver
+	imgProto    preview.Protocol
+	armed       bool // runtime write-arm intent (toggle / --write initial) — 005 US5
+	ctxReadOnly bool // active context is readonly:true (absolute lock, FR-028)
 
 	keys  keyMap
 	cache *cache.Cache[*levelState]
@@ -139,6 +146,25 @@ type App struct {
 	opCh   chan progressEvent // streaming progress channel (upload / recursive delete)
 	notice string             // transient non-error outcome line (e.g. partial counts)
 
+	// write-mode arm confirmation pending (005 US5): true while awaiting y/N to arm write
+	armConfirm bool
+
+	// multi-select (005 US3): marked OBJECT keys in the current level, cleared on nav
+	sel map[string]bool
+
+	// sort order (005 US4): session-persistent across navigation
+	sortBy  sortCol
+	sortAsc bool
+
+	// du analytics (005 US2 / modeUsage)
+	usage       *storage.UsageReport // completed report (nil while scanning)
+	usageSel    int                  // selected child row (for drill-down)
+	usageBucket string
+	usagePrefix string
+	usageReturn mode                  // mode to restore when leaving the analytics view (005 US2)
+	usageProg   storage.UsageProgress // running totals during a scan
+	usageCh     chan usageEvent       // scan progress channel
+
 	// local file browser state (active during an upload's phaseBrowse)
 	fbDir     string
 	fbEntries []localfs.Entry
@@ -152,18 +178,20 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // image protocol for previews.
 func New(initial Backend, ctxName string, contexts []string, resolve Resolver, imgProto preview.Protocol) App {
 	m := App{
-		store:    initial.Store,
-		info:     initial,
-		ctxName:  ctxName,
-		contexts: contexts,
-		resolve:  resolve,
-		imgProto: imgProto,
-		writable: initial.Writable,
-		keys:     defaultKeys(),
-		cache:    cache.New[*levelState](),
-		mode:     modeBuckets,
-		width:    80,
-		height:   24,
+		raw:         initial.Store,
+		info:        initial,
+		ctxName:     ctxName,
+		contexts:    contexts,
+		resolve:     resolve,
+		imgProto:    imgProto,
+		armed:       initial.Writable,
+		ctxReadOnly: initial.ReadOnly,
+		sortAsc:     true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
+		keys:        defaultKeys(),
+		cache:       cache.New[*levelState](),
+		mode:        modeBuckets,
+		width:       80,
+		height:      24,
 	}
 	// Arm the initial bucket load here, not in Init: in Bubble Tea v2 Init returns
 	// only a Cmd and cannot mutate the model, so the generation/context must be set
@@ -172,9 +200,20 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, i
 	return m
 }
 
+// writable reports whether mutations are currently permitted: the session is armed
+// AND the active context is not hard-locked readonly (005 FR-024/FR-028). This
+// derived value replaces the old static field, recomputed on every toggle/switch.
+func (m App) writable() bool { return m.armed && !m.ctxReadOnly }
+
+// activeStore returns the backend guarded for the current arm state: the raw client
+// when writable, else a read-only wrapper that refuses mutations without a network
+// call. This is the single runtime enforcement point — every operation uses it, so a
+// mutating call is impossible while disarmed (005 US5, write-toggle-contract C1).
+func (m App) activeStore() storage.Storage { return storage.Guard(m.raw, m.writable()) }
+
 // Init kicks off the initial bucket load armed by New.
 func (m App) Init() tea.Cmd {
-	return tea.Batch(loadBuckets(m.loadCtx, m.store, m.gen), spinnerTick())
+	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen), spinnerTick())
 }
 
 // beginLoad cancels any in-flight load, bumps the generation, and starts a fresh
@@ -268,6 +307,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case operationDoneMsg:
 		return m.onOperationDone(msg)
 
+	case usageProgressMsg:
+		return m.onUsageProgress(msg)
+
+	case usageDoneMsg:
+		return m.onUsageDone(msg)
+
+	case contextResolvedMsg:
+		return m.onContextResolved(msg)
+
 	case searchFireMsg:
 		return m.onSearchFire(msg)
 
@@ -287,6 +335,11 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// While typing a search query, the input owns most keys.
 	if m.searching {
 		return m.onSearchKey(msg)
+	}
+
+	// A pending write-arm confirmation is modal: y/N resolves it (005 US5).
+	if m.armConfirm {
+		return m.onArmConfirmKey(key)
 	}
 
 	// A running mutation is modal: only cancel (Esc/Back) and quit work. Navigation and
@@ -337,6 +390,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// Write-arm toggle: a global safety primitive (005 US5). Arming prompts to
+	// confirm; disarming is instant. Refused on a readonly:true context.
+	if matches(key, m.keys.WriteToggle) {
+		return m.toggleWrite()
+	}
+
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
 	if matches(key, m.keys.Back) && m.loading {
 		(&m).cancelLoad()
@@ -352,6 +411,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
+	case modeUsage:
+		return m.onUsageKey(key)
 	}
 	return m, nil
 }
@@ -447,34 +508,61 @@ func (m App) onContextKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyContext switches to the named context, rebuilds the backend, resets all
-// browsing state, and reloads buckets. A no-op (back to buckets) when the context
-// is already active or switching is disabled.
+// applyContext begins a switch to the named context. Resolving the backend can be slow
+// (a keychain unlock or an external credential command, 005 US6), so it runs OFF the
+// event loop — Update applies the result via contextResolvedMsg (Constitution II). A
+// no-op (back to buckets) when the context is already active or switching is disabled.
 func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	if target == m.ctxName || m.resolve == nil {
 		m.mode = modeBuckets
 		return m, nil
 	}
-	be, err := m.resolve(target)
-	if err != nil {
-		m.err = err
+	m.mode = modeBuckets
+	(&m).beginLoad() // bump the generation + show the spinner; supersedes a prior switch
+	return m, tea.Batch(resolveContextCmd(m.resolve, target, m.gen), spinnerTick())
+}
+
+// resolveContextCmd resolves a context's backend off the event loop (credential
+// resolution may block), reporting the outcome via contextResolvedMsg.
+func resolveContextCmd(resolve Resolver, target string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		be, err := resolve(target)
+		return contextResolvedMsg{gen: gen, target: target, be: be, err: err}
+	}
+}
+
+// onContextResolved applies a resolved context switch (or surfaces its error), then
+// resets browsing state and loads the new bucket list. Stale results (a superseded
+// switch) are dropped by the generation check.
+func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.gen {
+		return m, nil // superseded
+	}
+	if msg.err != nil {
+		m.loading = false
+		m.err = msg.err
 		m.mode = modeBuckets
 		return m, nil
 	}
-	m.store = be.Store
+	be := msg.be
+	m.raw = be.Store
 	m.info = be
-	m.writable = be.Writable
+	// Preserve the arm intent across the switch; re-derive the context lock. Switching
+	// to a writable context keeps write armed; switching to a readonly:true context
+	// forces read-only via writable() (FR-029).
+	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
-	m.ctxName = target
+	m.ctxName = msg.target
 	m.cache.Clear()
 	m.buckets = nil
 	m.bucketSel = 0
 	m.bucketFilter = ""
 	m.bucket, m.prefix, m.search = "", "", ""
 	m.level = nil
+	m.sel = nil
 	m.mode = modeBuckets
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
 }
 
 // clampSelection keeps selection indices within bounds after resize/data change.
@@ -528,14 +616,19 @@ func (m App) errorText() string {
 func (m App) View() tea.View {
 	w := clampW(m.width)
 
+	// The alt-screen overlays (help, action menu) render without the footer, so the
+	// loud WRITE/RO badge is injected here too — it must be present on EVERY screen
+	// (005 FR-027, write-toggle-contract C3).
+	badge := writeBadge(m.writable()) + "\n"
+
 	if m.mode == modeHelp {
-		v := tea.NewView(m.helpView())
+		v := tea.NewView(badge + m.helpView())
 		v.AltScreen = true
 		return v
 	}
 
 	if m.mode == modeActionMenu {
-		v := tea.NewView(m.actionMenuView(w))
+		v := tea.NewView(badge + m.actionMenuView(w))
 		v.AltScreen = true
 		return v
 	}
@@ -573,6 +666,8 @@ func (m App) View() tea.View {
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
 		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
+	case modeUsage:
+		body = boxView(m.usageTitle(), "", m.usageView(w-2, dataRows), w, rows)
 	}
 
 	v := tea.NewView(body + "\n" + footer)
@@ -587,7 +682,7 @@ func (m App) View() tea.View {
 func (m App) footerBlock(w int) string {
 	// ≤ 3 rows: compact identity, one contextual hint row, optional status (FR-006).
 	lines := []string{
-		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable),
+		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()),
 		footerHints(hintCtx{
 			mode:         m.mode,
 			searchActive: m.searchActive(),
@@ -614,6 +709,10 @@ func (m App) searchActive() bool {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
+	// A pending write-arm confirmation owns the status line (005 US5).
+	if m.armConfirm {
+		return m.armConfirmLine()
+	}
 	// An interactive operation prompt (name/dest entry, confirmation) takes priority.
 	// A running streaming op shows live progress; other phases fall through.
 	if m.op != nil {
@@ -656,6 +755,10 @@ func (m App) statusLine(w int) string {
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))
 	}
+	// Multi-select summary (005 US3): count + combined size of the marked objects.
+	if m.selCount() > 0 {
+		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (a: bulk actions)", m.selCount(), humanSize(m.selSize())))
+	}
 	return ""
 }
 
@@ -678,7 +781,7 @@ func (m App) resourceTitle() string {
 		if m.search != "" {
 			loc += fmt.Sprintf("/%s*", sanitizeLabel(m.search))
 		}
-		return fmt.Sprintf("%s[%d%s]", loc, n, more)
+		return fmt.Sprintf("%s[%d%s] %s", loc, n, more, m.sortIndicator())
 	case modeContextSwitch:
 		return fmt.Sprintf("contexts[%d]", len(m.contexts))
 	case modeObject:

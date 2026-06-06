@@ -71,3 +71,28 @@ type searchFireMsg struct {
 	searchGen int
 	term      string
 }
+
+// usageProgressMsg delivers one running-totals tick during a du scan (005 US2/FR-011).
+type usageProgressMsg struct {
+	gen int
+	p   storage.UsageProgress
+}
+
+// usageDoneMsg delivers the terminal du report (or error). A cancelled scan carries a
+// partial report with Complete=false (005 FR-011).
+type usageDoneMsg struct {
+	gen    int
+	report storage.UsageReport
+	err    error
+}
+
+// contextResolvedMsg delivers the result of resolving a context switch off the event
+// loop. Credential resolution (keychain unlock / external command) can be slow, so it
+// MUST NOT run synchronously in Update (Constitution II, 005 US6). Carries the gen it
+// was dispatched under so a superseded switch is dropped.
+type contextResolvedMsg struct {
+	gen    int
+	target string
+	be     Backend
+	err    error
+}

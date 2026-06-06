@@ -15,7 +15,7 @@ func typedFixture() *operation {
 
 func typedApp() App {
 	m := newApp(storage.NewFake(), nil, nil)
-	m.writable = true
+	m.armed = true
 	m.op = typedFixture()
 	return m
 }
