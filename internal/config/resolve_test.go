@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"errors"
 	"testing"
 )
@@ -28,7 +29,7 @@ func TestResolveClientConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cc, err := c.ClientConfig("local")
+	cc, err := c.ClientConfig(context.Background(), "local")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +40,7 @@ func TestResolveClientConfig(t *testing.T) {
 		t.Errorf("creds wrong: %+v", cc)
 	}
 
-	pub, err := c.ClientConfig("pub")
+	pub, err := c.ClientConfig(context.Background(), "pub")
 	if err != nil {
 		t.Fatal(err)
 	}

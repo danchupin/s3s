@@ -11,8 +11,11 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.101.0
 	github.com/aws/smithy-go v1.25.1
 	github.com/eliukblau/pixterm v1.3.2
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510
 	github.com/testcontainers/testcontainers-go/modules/minio v0.42.0
+	github.com/zalando/go-keyring v0.2.8
 	go.yaml.in/yaml/v3 v3.0.4
+	golang.org/x/term v0.42.0
 )
 
 require (
@@ -59,7 +62,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
-	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.5 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.0 // indirect
@@ -89,7 +91,6 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	github.com/zalando/go-keyring v0.2.8 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0 // indirect
 	go.opentelemetry.io/otel v1.41.0 // indirect
@@ -99,6 +100,5 @@ require (
 	golang.org/x/image v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/term v0.42.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

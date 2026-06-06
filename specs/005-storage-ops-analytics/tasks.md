@@ -34,7 +34,7 @@ tests live beside the code (`*_test.go`, `*_integration_test.go`). Spec docs und
 **Purpose**: dependencies and file scaffolding so later phases compile incrementally.
 
 - [X] T001 Add dependencies `github.com/zalando/go-keyring` and `golang.org/x/term` via `go get`; verify `go.mod`/`go.sum` updated and `make build` still succeeds.
-- [ ] T002 [P] Create `internal/secret/` package with `doc.go` (package comment: UI- and SDK-agnostic credential-source resolution per research R8–R13).
+- [X] T002 [P] Create `internal/secret/` package with `doc.go` (package comment: UI- and SDK-agnostic credential-source resolution per research R8–R13).
 - [ ] T003 [P] Create empty UI files with package decl + file-level comment: `internal/ui/writemode.go`, `internal/ui/download.go`, `internal/ui/analyze.go`, `internal/ui/selection.go`, `internal/ui/bulk.go`, `internal/ui/sort.go`.
 
 ---
@@ -95,28 +95,28 @@ secret never appears in logs.
 
 ### Tests for User Story 6 (write first, must FAIL)
 
-- [ ] T019 [P] [US6] Config validation tests in `internal/config/config_test.go`: exactly-one-source passes; two sources → one-source error (FR-041); `${ENV}` inline still validates + resolves (FR-042); anonymous unaffected (credential-source-contract C1).
-- [ ] T020 [P] [US6] Config perms test in `internal/config/config_test.go`: a group/world-readable config triggers the insecure-permissions warning (FR-040, R13).
-- [ ] T021 [P] [US6] Keychain resolver test in `internal/secret/keychain_test.go` against a fake keystore: store/fetch/remove round-trip; absent keystore → clear error (FR-043, contract C2).
-- [ ] T022 [P] [US6] Command resolver test in `internal/secret/command_test.go`: argv command stdout (newline-trimmed) becomes the secret; 0600 owner config runs it; 0666/group-writable config → refused with the insecure-perms reason (FR-036, contract C3).
-- [ ] T023 [P] [US6] AWS-profile resolver test in `internal/secret/awsprofile_test.go` against fixture credential files: static keys (+ optional token) parsed; missing profile / static-less profile → clear error (R11).
-- [ ] T024 [P] [US6] Redaction test in `internal/secret/source_test.go`: a resolved secret stays `logging.Secret`-redacted in String()/log output for every source (FR-039, SC-014).
+- [X] T019 [P] [US6] Config validation tests in `internal/config/config_test.go`: exactly-one-source passes; two sources → one-source error (FR-041); `${ENV}` inline still validates + resolves (FR-042); anonymous unaffected (credential-source-contract C1).
+- [X] T020 [P] [US6] Config perms test in `internal/config/config_test.go`: a group/world-readable config triggers the insecure-permissions warning (FR-040, R13).
+- [X] T021 [P] [US6] Keychain resolver test in `internal/secret/keychain_test.go` against a fake keystore: store/fetch/remove round-trip; absent keystore → clear error (FR-043, contract C2).
+- [X] T022 [P] [US6] Command resolver test in `internal/secret/command_test.go`: argv command stdout (newline-trimmed) becomes the secret; 0600 owner config runs it; 0666/group-writable config → refused with the insecure-perms reason (FR-036, contract C3).
+- [X] T023 [P] [US6] AWS-profile resolver test in `internal/secret/awsprofile_test.go` against fixture credential files: static keys (+ optional token) parsed; missing profile / static-less profile → clear error (R11).
+- [X] T024 [P] [US6] Redaction test in `internal/secret/source_test.go`: a resolved secret stays `logging.Secret`-redacted in String()/log output for every source (FR-039, SC-014).
 - [ ] T025 [P] [US6] `cred` subcommand test in `cmd/s3s/cred_test.go`: `set`/`rotate`/`rm` write/remove in the (fake) keystore only — never the config file (FR-037, contract C4).
 
 ### Implementation for User Story 6
 
-- [ ] T026 [P] [US6] Extend `config.User` in `internal/config/config.go` with `keychain bool`, `cmd string`, `awsProfile string`; add `Validate` rule for exactly-one credential source (FR-041); keep `${ENV}` resolution (FR-042).
-- [ ] T027 [US6] Add the config-file permissions check + warning in `internal/config/config.go` `Load` (FR-040, R13).
-- [ ] T028 [P] [US6] Implement `Source`/`SourceKind`/`ResolvedCredential` + `ResolveSecret(ctx, src, accessKeyID)` dispatch in `internal/secret/source.go` (credential-source-contract C2).
-- [ ] T029 [P] [US6] Implement keychain store/fetch/remove (`zalando/go-keyring`, service "s3s", account=context) in `internal/secret/keychain.go` (R9).
-- [ ] T030 [P] [US6] Implement the command resolver in `internal/secret/command.go`: owner-only perms gate, POSIX shell-words argv split (`google/shlex`), `exec.Command` (not `sh -c`), ctx timeout (R10, FR-036).
-- [ ] T031 [P] [US6] Implement the AWS shared-credentials INI parser (honor `AWS_SHARED_CREDENTIALS_FILE`) in `internal/secret/awsprofile.go` (R11).
-- [ ] T032 [P] [US6] Implement the no-echo prompt (`x/term`) + optional save-to-keystore in `internal/secret/prompt.go` (R12, FR-038).
-- [ ] T033 [US6] Rewire `internal/config/resolve.go` `ClientConfig` to resolve the single source via `internal/secret` (non-interactive) and surface a clear error when unavailable (FR-043); keep `storage.ClientConfig` shape unchanged.
-- [ ] T034 [US6] In `cmd/s3s/main.go`: resolve the active context's secret at startup (prompt allowed pre-TUI per R12); on in-TUI context switch resolve non-interactively and show a "relaunch to enter this context's secret" notice when a prompt would be needed.
-- [ ] T035 [US6] Add the `s3s cred set|rotate|rm <context>` subcommand in `cmd/s3s/cred.go` (keystore-only writes; FR-037).
-- [ ] T036 [US6] Extend the `config init` wizard in `internal/config/generate.go` to ask the credential source and, for keychain, store the secret in the keystore instead of printing an `export` line (FR-041a).
-- [ ] T036a [US6] Integration test in `internal/secret/auth_integration_test.go` (`//go:build integration`): a context whose secret is resolved from a keychain (fake-backed) / command / awsProfile source builds a `ClientConfig` that successfully authenticates against MinIO (lists a bucket) — closes Constitution IV's credential/auth-flow focus for non-env sources.
+- [X] T026 [P] [US6] Extend `config.User` in `internal/config/config.go` with `keychain bool`, `cmd string`, `awsProfile string`; add `Validate` rule for exactly-one credential source (FR-041); keep `${ENV}` resolution (FR-042).
+- [X] T027 [US6] Add the config-file permissions check + warning in `internal/config/config.go` `Load` (FR-040, R13).
+- [X] T028 [P] [US6] Implement `Source`/`SourceKind`/`ResolvedCredential` + `ResolveSecret(ctx, src, accessKeyID)` dispatch in `internal/secret/source.go` (credential-source-contract C2).
+- [X] T029 [P] [US6] Implement keychain store/fetch/remove (`zalando/go-keyring`, service "s3s", account=context) in `internal/secret/keychain.go` (R9).
+- [X] T030 [P] [US6] Implement the command resolver in `internal/secret/command.go`: owner-only perms gate, POSIX shell-words argv split (`google/shlex`), `exec.Command` (not `sh -c`), ctx timeout (R10, FR-036).
+- [X] T031 [P] [US6] Implement the AWS shared-credentials INI parser (honor `AWS_SHARED_CREDENTIALS_FILE`) in `internal/secret/awsprofile.go` (R11).
+- [X] T032 [P] [US6] Implement the no-echo prompt (`x/term`) + optional save-to-keystore in `internal/secret/prompt.go` (R12, FR-038).
+- [X] T033 [US6] Rewire `internal/config/resolve.go` `ClientConfig` to resolve the single source via `internal/secret` (non-interactive) and surface a clear error when unavailable (FR-043); keep `storage.ClientConfig` shape unchanged.
+- [X] T034 [US6] In `cmd/s3s/main.go`: resolve the active context's secret at startup (prompt allowed pre-TUI per R12); on in-TUI context switch resolve non-interactively and show a "relaunch to enter this context's secret" notice when a prompt would be needed.
+- [X] T035 [US6] Add the `s3s cred set|rotate|rm <context>` subcommand in `cmd/s3s/cred.go` (keystore-only writes; FR-037).
+- [X] T036 [US6] Extend the `config init` wizard in `internal/config/generate.go` to ask the credential source and, for keychain, store the secret in the keystore instead of printing an `export` line (FR-041a).
+- [X] T036a [US6] Integration test in `internal/secret/auth_integration_test.go` (`//go:build integration`): a context whose secret is resolved from a keychain (fake-backed) / command / awsProfile source builds a `ClientConfig` that successfully authenticates against MinIO (lists a bucket) — closes Constitution IV's credential/auth-flow focus for non-env sources.
 
 **Checkpoint**: US6 fully testable; no plaintext secret on disk, none required in env.
 
