@@ -14,6 +14,7 @@ type NewConnection struct {
 	Endpoint    string
 	Region      string
 	AccessKeyID string
+	PathStyle   bool
 	ReadOnly    bool
 }
 
@@ -45,26 +46,37 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 		}
 	}
 
-	// Keychain first — abort before touching config if it fails (FR-026).
+	cl := Cluster{Name: nc.Name, Endpoint: nc.Endpoint, Region: nc.Region, PathStyle: nc.PathStyle}
+	u := User{Name: nc.Name, AccessKeyID: nc.AccessKeyID, Keychain: true}
+	cx := Context{Name: nc.Name, Cluster: nc.Name, User: nc.Name, ReadOnly: nc.ReadOnly}
+
+	// Validate a TRIAL copy before mutating the live config or touching the keychain — so
+	// an invalid triple never corrupts the shared *Config (which the resolver closure
+	// reuses) and never blocks future adds. The trial appends (names are unique, checked
+	// above) and preserves current-context (FR-025: setCurrent stays off).
+	trial := *c
+	trial.Clusters = append(append([]Cluster{}, c.Clusters...), cl)
+	trial.Users = append(append([]User{}, c.Users...), u)
+	trial.Contexts = append(append([]Context{}, c.Contexts...), cx)
+	if err := trial.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Keychain first, then disk — only after BOTH succeed is the live config mutated, so a
+	// failure leaves cfg/UI untouched (a stray keychain entry is harmless, FR-026).
 	if err := secret.StoreKeychain(nc.Name, secretVal); err != nil {
 		return nil, err
 	}
-
-	cl := Cluster{Name: nc.Name, Endpoint: nc.Endpoint, Region: nc.Region, PathStyle: true}
-	u := User{Name: nc.Name, AccessKeyID: nc.AccessKeyID, Keychain: true}
-	cx := Context{Name: nc.Name, Cluster: nc.Name, User: nc.Name, ReadOnly: nc.ReadOnly}
-	c.Upsert(cl, u, cx, false) // mutate the live config (FR-025)
-
-	if err := c.Validate(); err != nil {
-		return nil, err
-	}
-	data, err := Marshal(c)
+	data, err := Marshal(&trial)
 	if err != nil {
 		return nil, fmt.Errorf("config: marshal: %w", err)
 	}
 	if err := Save(c.Path(), data); err != nil {
 		return nil, err
 	}
+	// Commit to the live config (FR-025: in-session switch) — append, never re-point
+	// current-context.
+	c.Clusters, c.Users, c.Contexts = trial.Clusters, trial.Users, trial.Contexts
 
 	// Observability (Constitution V): record the add with NON-secret fields only.
 	slog.Info("connection.add", "name", nc.Name, "endpoint", nc.Endpoint,

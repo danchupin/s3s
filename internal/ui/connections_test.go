@@ -137,6 +137,49 @@ func TestConnSaveErrorShownInForm(t *testing.T) {
 	}
 }
 
+// review #1: ctrl+c quits even inside the modal form (where `q`/`:` are literal text).
+func TestCtrlCQuitsFromForm(t *testing.T) {
+	m := connApp(&fakeConnector{}, []string{"ctx"})
+	m.mode = modeConnForm
+	m.form = &connForm{name: "x"}
+	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if cmd == nil {
+		t.Fatal("ctrl+c in the connection form should quit")
+	}
+	if msg := cmd(); msg == nil {
+		t.Fatal("ctrl+c command produced no message")
+	}
+}
+
+// review #3: blank credentials are blocked at the form, before the config writer.
+func TestConnFormRequiresCredentials(t *testing.T) {
+	m := connApp(&fakeConnector{}, []string{"ctx"})
+	m.mode = modeConnForm
+	m.form = &connForm{name: "newc", endpoint: "http://h:9000"} // no access key / secret
+	mm, _ := m.submitConnForm()
+	if !strings.Contains(mm.(App).form.err, "access key") {
+		t.Errorf("missing access key should block save; err=%q", mm.(App).form.err)
+	}
+}
+
+// review #4: editing a field after a failed test re-arms the test (no silent save-anyway).
+func TestEditAfterFailedTestRetests(t *testing.T) {
+	conn := &fakeConnector{testErr: errors.New("timeout"), names: []string{"ctx", "newc"}}
+	m := connApp(conn, []string{"ctx"})
+	m.mode = modeConnForm
+	m.form = &connForm{name: "newc", endpoint: "http://h:9000", accessKey: "AK", secret: "SK"}
+	m = runForm(m) // first submit: test fails → save-anyway offered
+	if !m.form.tested || m.form.testOK {
+		t.Fatal("precondition: form should be in failed-test state")
+	}
+	// Edit a field → must clear the tested flag.
+	m.form.cursor = fldEndpoint
+	m.formAppend("9")
+	if m.form.tested {
+		t.Error("editing a field after a failed test must re-arm the reachability test")
+	}
+}
+
 func TestOpenConnectionsNilConnectorNotice(t *testing.T) {
 	m := connApp(nil, []string{"ctx"})
 	mm, _ := m.openConnections()

@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"sort"
 	"strings"
 	"time"
 
@@ -65,8 +64,6 @@ var (
 	// for the active cue and dim for the rest, keeping the screen calm (FR-037/FR-038).
 	hintKeyStyle    = accentStyle                               // single-key glyph in the hint bar
 	hintLabelStyle  = dimCellStyle                              // its label
-	paneKeyStyle    = metaKeyStyle                              // pane field labels
-	paneValStyle    = metaValStyle                              // pane field values
 	formActiveStyle = lipgloss.NewStyle().Foreground(colAccent) // focused form field label
 	formErrStyle    = errStyle                                  // form/test error line
 )
@@ -279,13 +276,14 @@ func boxView(left, center, body string, width, minRows int) string {
 	return b.String()
 }
 
-// --- footer: compact identity + contextual, capped, single-row hints ---
+// --- footer: compact identity + contextual, single-row hints ---
+//
+// The list modes (buckets/tree) render their hints via the 006 hint bar (hintBarView);
+// footerHints serves the remaining overlay/list modes (context switch, usage, connection
+// manager/form) with generic navigation cues.
 
-const maxHints = 6 // SC-003: at most 6 hints shown at once
-
-// hint is one advertised footer action. prio governs survival under the count cap and
-// the width degrade (higher = kept longer); P0 help/quit use the top prio. Catalog
-// order is the display order; prio is independent of it.
+// hint is one advertised footer action. prio governs survival under the width degrade
+// (higher = kept longer); help/quit use the top prio. Catalog order is the display order.
 type hint struct {
 	key   string
 	label string
@@ -301,20 +299,12 @@ type hintCtx struct {
 	width        int
 }
 
-func inList(c hintCtx) bool { return c.mode == modeBuckets || c.mode == modeTree }
-
-// hintCatalog returns the hints in DISPLAY order. Nav cues use arrow glyphs only
-// (FR-031); the write ops + refresh are NOT here — they live in the `a` action menu,
-// advertised by the single "a actions" hint.
+// hintCatalog returns the hints in DISPLAY order.
 func hintCatalog() []hint {
 	always := func(hintCtx) bool { return true }
 	return []hint{
-		{"↵", "open", 90, inList},
 		{"esc", "clear", 85, func(c hintCtx) bool { return c.searchActive }},
 		{"esc", "back", 80, func(c hintCtx) bool { return !c.searchActive }},
-		{"/", "filter", 70, func(c hintCtx) bool { return c.mode == modeBuckets }},
-		{"/", "search", 70, func(c hintCtx) bool { return c.mode == modeTree }},
-		{"a", "actions", 60, inList},
 		{"c", "context", 40, func(c hintCtx) bool { return c.multiContext }},
 		{"1-9", "switch", 40, func(c hintCtx) bool { return c.multiContext }},
 		{"?", "help", 100, always},
@@ -322,9 +312,8 @@ func hintCatalog() []hint {
 	}
 }
 
-// footerHints renders the single-row, priority-capped, width-fit hint line. When any
-// applicable hint is dropped (by the 6-cap or by width), a trailing "? more" cue is
-// appended (FR-001/FR-004). help/quit (top prio) survive every drop (FR-005).
+// footerHints renders the single-row, width-fit hint line. When a hint is dropped to fit
+// the width, a trailing "? more" cue is appended; help/quit (top prio) survive every drop.
 func footerHints(c hintCtx) string {
 	var app []hint
 	for _, h := range hintCatalog() {
@@ -333,10 +322,6 @@ func footerHints(c hintCtx) string {
 		}
 	}
 	dropped := false
-	if len(app) > maxHints {
-		app = keepTopPrio(app, maxHints)
-		dropped = true
-	}
 	for {
 		s, w := renderHintRow(app, dropped)
 		if w <= c.width || len(app) <= 1 {
@@ -360,26 +345,6 @@ func renderHintRow(hs []hint, more bool) (string, int) {
 		s += dimCellStyle.Render("? more")
 	}
 	return s, lipgloss.Width(s)
-}
-
-// keepTopPrio keeps the n highest-prio hints, preserving the input (display) order.
-func keepTopPrio(hs []hint, n int) []hint {
-	idx := make([]int, len(hs))
-	for i := range idx {
-		idx[i] = i
-	}
-	sort.SliceStable(idx, func(a, b int) bool { return hs[idx[a]].prio > hs[idx[b]].prio })
-	keep := make(map[int]bool, n)
-	for _, i := range idx[:n] {
-		keep[i] = true
-	}
-	out := make([]hint, 0, n)
-	for i, h := range hs {
-		if keep[i] {
-			out = append(out, h)
-		}
-	}
-	return out
 }
 
 // dropLowestPrio removes the single lowest-prio hint (preserving order of the rest).

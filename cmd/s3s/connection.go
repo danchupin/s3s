@@ -21,7 +21,7 @@ func (s connSeam) Test(ctx context.Context, d ui.ConnDraft) error {
 	cc := storage.ClientConfig{
 		Endpoint:    d.Endpoint,
 		Region:      d.Region,
-		PathStyle:   true,
+		PathStyle:   d.PathStyle,
 		AccessKeyID: d.AccessKeyID,
 		SecretKey:   d.Secret.Reveal(),
 	}
@@ -41,6 +41,7 @@ func (s connSeam) Save(_ context.Context, d ui.ConnDraft) ([]string, error) {
 		Endpoint:    d.Endpoint,
 		Region:      d.Region,
 		AccessKeyID: d.AccessKeyID,
+		PathStyle:   d.PathStyle,
 		ReadOnly:    d.ReadOnly,
 	}, d.Secret.Reveal())
 }

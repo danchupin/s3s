@@ -104,8 +104,8 @@ func (m App) helpView() string {
 }
 
 // helpLines is the content of the categorized help surface (FR-010..FR-014c). Sections:
-// Navigation / Search & View / Actions (the `a` menu) / Context / Global / Connection.
-// The key column is derived from defaultKeys() so help can never drift from bindings.
+// Navigation / Search & View / Actions (single-key, no menu) / Context / Global /
+// Connection. The key column is derived from defaultKeys() so help can never drift.
 func (m App) helpLines() []string {
 	k := m.keys
 	sec := func(s string) string { return titleStyle.Render(s) }
@@ -119,7 +119,7 @@ func (m App) helpLines() []string {
 		return "  " + dimCellStyle.Render(pad(label, 14)) + st.Render(val)
 	}
 
-	// Write-capability tag for the Actions menu items (FR-013/H4).
+	// Write-capability tag for the write actions (FR-013/H4).
 	wtag := dimCellStyle.Render("  (write)")
 	if !m.writable() {
 		wtag = warnStyle.Render("  (needs --write)")

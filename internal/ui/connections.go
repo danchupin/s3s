@@ -22,6 +22,7 @@ type ConnDraft struct {
 	Region      string
 	AccessKeyID string
 	Secret      logging.Secret
+	PathStyle   bool
 	ReadOnly    bool
 }
 
@@ -43,11 +44,12 @@ const (
 	fldRegion
 	fldAccessKey
 	fldSecret
+	fldPathStyle
 	fldReadOnly
 	connFieldCount
 )
 
-var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "secret", "read-only"}
+var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "secret", "path-style", "read-only"}
 
 // connForm is the in-flight add-connection form state (modeConnForm). The secret field is
 // masked BY THE FORM (held as a raw string, rendered as bullets, wrapped in logging.Secret
@@ -56,6 +58,7 @@ var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "s
 type connForm struct {
 	name, endpoint, region, accessKey string
 	secret                            string
+	pathStyle                         bool
 	readOnly                          bool
 	cursor                            int    // 0..fldReadOnly
 	err                               string // field-level / test error (secret-free)
@@ -99,7 +102,7 @@ func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 		m.mode = modeBuckets
 	case matches(key, m.keys.Enter):
 		if m.connSel == len(rows)-1 {
-			m.form = &connForm{}
+			m.form = &connForm{pathStyle: true} // path-style default (Ceph RGW / MinIO)
 			m.mode = modeConnForm
 			return m, nil
 		}
@@ -136,11 +139,14 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 		m.formBackspace()
 		return m, nil
 	case " ", "space":
-		if f.cursor == fldReadOnly {
+		switch f.cursor {
+		case fldPathStyle:
+			f.pathStyle = !f.pathStyle
+		case fldReadOnly:
 			f.readOnly = !f.readOnly
-			return m, nil
+		default:
+			m.formAppend(" ")
 		}
-		m.formAppend(" ")
 		return m, nil
 	default:
 		if msg.Text != "" {
@@ -150,42 +156,38 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	}
 }
 
-func (m App) formAppend(s string) {
-	f := m.form
+// textField returns a pointer to the raw text field under the cursor, or nil for the
+// boolean toggle rows. The single field selector shared by append/backspace.
+func (f *connForm) textField() *string {
 	switch f.cursor {
 	case fldName:
-		f.name += s
+		return &f.name
 	case fldEndpoint:
-		f.endpoint += s
+		return &f.endpoint
 	case fldRegion:
-		f.region += s
+		return &f.region
 	case fldAccessKey:
-		f.accessKey += s
+		return &f.accessKey
 	case fldSecret:
-		f.secret += s
+		return &f.secret
 	}
+	return nil
+}
+
+func (m App) formAppend(s string) {
+	f := m.form
+	if p := f.textField(); p != nil {
+		*p += s
+	}
+	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
 }
 
 func (m App) formBackspace() {
 	f := m.form
-	chop := func(s string) string {
-		if n := len(s); n > 0 {
-			return s[:n-1]
-		}
-		return s
+	if p := f.textField(); p != nil && len(*p) > 0 {
+		*p = (*p)[:len(*p)-1]
 	}
-	switch f.cursor {
-	case fldName:
-		f.name = chop(f.name)
-	case fldEndpoint:
-		f.endpoint = chop(f.endpoint)
-	case fldRegion:
-		f.region = chop(f.region)
-	case fldAccessKey:
-		f.accessKey = chop(f.accessKey)
-	case fldSecret:
-		f.secret = chop(f.secret)
-	}
+	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
 }
 
 // draft builds the ConnDraft from the form.
@@ -196,6 +198,7 @@ func (f *connForm) draft() ConnDraft {
 		Region:      strings.TrimSpace(f.region),
 		AccessKeyID: strings.TrimSpace(f.accessKey),
 		Secret:      logging.Secret(f.secret),
+		PathStyle:   f.pathStyle,
 		ReadOnly:    f.readOnly,
 	}
 }
@@ -217,6 +220,15 @@ func (m App) validateForm() string {
 	}
 	if u, err := url.Parse(ep); err != nil || u.Scheme == "" || u.Host == "" {
 		return "endpoint must be an absolute URL (https://host:port)"
+	}
+	// Credentials are required: the connection is persisted with a keychain source, which
+	// the config validator rejects without an access key id (and an empty secret is
+	// useless). Catch it here so a bad draft never reaches the config writer (FR-021).
+	if strings.TrimSpace(f.accessKey) == "" {
+		return "access key id is required"
+	}
+	if f.secret == "" {
+		return "secret access key is required"
 	}
 	return ""
 }
@@ -285,19 +297,9 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// connectionsView renders the connection-list body.
+// connectionsView renders the connection-list body (existing contexts + an add row).
 func (m App) connectionsView(w, rows int) string {
-	items := m.connRows()
-	off, end := windowBounds(len(items), m.connSel, rows)
-	data := make([][]string, 0, end-off)
-	for i := off; i < end; i++ {
-		status := ""
-		if i < len(m.contexts) && m.contexts[i] == m.ctxName {
-			status = "active"
-		}
-		data = append(data, []string{items[i], status})
-	}
-	return renderTable(w, []column{{"connection", 0}, {"status", 10}}, data, nil, m.connSel-off)
+	return ctxTable(w, rows, m.connSel, "connection", m.connRows(), m.ctxName)
 }
 
 // connFormView renders the add-connection form body.
@@ -307,6 +309,12 @@ func (m App) connFormView(w int) string {
 		return ""
 	}
 	vals := []string{f.name, f.endpoint, f.region, f.accessKey, strings.Repeat("•", len(f.secret))}
+	checkbox := func(on bool) string {
+		if on {
+			return "[x] (space toggles)"
+		}
+		return "[ ] (space toggles)"
+	}
 	var b strings.Builder
 	for i, label := range connFieldLabels {
 		marker := "  "
@@ -316,13 +324,12 @@ func (m App) connFormView(w int) string {
 			lblStyle = formActiveStyle
 		}
 		var val string
-		if i == fldReadOnly {
-			box := "[ ]"
-			if f.readOnly {
-				box = "[x]"
-			}
-			val = box + " (space toggles)"
-		} else {
+		switch i {
+		case fldPathStyle:
+			val = checkbox(f.pathStyle)
+		case fldReadOnly:
+			val = checkbox(f.readOnly)
+		default:
 			val = vals[i]
 		}
 		b.WriteString(marker + lblStyle.Render(pad(label, 16)) + objCellStyle.Render(truncate(val, max(1, w-20))) + "\n")

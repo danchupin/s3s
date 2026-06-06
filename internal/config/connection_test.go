@@ -86,3 +86,24 @@ func TestAddConnectionRejectsDuplicate(t *testing.T) {
 		t.Error("a duplicate context name must be rejected")
 	}
 }
+
+// review #2: an invalid draft (e.g. missing access key id, which the keychain source
+// requires) must NOT mutate the live config — otherwise the leftover invalid entry would
+// block every future add and corrupt the resolver's shared config.
+func TestAddConnectionInvalidDoesNotCorrupt(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+	beforeCtx, beforeUsers, beforeClusters := len(cfg.Contexts), len(cfg.Users), len(cfg.Clusters)
+
+	if _, err := cfg.AddConnection(NewConnection{Name: "bad", Endpoint: "http://h:9000"}, "SK"); err == nil {
+		t.Fatal("an empty access key id should fail validation (keychain source)")
+	}
+	if len(cfg.Contexts) != beforeCtx || len(cfg.Users) != beforeUsers || len(cfg.Clusters) != beforeClusters {
+		t.Fatalf("a failed add must not mutate the live config: ctx %d->%d users %d->%d clusters %d->%d",
+			beforeCtx, len(cfg.Contexts), beforeUsers, len(cfg.Users), beforeClusters, len(cfg.Clusters))
+	}
+	// A subsequent VALID add still works (no corruption left behind).
+	if _, err := cfg.AddConnection(NewConnection{Name: "good", Endpoint: "http://h:9000", AccessKeyID: "AK"}, "SK"); err != nil {
+		t.Errorf("a valid add after a failed one should succeed: %v", err)
+	}
+}

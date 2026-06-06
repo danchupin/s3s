@@ -37,8 +37,8 @@ func (m App) paneBucket(w int) string {
 	}
 	b := fb[m.bucketSel]
 	var sb strings.Builder
-	sb.WriteString(paneRow("Bucket", sanitizeLabel(b.Name), w))
-	sb.WriteString(paneRow("Created", formatDate(b.CreationDate), w))
+	sb.WriteString(metaRow("Bucket", sanitizeLabel(b.Name), w))
+	sb.WriteString(metaRow("Created", formatDate(b.CreationDate), w))
 	sb.WriteString("\n" + hintLabelStyle.Render("a analyze · ↵ open"))
 	return sb.String()
 }
@@ -51,28 +51,29 @@ func (m App) paneTree(w, rows int) string {
 		if m.level != nil {
 			n = m.level.count()
 		}
-		return paneRow("Level", fmt.Sprintf("%d items", n), w) +
+		return metaRow("Level", fmt.Sprintf("%d items", n), w) +
 			"\n" + hintLabelStyle.Render("a analyze this level")
 	}
 	if e.isDir {
-		return paneRow("Folder", sanitizeLabel(e.label), w) +
+		return metaRow("Folder", sanitizeLabel(e.label), w) +
 			"\n" + hintLabelStyle.Render("a analyze · X rm -r · ↵ open")
 	}
 
-	// Object: instant list-known fields first (no backend call), then the debounced bits.
+	// Object: once the debounced metadata arrives for THIS key, render the full shared
+	// field block (reusing metaFieldRows — same as the Enter view); until then show the
+	// instantly-known list fields so the pane is never blank during the fetch.
 	var sb strings.Builder
-	sb.WriteString(paneRow("Key", sanitizeLabel(e.label), w))
-	if e.obj != nil {
-		sb.WriteString(paneRow("Size", fmt.Sprintf("%s (%d B)", humanSize(e.obj.Size), e.obj.Size), w))
-		sb.WriteString(paneRow("Modified", formatDate(e.obj.LastModified), w))
-	}
-	// Debounced metadata: shown once paneMeta arrives for THIS key.
 	if m.paneMeta != nil && m.paneSelKey == e.full {
-		sb.WriteString(paneRow("Type", orDash(m.paneMeta.ContentType), w))
-		sb.WriteString(paneRow("Class", orDash(m.paneMeta.StorageClass), w))
-		sb.WriteString(paneRow("ETag", orDash(m.paneMeta.ETag), w))
-	} else if m.paneSelKey == e.full && m.paneMeta == nil {
-		sb.WriteString(dimCellStyle.Render(pad("Type", metaKeyWidth)) + dimCellStyle.Render("loading…") + "\n")
+		sb.WriteString(metaFieldRows(*m.paneMeta, w))
+	} else {
+		sb.WriteString(metaRow("Key", sanitizeLabel(e.label), w))
+		if e.obj != nil {
+			sb.WriteString(metaRow("Size", fmt.Sprintf("%s (%d B)", humanSize(e.obj.Size), e.obj.Size), w))
+			sb.WriteString(metaRow("Modified", formatDate(e.obj.LastModified), w))
+		}
+		if m.paneSelKey == e.full {
+			sb.WriteString(dimCellStyle.Render(pad("Type", metaKeyWidth)) + dimCellStyle.Render("loading…") + "\n")
+		}
 	}
 	// Bounded preview.
 	if m.panePrev != nil && m.paneSelKey == e.full {
@@ -82,34 +83,15 @@ func (m App) paneTree(w, rows int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// paneRow renders a fixed-width label + truncated value line (reuses the metadata
-// key/value styles — no new colors, FR-032).
-func paneRow(k, v string, w int) string {
-	valW := w - metaKeyWidth
-	if valW < 1 {
-		valW = 1
-	}
-	return paneKeyStyle.Render(pad(k, metaKeyWidth)) + paneValStyle.Render(truncate(v, valW)) + "\n"
-}
-
-// panePreviewLines renders a short, bounded preview of the debounced payload.
+// panePreviewLines renders a short, bounded preview of the debounced payload, reusing the
+// shared text-windowing and summary helpers (no forked preview logic).
 func (m App) panePreviewLines(w, rows int) string {
 	p := m.panePrev
 	if p == nil {
 		return ""
 	}
-	switch p.Kind {
-	case preview.KindText:
-		lines := strings.Split(string(p.Data), "\n")
-		if len(lines) > rows {
-			lines = lines[:rows]
-		}
-		var b strings.Builder
-		for _, ln := range lines {
-			b.WriteString(metaValStyle.Render(truncate(sanitizeLabel(ln), w)) + "\n")
-		}
-		return strings.TrimRight(b.String(), "\n")
-	default:
-		return dimCellStyle.Render(wrapText(preview.Summary(*p), w))
+	if p.Kind == preview.KindText {
+		return textPreviewLines(p.Data, 0, w, rows)
 	}
+	return dimCellStyle.Render(wrapText(preview.Summary(*p), w))
 }

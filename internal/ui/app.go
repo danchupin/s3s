@@ -33,7 +33,7 @@ const (
 	modeConnForm    // add-connection form — 006 US4
 )
 
-// selKind classifies the current tree selection for contextual hints/menu items.
+// selKind classifies the current tree selection for the hint bar and direct-action gating.
 type selKind int
 
 const (
@@ -43,7 +43,7 @@ const (
 )
 
 // selKind reports the kind of the current tree selection (selNone outside the tree
-// or when nothing is selected). Used by the action menu and the footer hint catalog.
+// or when nothing is selected). Used by the hint bar and direct-action dispatch.
 func (m App) selKind() selKind {
 	if m.mode != modeTree {
 		return selNone
@@ -407,6 +407,14 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// A transient outcome notice (e.g. partial counts) clears on the next keypress.
 	m.notice = ""
+
+	// ctrl+c always quits, even inside a modal text input (search / command bar /
+	// connection form) where `q` is a literal character — the universal escape hatch
+	// must never be trapped by a modal mode handler.
+	if key == "ctrl+c" {
+		(&m).cancelLoad()
+		return m, tea.Quit
+	}
 
 	// While typing a search query, the input owns most keys.
 	if m.searching {
@@ -889,7 +897,7 @@ func (m App) statusLine(w int) string {
 	}
 	// Multi-select summary (005 US3): count + combined size of the marked objects.
 	if m.selCount() > 0 {
-		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (a: bulk actions)", m.selCount(), humanSize(m.selSize())))
+		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (d/x/y: bulk download/delete/copy)", m.selCount(), humanSize(m.selSize())))
 	}
 	return ""
 }
@@ -1002,20 +1010,25 @@ func (m App) bucketsView(w, rows int) string {
 	return renderTable(w, cols, data, nil, m.bucketSel-off)
 }
 
+// ctxTable renders a context-style two-column table (name + active status) windowed to
+// rows. Shared by the context switcher and the connection manager list (006 US4).
+func ctxTable(w, rows, sel int, header string, items []string, activeName string) string {
+	off, end := windowBounds(len(items), sel, rows)
+	data := make([][]string, 0, end-off)
+	for i := off; i < end; i++ {
+		status := ""
+		if items[i] == activeName {
+			status = "active"
+		}
+		data = append(data, []string{items[i], status})
+	}
+	return renderTable(w, []column{{header, 0}, {"status", 10}}, data, nil, sel-off)
+}
+
 // contextView renders the context switcher table body at the given width.
 func (m App) contextView(w, rows int) string {
 	if len(m.contexts) == 0 {
 		return emptyStyle.Render("No contexts configured.")
 	}
-	off, end := windowBounds(len(m.contexts), m.ctxSel, rows)
-	cols := []column{{"context", 0}, {"status", 10}}
-	data := make([][]string, 0, end-off)
-	for i := off; i < end; i++ {
-		status := ""
-		if m.contexts[i] == m.ctxName {
-			status = "active"
-		}
-		data = append(data, []string{m.contexts[i], status})
-	}
-	return renderTable(w, cols, data, nil, m.ctxSel-off)
+	return ctxTable(w, rows, m.ctxSel, "context", m.contexts, m.ctxName)
 }

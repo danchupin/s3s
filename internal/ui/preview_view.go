@@ -115,11 +115,17 @@ func (m App) contentPane(w, rows int) string {
 
 // renderTextPreview windows the text content by the scroll offset, truncated to w.
 func (m App) renderTextPreview(p *preview.Payload, w, rows int) string {
+	return textPreviewLines(p.Data, m.prevOff, w, rows)
+}
+
+// textPreviewLines windows raw text content from offset off, truncating each of up to rows
+// lines to width w. Shared by the full-screen object view and the details pane (006 US2),
+// so text windowing/sanitization stays consistent.
+func textPreviewLines(data []byte, off, w, rows int) string {
 	if rows < 1 {
 		rows = 1
 	}
-	lines := strings.Split(string(p.Data), "\n")
-	off := m.prevOff
+	lines := strings.Split(string(data), "\n")
 	if off > len(lines)-1 {
 		off = max(0, len(lines)-1)
 	}
