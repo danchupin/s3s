@@ -53,6 +53,9 @@ func (m App) usageTarget() (bucket, prefix string) {
 
 // runAnalyze enters modeUsage and dispatches the scan off the event loop.
 func (m App) runAnalyze(bucket, prefix string) (tea.Model, tea.Cmd) {
+	if m.mode != modeUsage {
+		m.usageReturn = m.mode // remember where to go Back to (buckets vs tree)
+	}
 	m.mode = modeUsage
 	m.usage = nil
 	m.usageSel = 0
@@ -94,10 +97,12 @@ func waitForUsage(ch chan usageEvent, gen int) tea.Cmd {
 	}
 }
 
-// onUsageProgress stores a running-totals tick and re-arms the wait command.
+// onUsageProgress stores a running-totals tick and re-arms the wait command. It keeps
+// draining as long as a scan channel is live (NOT gated on mode), so opening an overlay
+// like help mid-scan can never strand the producer on a full channel (goroutine leak).
 func (m App) onUsageProgress(msg usageProgressMsg) (tea.Model, tea.Cmd) {
-	if msg.gen != m.gen || m.mode != modeUsage {
-		return m, nil // superseded
+	if msg.gen != m.gen || m.usageCh == nil {
+		return m, nil // superseded or already finished/cancelled
 	}
 	m.usageProg = msg.p
 	return m, waitForUsage(m.usageCh, m.gen)
@@ -112,7 +117,7 @@ func (m App) onUsageDone(msg usageDoneMsg) (tea.Model, tea.Cmd) {
 	m.usageCh = nil
 	if msg.err != nil && !errorsIsCanceled(msg.err) {
 		m.err = msg.err
-		m.mode = modeTree
+		m.mode = m.usageReturn // back to wherever analyze was launched from (FR-013)
 		return m, nil
 	}
 	rep := msg.report
@@ -151,9 +156,10 @@ func (m App) onUsageKey(key string) (tea.Model, tea.Cmd) {
 			}
 		}
 	case matches(key, m.keys.Back):
-		// Leave the analytics view back to the tree (cancel any running scan).
+		// Leave the analytics view, returning to wherever it was launched from
+		// (bucket list or tree), cancelling any running scan.
 		(&m).cancelLoad()
-		m.mode = modeTree
+		m.mode = m.usageReturn
 		m.usage = nil
 		m.usageCh = nil
 	}

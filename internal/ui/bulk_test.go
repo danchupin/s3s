@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/danchupin/s3s/internal/storage"
@@ -101,6 +102,29 @@ func TestBulkDownloadMirrorsHierarchy(t *testing.T) {
 	// 2 ok, 1 failed — and the selection is consumed.
 	if m.notice == "" || m.selCount() != 0 {
 		t.Errorf("expected a summary notice + cleared selection; notice=%q sel=%d", m.notice, m.selCount())
+	}
+}
+
+// TestBulkDownloadRejectsTraversal: an object key that would escape the download dir
+// ('..') is refused — it is not written outside dlDir (regression for the 005 review
+// path-traversal finding).
+func TestBulkDownloadRejectsTraversal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("S3S_DOWNLOAD_DIR", dir)
+	f := storage.NewFake()
+	f.SeedObject("b", "../evil", storage.FakeObject{Data: []byte("pwn")})
+	m := treeApp(f, false)
+
+	markObjects(&m, "../evil")
+	mm, _ := m.startBulkDownload()
+	m = runBulkToDone(t, mm.(App))
+
+	// The traversal target must NOT have been written outside the download dir.
+	if _, err := os.Stat(filepath.Join(dir, "..", "evil")); !os.IsNotExist(err) {
+		t.Error("path traversal: a '..' key escaped the download dir")
+	}
+	if !strings.Contains(m.notice, "1 failed") {
+		t.Errorf("unsafe key should be reported as failed; notice=%q", m.notice)
 	}
 }
 

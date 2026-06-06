@@ -161,6 +161,7 @@ type App struct {
 	usageSel    int                  // selected child row (for drill-down)
 	usageBucket string
 	usagePrefix string
+	usageReturn mode                  // mode to restore when leaving the analytics view (005 US2)
 	usageProg   storage.UsageProgress // running totals during a scan
 	usageCh     chan usageEvent       // scan progress channel
 
@@ -185,6 +186,7 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, i
 		imgProto:    imgProto,
 		armed:       initial.Writable,
 		ctxReadOnly: initial.ReadOnly,
+		sortAsc:     true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
 		keys:        defaultKeys(),
 		cache:       cache.New[*levelState](),
 		mode:        modeBuckets,
@@ -310,6 +312,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case usageDoneMsg:
 		return m.onUsageDone(msg)
+
+	case contextResolvedMsg:
+		return m.onContextResolved(msg)
 
 	case searchFireMsg:
 		return m.onSearchFire(msg)
@@ -503,20 +508,43 @@ func (m App) onContextKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// applyContext switches to the named context, rebuilds the backend, resets all
-// browsing state, and reloads buckets. A no-op (back to buckets) when the context
-// is already active or switching is disabled.
+// applyContext begins a switch to the named context. Resolving the backend can be slow
+// (a keychain unlock or an external credential command, 005 US6), so it runs OFF the
+// event loop — Update applies the result via contextResolvedMsg (Constitution II). A
+// no-op (back to buckets) when the context is already active or switching is disabled.
 func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	if target == m.ctxName || m.resolve == nil {
 		m.mode = modeBuckets
 		return m, nil
 	}
-	be, err := m.resolve(target)
-	if err != nil {
-		m.err = err
+	m.mode = modeBuckets
+	(&m).beginLoad() // bump the generation + show the spinner; supersedes a prior switch
+	return m, tea.Batch(resolveContextCmd(m.resolve, target, m.gen), spinnerTick())
+}
+
+// resolveContextCmd resolves a context's backend off the event loop (credential
+// resolution may block), reporting the outcome via contextResolvedMsg.
+func resolveContextCmd(resolve Resolver, target string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		be, err := resolve(target)
+		return contextResolvedMsg{gen: gen, target: target, be: be, err: err}
+	}
+}
+
+// onContextResolved applies a resolved context switch (or surfaces its error), then
+// resets browsing state and loads the new bucket list. Stale results (a superseded
+// switch) are dropped by the generation check.
+func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.gen {
+		return m, nil // superseded
+	}
+	if msg.err != nil {
+		m.loading = false
+		m.err = msg.err
 		m.mode = modeBuckets
 		return m, nil
 	}
+	be := msg.be
 	m.raw = be.Store
 	m.info = be
 	// Preserve the arm intent across the switch; re-derive the context lock. Switching
@@ -524,7 +552,7 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	// forces read-only via writable() (FR-029).
 	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
-	m.ctxName = target
+	m.ctxName = msg.target
 	m.cache.Clear()
 	m.buckets = nil
 	m.bucketSel = 0

@@ -434,8 +434,8 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case msg.err != nil && errors.Is(msg.err, context.Canceled):
 		// Indeterminate outcome: never success (FR-004/FR-007).
-		m.notice = "cancelled — partial download removed"
 		if isDownload {
+			m.notice = "cancelled — partial download removed"
 			return m, nil
 		}
 		m.notice = "operation cancelled — nothing reported as done"

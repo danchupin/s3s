@@ -101,6 +101,7 @@ func (c *Config) ClientConfigWithSecret(name, sec string) (storage.ClientConfig,
 		Anonymous:     u.Anonymous,
 		AccessKeyID:   u.AccessKeyID,
 		SecretKey:     sec,
+		SessionToken:  u.SessionToken.Reveal(), // preserve a config-declared STS token
 	}, nil
 }
 
@@ -145,8 +146,10 @@ func (c *Config) ClientConfig(ctx context.Context, name string) (storage.ClientC
 	cc.AccessKeyID = res.AccessKeyID
 	cc.SecretKey = res.SecretKey.Reveal()
 	cc.SessionToken = res.SessionToken.Reveal()
-	// An inline source may also carry an explicit sessionToken from config.
-	if req.Kind == secret.Inline && cc.SessionToken == "" {
+	// Only the AWS-profile source supplies its own session token; every other source
+	// takes the (optional) sessionToken from config — keychain/cmd/env credentials can
+	// be STS temporary credentials with a config-declared token (005 US6).
+	if req.Kind != secret.AWSProfile && cc.SessionToken == "" {
 		cc.SessionToken = u.SessionToken.Reveal()
 	}
 	return cc, nil

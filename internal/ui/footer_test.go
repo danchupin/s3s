@@ -51,7 +51,8 @@ func TestDigitContextSwitch(t *testing.T) {
 	m := withBuckets(f, []string{"one", "two", "three"}, resolve)
 	m.ctxName = "one"
 
-	m = press(m, "2") // jump to second context
+	m = press(m, "2") // jump to second context (resolve runs off the event loop)
+	m = finishSwitch(m, resolve, "two")
 	if m.ctxName != "two" {
 		t.Fatalf("digit '2' should switch to second context, got %q", m.ctxName)
 	}

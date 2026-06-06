@@ -24,6 +24,13 @@ func deliver(m App, msg tea.Msg) App {
 	return mm.(App)
 }
 
+// finishSwitch completes an async context switch: it resolves the target (as the event
+// loop would, off-thread) and delivers the contextResolvedMsg under the current gen.
+func finishSwitch(m App, resolve Resolver, target string) App {
+	be, err := resolve(target)
+	return deliver(m, contextResolvedMsg{gen: m.gen, target: target, be: be, err: err})
+}
+
 func keyMsgFor(s string) tea.KeyPressMsg {
 	switch s {
 	case "up":
@@ -173,7 +180,8 @@ func TestContextSwitchChangesContext(t *testing.T) {
 	if m.ctxSel != 1 {
 		t.Fatalf("ctxSel = %d, want 1", m.ctxSel)
 	}
-	m = press(m, "enter") // apply
+	m = press(m, "enter")                 // initiate (resolve runs off the event loop)
+	m = finishSwitch(m, resolve, "other") // deliver the async result
 
 	if !switched {
 		t.Error("resolve was not called for 'other'")

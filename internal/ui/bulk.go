@@ -63,9 +63,12 @@ func (m App) startBulkCopy() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.err = nil
+	// Leave the destination prefix empty (NOT prefilled with the current prefix) — a
+	// prefill equal to the source level would copy every object onto itself
+	// (CopyKey dst==src → ErrInvalidName). The engineer types the target prefix.
 	m.op = &operation{
 		kind: "bulk_copy", bucket: m.bucket, parent: m.prefix, bulkKeys: keys,
-		dstKey: m.prefix, phase: phaseDest,
+		phase: phaseDest,
 	}
 	return m, nil
 }
@@ -128,8 +131,15 @@ func bulkCmd(ctx context.Context, st storage.Storage, kind, bucket, parent, dstP
 // downloadOne streams one object to a local file mirroring its key path under parent
 // (FR-015a), via a temp file + atomic rename.
 func downloadOne(ctx context.Context, st storage.Storage, bucket, key, parent, dlDir string) error {
-	rel := strings.TrimPrefix(key, parent)
-	dest := filepath.Join(dlDir, filepath.FromSlash(rel))
+	rel := filepath.FromSlash(strings.TrimPrefix(key, parent))
+	// An S3 key is arbitrary bytes and may contain "..": refuse anything that would
+	// escape the download dir so a malicious key cannot overwrite a file outside it
+	// (path traversal). filepath.IsLocal rejects "..", absolute, and (on Windows)
+	// reserved paths.
+	if !filepath.IsLocal(rel) {
+		return fmt.Errorf("refusing unsafe object key %q (would escape the download dir)", key)
+	}
+	dest := filepath.Join(dlDir, rel)
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil { //nolint:gosec // user-chosen dir
 		return err
 	}

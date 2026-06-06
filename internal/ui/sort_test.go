@@ -18,29 +18,29 @@ func firstObjectKey(m App) string {
 	return ""
 }
 
-// TestSortBySizeDescAndToggle: cycling to size sorts; with descending direction the
-// largest object is first, and toggling direction reverses it (005 FR-020).
-func TestSortBySizeDescAndToggle(t *testing.T) {
+// TestSortBySizeAndToggle: cycling to size sorts; the default direction is ascending
+// (smallest first), and toggling reverses it to largest first (005 FR-020).
+func TestSortBySizeAndToggle(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "small.txt", storage.FakeObject{Data: make([]byte, 10)})
 	f.SeedObject("b", "big.bin", storage.FakeObject{Data: make([]byte, 9000)})
 	f.SeedObject("b", "mid.dat", storage.FakeObject{Data: make([]byte, 500)})
 	m := treeApp(f, false)
 
-	// name → size; default direction is descending (sortAsc=false).
+	// name → size; default direction is ascending → smallest first.
 	mm, _ := m.cycleSort()
 	m = mm.(App)
-	if m.sortBy != sortSize {
-		t.Fatalf("cycle should land on size; got %v", m.sortBy)
+	if m.sortBy != sortSize || !m.sortAsc {
+		t.Fatalf("cycle should land on size, ascending by default; got %v asc=%v", m.sortBy, m.sortAsc)
 	}
-	if got := firstObjectKey(m); got != "big.bin" {
-		t.Errorf("size-desc first object = %q, want big.bin", got)
-	}
-	// Toggle to ascending → smallest first.
-	mm, _ = m.toggleSortDir()
-	m = mm.(App)
 	if got := firstObjectKey(m); got != "small.txt" {
 		t.Errorf("size-asc first object = %q, want small.txt", got)
+	}
+	// Toggle to descending → largest first.
+	mm, _ = m.toggleSortDir()
+	m = mm.(App)
+	if got := firstObjectKey(m); got != "big.bin" {
+		t.Errorf("size-desc first object = %q, want big.bin", got)
 	}
 }
 
@@ -53,8 +53,9 @@ func TestSortPersistsAcrossNavigation(t *testing.T) {
 	f.SeedObject("b", "top.txt", storage.FakeObject{Data: make([]byte, 1)})
 	m := treeApp(f, false)
 
-	mm, _ := m.cycleSort() // size, descending
-	m = mm.(App)
+	mm, _ := m.cycleSort()             // size
+	mm2, _ := mm.(App).toggleSortDir() // descending → largest first
+	m = mm2.(App)
 	// Enter dir/ — the sort must carry over.
 	m.prefix = "dir/"
 	mm, _ = m.enterLevel()
@@ -62,8 +63,8 @@ func TestSortPersistsAcrossNavigation(t *testing.T) {
 	// Re-seed the loaded level (test harness doesn't run the async load).
 	page, _ := f.ListLevel(context.Background(), storage.LevelQuery{Bucket: "b", Prefix: "dir/"})
 	m.level = &levelState{dirs: page.Dirs, objects: page.Objects, complete: true}
-	if m.sortBy != sortSize {
-		t.Fatalf("sort did not persist; got %v", m.sortBy)
+	if m.sortBy != sortSize || m.sortAsc {
+		t.Fatalf("sort did not persist (size, desc); got %v asc=%v", m.sortBy, m.sortAsc)
 	}
 	if got := firstObjectKey(m); got != "dir/big.bin" {
 		t.Errorf("persisted size-desc first = %q, want dir/big.bin", got)

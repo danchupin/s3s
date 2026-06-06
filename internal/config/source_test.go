@@ -1,12 +1,16 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/zalando/go-keyring"
+
 	"github.com/danchupin/s3s/internal/logging"
+	"github.com/danchupin/s3s/internal/secret"
 )
 
 func cfgWithUser(u User) *Config {
@@ -39,6 +43,32 @@ func TestValidateExactlyOneSource(t *testing.T) {
 	}
 	if err := cfgWithUser(User{Name: "u"}).Validate(); err == nil {
 		t.Error("zero sources (non-anon) should fail")
+	}
+}
+
+// TestSessionTokenPreservedNonProfile: a config-declared sessionToken is preserved for a
+// non-AWS-profile source (keychain/cmd/env) — STS temporary credentials. Regression for
+// the 005 review finding (it was silently dropped for non-inline sources).
+func TestSessionTokenPreservedNonProfile(t *testing.T) {
+	keyring.MockInit()
+	if err := secret.StoreKeychain("u", "the-secret"); err != nil {
+		t.Fatal(err)
+	}
+	c := &Config{
+		APIVersion: "s3s/v1",
+		Clusters:   []Cluster{{Name: "c", Endpoint: "http://x"}},
+		Users:      []User{{Name: "u", AccessKeyID: "AK", Keychain: true, SessionToken: logging.Secret("tok-123")}},
+		Contexts:   []Context{{Name: "x", Cluster: "c", User: "u"}},
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("keychain + sessionToken should validate: %v", err)
+	}
+	cc, err := c.ClientConfig(context.Background(), "x")
+	if err != nil {
+		t.Fatalf("ClientConfig: %v", err)
+	}
+	if cc.SecretKey != "the-secret" || cc.SessionToken != "tok-123" {
+		t.Errorf("got secret=%q token=%q, want the-secret/tok-123 (token must not be dropped)", cc.SecretKey, cc.SessionToken)
 	}
 }
 

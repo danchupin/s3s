@@ -107,7 +107,7 @@ func TestWriteToggleContextSwitchDerives(t *testing.T) {
 	}
 
 	mm, _ := m.applyContext("locked")
-	m = mm.(App)
+	m = finishSwitch(mm.(App), resolve, "locked")
 	if m.writable() {
 		t.Error("after switching to a readonly:true context, must be read-only")
 	}
@@ -116,7 +116,7 @@ func TestWriteToggleContextSwitchDerives(t *testing.T) {
 	}
 
 	mm, _ = m.applyContext("open")
-	m = mm.(App)
+	m = finishSwitch(mm.(App), resolve, "open")
 	if !m.writable() {
 		t.Error("switching back to a writable context should restore writable (armed preserved)")
 	}

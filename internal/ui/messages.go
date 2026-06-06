@@ -85,3 +85,14 @@ type usageDoneMsg struct {
 	report storage.UsageReport
 	err    error
 }
+
+// contextResolvedMsg delivers the result of resolving a context switch off the event
+// loop. Credential resolution (keychain unlock / external command) can be slow, so it
+// MUST NOT run synchronously in Update (Constitution II, 005 US6). Carries the gen it
+// was dispatched under so a superseded switch is dropped.
+type contextResolvedMsg struct {
+	gen    int
+	target string
+	be     Backend
+	err    error
+}

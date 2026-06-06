@@ -85,6 +85,24 @@ func TestAnalyzeDrillDown(t *testing.T) {
 	}
 }
 
+// TestAnalyzeBackReturnsToOrigin: leaving the analytics view returns to the mode it was
+// launched from — the bucket list, not a phantom tree (regression for the 005 review).
+func TestAnalyzeBackReturnsToOrigin(t *testing.T) {
+	f := storage.NewFake()
+	f.SeedObject("b", "x", storage.FakeObject{Data: make([]byte, 3)})
+	m := withBuckets(f, []string{"ctx"}, nil) // bucket list
+
+	mm, _ := m.startAnalyze() // analyze the highlighted bucket
+	m = runAnalyzeToDone(t, mm.(App))
+	if m.mode != modeUsage {
+		t.Fatalf("analyze should be in modeUsage; got %v", m.mode)
+	}
+	mm, _ = m.onUsageKey("esc")
+	if got := mm.(App).mode; got != modeBuckets {
+		t.Errorf("Back from a bucket-list analyze should return to modeBuckets, got %v", got)
+	}
+}
+
 // TestAnalyzeEmptyPrefix: analyzing an empty prefix shows zero, not an error (FR-012).
 func TestAnalyzeEmptyPrefix(t *testing.T) {
 	f := storage.NewFake()
