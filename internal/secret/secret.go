@@ -17,6 +17,7 @@ import (
 // AccessKeyID from config; AWSProfile supplies both keys itself.
 type Kind int
 
+// Credential source kinds (005 US6).
 const (
 	Inline     Kind = iota // env-resolved literal secret
 	Keychain               // OS keystore entry

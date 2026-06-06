@@ -42,13 +42,28 @@ _Coming soon — a recording of context switching, tree navigation, and previews
 
 - **kubectl-style contexts** — define clusters, users, and contexts in one YAML
   file; switch between them live (no restart) or jump by number (`1`–`9`).
-- **Read-only by default, safe writes opt-in** — without `--write` nothing can be
-  mutated. With it, the write operations (create folder, delete object, upload a
-  local file, copy, move/rename, recursive folder delete) run behind a confirmation
-  gate — a simple `y/N` for reversible actions and a typed confirmation of the exact
-  target for destructive ones (delete, move, overwrite, recursive delete). A context
-  marked `readonly: true` refuses changes even under `--write`. All S3 mutations are
-  confined to the storage layer by a CI guard.
+- **Read-only by default, runtime write toggle** — s3s starts read-only. Arm write at
+  runtime with a hotkey (`w`) — arming takes a deliberate confirmation, disarming is
+  instant — and while armed a **loud, high-contrast `[RW]` badge** shows on every
+  screen so you can never mutate production thinking you were safe. `--write` just
+  starts armed; a context marked `readonly: true` can never be armed. Mutations
+  (create folder, delete, upload, copy, move/rename, recursive delete, bulk
+  delete/copy) keep the two-tier confirmation (simple `y/N` vs typed target/count) and
+  are confined to the storage layer by a CI guard.
+- **Download & bulk operations** — pull a full object to local disk (a *read* — works
+  read-only, against production); multi-select objects (`space`) and act on the batch:
+  bulk download (mirrors the key hierarchy into local subdirs), bulk delete, bulk copy,
+  each with a truthful per-item succeeded/failed summary.
+- **Storage analytics (`du`)** — analyze a bucket or prefix and see the total size,
+  object count, and a ranked largest-first breakdown of its immediate children (an
+  `ncdu`-style view) with live progress and drill-down — what's eating space, in-TUI.
+- **Sortable lists** — sort any level by name, size, or last-modified and toggle
+  direction (`s` / `S`); the sort persists across navigation.
+- **Secure credential sources** — a context resolves its secret from exactly one of:
+  the OS keychain, an external command (`pass`, Vault, 1Password, sops…), an AWS shared
+  profile, or the classic `${ENV}` reference — with a secure no-echo prompt fallback.
+  Stop exporting a secret into every shell; the secret never lives on disk in plaintext.
+  Manage keystore secrets with `s3s cred set|rotate|rm <context>`.
 - **Tree navigation** — walk the key namespace by the `/` delimiter with
   on-demand pagination; never loads a whole bucket up front. Per-session cache
   with manual refresh.
@@ -170,12 +185,38 @@ export S3S_DEV_SECRET=password
 Active-context precedence: `--context <name>` > `S3S_CONTEXT` env >
 `current-context`.
 
+### Credential sources
+
+A non-anonymous user names **exactly one** secret source (more than one is a config
+error). The secret never lives on disk in plaintext and need not be exported into every
+shell:
+
+```yaml
+users:
+  - name: prod                    # OS keychain (store via: s3s cred set prod)
+    accessKeyId: AKIAPROD
+    keychain: true
+  - name: vault                   # external command — owner-only config required
+    accessKeyId: AKIAVLT
+    cmd: "vault kv get -field=secret s3/prod"
+  - name: aws                     # ~/.aws/credentials profile (static keys)
+    awsProfile: prod
+  - name: ci                      # classic ${ENV} — still works for automation
+    accessKeyId: AKIACI
+    secretAccessKey: ${S3S_CI_SECRET}
+```
+
+`s3s cred set|rotate|rm <context>` manages a context's secret in the OS keystore only.
+If no source resolves, s3s prompts securely (no echo) at startup and offers to save to
+the keystore. A group/world-readable config triggers a warning; a `cmd:` source is
+*refused* on a group/world-writable config (it would let a tampered file run a command).
+
 ## Running
 
 ```bash
-s3s                  # uses current-context (read-only)
+s3s                  # uses current-context (read-only by default)
 s3s --context local  # explicit context
-s3s --write          # enable mutating operations (readonly contexts stay protected)
+s3s --write          # START in write mode (toggle at runtime with `w`; readonly contexts stay protected)
 s3s --version        # print version
 ```
 
@@ -201,23 +242,29 @@ advertises just `a actions`, not a wall of per-op keys.
 | `←`/`h`/`Esc` | back to parent (or clear an active filter/search); cancels an in-flight load |
 | `g`/`Home`, `G`/`End` | jump to top / bottom |
 | `/` | filter buckets / search a level by prefix; `Esc` clears |
+| `space` | mark/unmark an object for multi-select (bulk via the action menu) |
+| `s` / `S` | cycle the sort column (name/size/modified) · toggle direction |
+| `w` | **arm/disarm write** at runtime (confirm to arm; instant to disarm) |
 | `a` | **action menu** — contextual operations for the selection (see below) |
 | `c` | switch context · `1`–`9` jump to a context by number |
 | `?` | help (full keymap, incl. vim aliases, + connection details) · `q` / `Ctrl+C` quit |
 
-The action menu (`a`) lists only what applies to the current selection and context:
+The action menu (`a`) lists only what applies to the current selection and context.
+Download and analyze (`du`) are *reads* — offered even read-only; bulk delete/copy and
+the single-object write ops appear only while write is armed:
 
 | Menu item | Notes |
 |-----------|-------|
+| download | object selected — a read; works read-only |
+| analyze | bucket / folder / current level — `du`, a read; works read-only |
+| download selected (N) | bulk download of the marked objects — a read; mirrors the key hierarchy |
+| delete selected / copy selected | bulk over the marked objects — write mode |
 | refresh | reload the current list (always available, incl. the bucket list) |
-| new folder | write mode |
-| delete | object selected — write mode; typed confirm |
-| upload here | write mode; opens a local file browser |
-| copy | object selected — write mode |
-| move / rename | object selected — write mode; typed confirm |
+| new folder · upload here | write mode |
+| delete · copy · move / rename | object selected — write mode (delete/move typed confirm) |
 | recursive delete | folder selected — write mode; typed confirm |
 
-In a read-only context the menu offers only `refresh`. The footer stays at most three
+In a read-only context the menu offers reads only (download, analyze, refresh). The footer stays at most three
 rows — a compact identity line (`● context [RW|RO] · cluster`), one contextual hint row
 (capped at six, with a `? more` cue when narrow), and a status line.
 
@@ -232,9 +279,10 @@ Logs: `$XDG_STATE_HOME/s3s/s3s.log` (or `~/.local/state/s3s/s3s.log`).
 Larger items on the horizon (full list in [ROADMAP.md](./ROADMAP.md)):
 
 - Full-quality image preview via an external viewer.
-- Sortable lists (by name / size / last-modified).
 - Richer previews — syntax highlighting and a hex view for binaries.
 - Copy key / S3 URI / ETag to the clipboard.
+- Presigned URLs; bucket administration (policy/lifecycle/encryption/CORS);
+  object versioning management; incomplete-multipart-upload cleanup.
 
 ## Development
 

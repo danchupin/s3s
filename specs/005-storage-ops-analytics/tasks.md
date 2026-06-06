@@ -35,7 +35,7 @@ tests live beside the code (`*_test.go`, `*_integration_test.go`). Spec docs und
 
 - [X] T001 Add dependencies `github.com/zalando/go-keyring` and `golang.org/x/term` via `go get`; verify `go.mod`/`go.sum` updated and `make build` still succeeds.
 - [X] T002 [P] Create `internal/secret/` package with `doc.go` (package comment: UI- and SDK-agnostic credential-source resolution per research R8–R13).
-- [ ] T003 [P] Create empty UI files with package decl + file-level comment: `internal/ui/writemode.go`, `internal/ui/download.go`, `internal/ui/analyze.go`, `internal/ui/selection.go`, `internal/ui/bulk.go`, `internal/ui/sort.go`.
+- [X] T003 [P] Create empty UI files with package decl + file-level comment: `internal/ui/writemode.go`, `internal/ui/download.go`, `internal/ui/analyze.go`, `internal/ui/selection.go`, `internal/ui/bulk.go`, `internal/ui/sort.go`.
 
 ---
 
@@ -101,7 +101,7 @@ secret never appears in logs.
 - [X] T022 [P] [US6] Command resolver test in `internal/secret/command_test.go`: argv command stdout (newline-trimmed) becomes the secret; 0600 owner config runs it; 0666/group-writable config → refused with the insecure-perms reason (FR-036, contract C3).
 - [X] T023 [P] [US6] AWS-profile resolver test in `internal/secret/awsprofile_test.go` against fixture credential files: static keys (+ optional token) parsed; missing profile / static-less profile → clear error (R11).
 - [X] T024 [P] [US6] Redaction test in `internal/secret/source_test.go`: a resolved secret stays `logging.Secret`-redacted in String()/log output for every source (FR-039, SC-014).
-- [ ] T025 [P] [US6] `cred` subcommand test in `cmd/s3s/cred_test.go`: `set`/`rotate`/`rm` write/remove in the (fake) keystore only — never the config file (FR-037, contract C4).
+- [X] T025 [P] [US6] `cred` subcommand test in `cmd/s3s/cred_test.go`: `set`/`rotate`/`rm` write/remove in the (fake) keystore only — never the config file (FR-037, contract C4).
 
 ### Implementation for User Story 6
 
@@ -223,13 +223,13 @@ into a newly entered level; sort composes with active search.
 
 ## Phase 9: Polish & Cross-Cutting Concerns
 
-- [ ] T064 [P] Update `README.md`: download / `du` analytics / multi-select / sort / runtime write toggle / credential sources (keychain/cmd/awsProfile/env/prompt) + `s3s cred` subcommand.
-- [ ] T065 [P] Update `ROADMAP.md`: move delivered items out of the backlog; note remaining out-of-scope (presigned URLs, bucket admin, versioning, multipart cleanup, clipboard, tags).
-- [ ] T066 [P] Refresh the help overlay (`internal/ui/keys.go` `helpLines`) so the new primitive keys (Mark, Sort, WriteToggle), the menu-only operations (download/analyze/bulk), and the credential note are categorized correctly (FR-031).
-- [ ] T067 Run `make check-readonly` and confirm it stays green (no write SDK symbols outside `internal/storage`; UI SDK-free).
-- [ ] T068 Run `make fmt vet lint` and `make test`; fix any failures.
-- [ ] T069 Run `make test-integration` (Lima `DOCKER_HOST` + `TESTCONTAINERS_RYUK_DISABLED=true`) to exercise `GetObject`/`UsageOf` against MinIO.
-- [ ] T070 Execute `specs/005-storage-ops-analytics/quickstart.md` end-to-end and confirm SC-001…SC-015.
+- [X] T064 [P] Update `README.md`: download / `du` analytics / multi-select / sort / runtime write toggle / credential sources (keychain/cmd/awsProfile/env/prompt) + `s3s cred` subcommand.
+- [X] T065 [P] Update `ROADMAP.md`: move delivered items out of the backlog; note remaining out-of-scope (presigned URLs, bucket admin, versioning, multipart cleanup, clipboard, tags).
+- [X] T066 [P] Refresh the help overlay (`internal/ui/keys.go` `helpLines`) so the new primitive keys (Mark, Sort, WriteToggle), the menu-only operations (download/analyze/bulk), and the credential note are categorized correctly (FR-031).
+- [X] T067 Run `make check-readonly` and confirm it stays green (no write SDK symbols outside `internal/storage`; UI SDK-free).
+- [X] T068 Run `make fmt vet lint` and `make test`; fix any failures.
+- [X] T069 Run `make test-integration` (Lima `DOCKER_HOST` + `TESTCONTAINERS_RYUK_DISABLED=true`) to exercise `GetObject`/`UsageOf` against MinIO.
+- [X] T070 Execute `specs/005-storage-ops-analytics/quickstart.md` end-to-end and confirm SC-001…SC-015.
 
 ---
 

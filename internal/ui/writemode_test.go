@@ -164,7 +164,7 @@ func TestWriteToggleLogged(t *testing.T) {
 	m := buildApp(f, false, false)
 	m = press(m, "w")
 	m = press(m, "y") // arm
-	m = press(m, "w") // disarm
+	_ = press(m, "w") // disarm
 
 	out := buf.String()
 	if !strings.Contains(out, "write.toggle") {

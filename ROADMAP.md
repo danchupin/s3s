@@ -3,21 +3,20 @@
 Backlog of improvements for s3s, captured from code review. Nothing here is a
 known bug — these are enhancements. Ordered roughly by value.
 
-## In progress
-
-- **Object write operations (003)** — the day-to-day mutations on top of the 002
-  foundation: delete object, upload a local file (in-TUI file browser), copy,
-  move/rename (copy+delete, no data loss), and recursive folder/prefix delete
-  (best-effort, truthful deleted/failed counts). Destructive actions use the typed
-  confirmation tier; streaming ops (upload, recursive delete) show live progress.
-  See `specs/003-object-write-ops/`.
-
 ## Done
 
-- **Write foundation & safety (002)** — the first mutating capability behind a
-  global `--write` switch and a per-context `readonly` override, a two-tier
-  confirmation framework (simple + typed), non-blocking logged operations, and one
-  vertical slice: create-folder. See `specs/002-write-foundation/`.
+- **Storage operations & analytics (005)** — download objects to local disk, `du`
+  storage analytics (ranked breakdown + drill-down), multi-select bulk
+  download/delete/copy, sortable lists, a runtime read-only↔write toggle with a loud
+  always-on indicator, and pluggable secure credential sources (keychain / command /
+  AWS profile / `${ENV}` / prompt) with an `s3s cred` subcommand. See
+  `specs/005-storage-ops-analytics/`.
+- **UI/UX refinement (004)** — contextual action menu, footer declutter, key
+  discoverability. See `specs/004-ui-ux-refinement/`.
+- **Object write operations (003)** — delete, upload, copy, move/rename, recursive
+  delete. See `specs/003-object-write-ops/`.
+- **Write foundation & safety (002)** — the first mutating capability, the two-tier
+  confirmation framework, and create-folder. See `specs/002-write-foundation/`.
 
 ## UI / UX
 
@@ -27,8 +26,6 @@ known bug — these are enhancements. Ordered roughly by value.
   in-frame. Add a key (e.g. `o`) that opens the selected image in the OS viewer
   (`open` on macOS, `xdg-open` on Linux) from a temp file, or shells out to
   `imgcat`/`kitten icat`. Keep half-block as the inline default.
-- [ ] **Sortable lists.** Sort buckets/objects by name, size, or last-modified
-  (k9s-style), with a key to cycle the sort column and toggle direction.
 - [ ] **Richer content preview.** Syntax highlighting for JSON/YAML/code; a
   hex-dump view for binary objects instead of just a summary line.
 - [ ] **Visible context numbers for the digit shortcut.** `1-9` switches context,
