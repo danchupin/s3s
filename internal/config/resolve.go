@@ -46,21 +46,25 @@ func (c *Config) Resolve(name string) (Cluster, User, error) {
 	return cl, u, nil
 }
 
-// WriteMode is the resolved write capability for one context.
+// WriteMode is the resolved write capability for one context. ReadOnly reports the
+// context's hard lock (readonly: true), independent of the runtime arm state — the UI
+// needs it to refuse arming a locked context (005 FR-028).
 type WriteMode struct {
 	Writable bool
+	ReadOnly bool
 }
 
 // WriteModeFor returns the write policy for the named context: writable only when
 // the global --write switch is on AND the context is not marked readonly (read-only
-// always wins — FR-001/FR-002, opt-out model). The existing Resolve/ClientConfig
-// methods are intentionally left unchanged so their callers do not break.
+// always wins — FR-001/FR-002, opt-out model). ReadOnly carries the context lock so
+// the UI can keep it absolute under the runtime toggle. The existing Resolve/
+// ClientConfig methods are intentionally left unchanged so their callers do not break.
 func (c *Config) WriteModeFor(name string, writeFlag bool) (WriteMode, error) {
 	cx, ok := c.context(name)
 	if !ok {
 		return WriteMode{}, fmt.Errorf("%w: no such context %q", ErrInvalid, name)
 	}
-	return WriteMode{Writable: writeFlag && !cx.ReadOnly}, nil
+	return WriteMode{Writable: writeFlag && !cx.ReadOnly, ReadOnly: cx.ReadOnly}, nil
 }
 
 // ClientConfig builds a storage.ClientConfig for the named context. This is the

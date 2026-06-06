@@ -71,7 +71,7 @@ var (
 // startCreateFolder begins a create-folder intent at the current tree level. On a
 // read-only context it issues no command and shows the read-only hint (FR-003).
 func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -89,7 +89,7 @@ func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
 // startRemoveObject begins a single-object delete (typed tier — destructive). Only
 // valid on an object selection; refused on a read-only context (FR-001/FR-012).
 func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -114,7 +114,7 @@ func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 // startUpload opens the local file browser to pick an upload source for the current
 // level. Refused on a read-only context (FR-002/FR-012).
 func (m App) startUpload() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -134,7 +134,7 @@ func (m App) startUpload() (tea.Model, tea.Cmd) {
 func (m App) startCopy() (tea.Model, tea.Cmd) { return m.startCopyMove("copy") }
 func (m App) startMove() (tea.Model, tea.Cmd) { return m.startCopyMove("move") }
 func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -157,7 +157,7 @@ func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
 // startRecursiveDelete begins a recursive prefix delete (typed tier — highest risk).
 // Only valid on a folder/common-prefix selection (FR-008/FR-012).
 func (m App) startRecursiveDelete() (tea.Model, tea.Cmd) {
-	if !m.writable {
+	if !m.writable() {
 		m.err = storage.ErrReadOnly
 		return m, nil
 	}
@@ -324,7 +324,7 @@ func hasControl(s string) bool {
 // a progress channel consumed by a waitForProgress command.
 func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	op := m.op
-	mut, ok := m.store.(storage.Mutator)
+	mut, ok := m.activeStore().(storage.Mutator)
 	if !ok {
 		m.op = nil
 		m.err = storage.ErrReadOnly

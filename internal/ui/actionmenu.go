@@ -25,7 +25,7 @@ func (m App) menuItemsFor() []menuItem {
 	}
 
 	var items []menuItem
-	if m.writable {
+	if m.writable() {
 		switch m.selKind() {
 		case selObject:
 			items = append(items,
@@ -120,5 +120,5 @@ func (m App) actionMenuView(width int) string {
 // sole refresh entry point now that top-level `r` is removed — FR-025/FR-028).
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
 }

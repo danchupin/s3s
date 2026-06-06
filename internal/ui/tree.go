@@ -99,7 +99,7 @@ func (m App) enterLevel() (tea.Model, tea.Cmd) {
 	m.level = nil
 	ctx := (&m).beginLoad()
 	q := storage.LevelQuery{Bucket: m.bucket, Prefix: m.prefix, Search: m.search}
-	return m, tea.Batch(loadLevel(ctx, m.store, key, q, m.gen), spinnerTick())
+	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
 // fetchNextPage requests the next page of the current level (FR-010).
@@ -108,7 +108,7 @@ func (m App) fetchNextPage() (tea.Model, tea.Cmd) {
 	token := m.level.nextToken
 	ctx := (&m).beginLoad()
 	q := storage.LevelQuery{Bucket: m.bucket, Prefix: m.prefix, Search: m.search, Token: token}
-	return m, tea.Batch(loadLevel(ctx, m.store, key, q, m.gen), spinnerTick())
+	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
 // refresh discards the cached level and re-fetches from the first page (FR-011a).
@@ -119,7 +119,7 @@ func (m App) refresh() (tea.Model, tea.Cmd) {
 	m.treeSel = 0
 	ctx := (&m).beginLoad()
 	q := storage.LevelQuery{Bucket: m.bucket, Prefix: m.prefix, Search: m.search}
-	return m, tea.Batch(loadLevel(ctx, m.store, key, q, m.gen), spinnerTick())
+	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
 // goBack clears an active search, ascends one prefix, or returns to the bucket list.
@@ -150,8 +150,8 @@ func (m App) openObject(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
 	m.mode = modeObject
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(
-		loadMetadata(ctx, m.store, m.bucket, o.Key, m.gen),
-		loadPreview(ctx, m.store, m.bucket, o.Key, "", o.Size, m.gen),
+		loadMetadata(ctx, m.activeStore(), m.bucket, o.Key, m.gen),
+		loadPreview(ctx, m.activeStore(), m.bucket, o.Key, "", o.Size, m.gen),
 		spinnerTick(),
 	)
 }

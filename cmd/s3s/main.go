@@ -41,7 +41,7 @@ func run() error {
 	var ctxFlag, cfgPath string
 	var showVersion, writeEnabled bool
 	flag.BoolVar(&showVersion, "version", false, "print version and exit")
-	flag.BoolVar(&writeEnabled, "write", false, "enable mutating operations (default: read-only); a context marked readonly stays protected")
+	flag.BoolVar(&writeEnabled, "write", false, "start in write mode (default: read-only); toggle at runtime with the write key; a context marked readonly stays protected")
 	flag.StringVar(&ctxFlag, "context", "", "active context name (overrides $S3S_CONTEXT and current-context)")
 	flag.StringVar(&cfgPath, "config", "", "path to config file (default: XDG ~/.config/s3s/config.yaml)")
 	flag.Parse()
@@ -89,14 +89,14 @@ func run() error {
 		if serr != nil {
 			return ui.Backend{}, serr
 		}
-		// Resolve the write policy and wrap the backend in the read-only guard
-		// unless this context is writable. This is the single runtime enforcement
-		// point for read-only (FR-003/FR-012).
+		// The UI guards the backend dynamically (runtime read-only↔write toggle, 005
+		// US5), so hand it the RAW store plus the context's hard lock. Writable carries
+		// the *initial* arm intent (the --write flag); ReadOnly carries the absolute
+		// readonly:true lock that can never be armed (FR-028/FR-031).
 		policy, perr := cfg.WriteModeFor(name, writeEnabled)
 		if perr != nil {
 			return ui.Backend{}, perr
 		}
-		st = storage.Guard(st, policy.Writable)
 		userLabel := u.Name
 		if u.Anonymous {
 			userLabel += " (anonymous)"
@@ -107,7 +107,8 @@ func run() error {
 			User:     userLabel,
 			Endpoint: cl.Endpoint,
 			Region:   cl.Region,
-			Writable: policy.Writable,
+			Writable: writeEnabled,
+			ReadOnly: policy.ReadOnly,
 		}, nil
 	}
 

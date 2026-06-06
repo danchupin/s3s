@@ -9,47 +9,49 @@ import (
 // keyMap maps logical actions to the key strings produced by KeyPressMsg.String().
 // Several keys may bind to one action. Matching is done via matches().
 type keyMap struct {
-	Up        []string
-	Down      []string
-	Top       []string
-	Bottom    []string
-	Enter     []string // drill in / open object
-	Back      []string // up a level
-	Search    []string
-	Refresh   []string
-	Context   []string
-	Menu      []string // open the contextual action menu
-	NewFolder []string // create an empty folder (write mode)
-	Delete    []string // delete the selected object (write mode)
-	Upload    []string // upload a local file into the current level (write mode)
-	Copy      []string // copy the selected object to a new key (write mode)
-	Move      []string // move/rename the selected object (write mode)
-	DeleteAll []string // recursively delete the selected folder/prefix (write mode)
-	Quit      []string
-	Help      []string
+	Up          []string
+	Down        []string
+	Top         []string
+	Bottom      []string
+	Enter       []string // drill in / open object
+	Back        []string // up a level
+	Search      []string
+	Refresh     []string
+	Context     []string
+	Menu        []string // open the contextual action menu
+	NewFolder   []string // create an empty folder (write mode)
+	Delete      []string // delete the selected object (write mode)
+	Upload      []string // upload a local file into the current level (write mode)
+	Copy        []string // copy the selected object to a new key (write mode)
+	Move        []string // move/rename the selected object (write mode)
+	DeleteAll   []string // recursively delete the selected folder/prefix (write mode)
+	WriteToggle []string // arm/disarm write at runtime (005 US5)
+	Quit        []string
+	Help        []string
 }
 
 // defaultKeys is the keybinding contract (contracts/tui-contract.md).
 func defaultKeys() keyMap {
 	return keyMap{
-		Up:        []string{"up", "k"},
-		Down:      []string{"down", "j"},
-		Top:       []string{"g", "home"},
-		Bottom:    []string{"G", "end"},
-		Enter:     []string{"enter", "right", "l"},
-		Back:      []string{"esc", "left", "h"},
-		Search:    []string{"/"},
-		Refresh:   []string{"r"},
-		Context:   []string{"c"},
-		Menu:      []string{"a"},
-		NewFolder: []string{"+"},
-		Delete:    []string{"d"},
-		Upload:    []string{"u"},
-		Copy:      []string{"y"}, // "yank"; "c" is taken by context switch
-		Move:      []string{"m"},
-		DeleteAll: []string{"D"},
-		Quit:      []string{"ctrl+c", "q"},
-		Help:      []string{"?"},
+		Up:          []string{"up", "k"},
+		Down:        []string{"down", "j"},
+		Top:         []string{"g", "home"},
+		Bottom:      []string{"G", "end"},
+		Enter:       []string{"enter", "right", "l"},
+		Back:        []string{"esc", "left", "h"},
+		Search:      []string{"/"},
+		Refresh:     []string{"r"},
+		Context:     []string{"c"},
+		Menu:        []string{"a"},
+		NewFolder:   []string{"+"},
+		Delete:      []string{"d"},
+		Upload:      []string{"u"},
+		Copy:        []string{"y"}, // "yank"; "c" is taken by context switch
+		Move:        []string{"m"},
+		DeleteAll:   []string{"D"},
+		WriteToggle: []string{"w"}, // arm/disarm write at runtime (005 US5)
+		Quit:        []string{"ctrl+c", "q"},
+		Help:        []string{"?"},
 	}
 }
 
@@ -109,7 +111,7 @@ func (m App) helpLines() []string {
 
 	// Write-capability tag for the Actions menu items (FR-013/H4).
 	wtag := dimCellStyle.Render("  (write)")
-	if !m.writable {
+	if !m.writable() {
 		wtag = warnStyle.Render("  (needs --write)")
 	}
 
@@ -139,6 +141,7 @@ func (m App) helpLines() []string {
 		row("1-9", "switch to context by number"),
 		"",
 		sec("Global"),
+		row(formatKeys(k.WriteToggle), "arm/disarm write (confirm to arm; instant to disarm)"),
 		row(formatKeys(k.Help), "toggle this help"),
 		row(formatKeys(k.Quit), "quit"),
 		"",

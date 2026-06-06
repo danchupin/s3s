@@ -380,13 +380,30 @@ func dropLowestPrio(hs []hint) []hint {
 	return append(append([]hint{}, hs[:loIdx]...), hs[loIdx+1:]...)
 }
 
+// writeBadgeStyle is the loud, high-contrast WRITE indicator: bold white on bright
+// red, impossible to miss or confuse with read-only (005 FR-027). Used wherever the
+// arm state is shown — the footer identity row AND every alt-screen overlay.
+var writeBadgeStyle = lipgloss.NewStyle().Bold(true).
+	Foreground(lipgloss.Color("231")).Background(lipgloss.Color("196"))
+
+// writeBadge renders the arm-state badge: a loud "[RW]" while writable, a calm "[RO]"
+// otherwise. Kept short so it is never the first thing dropped on a narrow width
+// (005 FR-027, write-toggle-contract C3).
+func writeBadge(writable bool) string {
+	if writable {
+		return writeBadgeStyle.Render("[RW]")
+	}
+	return roStyle.Render("[RO]")
+}
+
 // footerIdentityCompact renders the single identity row: ● ctx [RW|RO], plus · cluster
 // if it fits (FR-007/FR-008). Endpoint/region/user/version are NOT shown here — they
-// move to the help surface.
+// move to the help surface. The [RW] tag is rendered loud (writeBadgeStyle) so an armed
+// session is unmistakable (005 FR-027).
 func footerIdentityCompact(width int, ctx, cluster string, writable bool) string {
 	tag, dotStyle, tagStyle := "[RO]", roStyle, dimCellStyle
 	if writable {
-		tag, dotStyle, tagStyle = "[RW]", accentStyle, accentStyle
+		tag, dotStyle, tagStyle = "[RW]", accentStyle, writeBadgeStyle
 	}
 	name := truncate(ctx, max(1, width-len(tag)-4))
 	head := dotStyle.Render("●") + " " + segCtxStyle.Render(name) + tagStyle.Render(" "+tag)

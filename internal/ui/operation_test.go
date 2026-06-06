@@ -16,7 +16,7 @@ func writableTreeApp() App {
 	f := storage.NewFake()
 	f.Seed("b")
 	m := newApp(f, nil, nil)
-	m.writable = true
+	m.armed = true
 	m.mode = modeTree
 	m.bucket = "b"
 	m.level = &levelState{complete: true}
@@ -28,7 +28,7 @@ func writableTreeApp() App {
 // starts no op, and shows the read-only hint — never a silent no-op (FR-003).
 func TestCreateFolderRefusedReadOnly(t *testing.T) {
 	m := writableTreeApp()
-	m.writable = false
+	m.armed = false
 	// Read-only menu offers no new-folder item; the entry point still refuses directly.
 	mm, cmd := m.startCreateFolder()
 	m = mm.(App)
@@ -106,7 +106,7 @@ func TestCreateFolderSuccessRefreshesLevel(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b")
 	m := newApp(f, nil, nil)
-	m.writable = true
+	m.armed = true
 	m.mode = modeTree
 	m.bucket = "b"
 	m.level = &levelState{complete: true}
@@ -132,7 +132,7 @@ func TestCreateFolderCancelNotSuccess(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b")
 	m := newApp(f, nil, nil)
-	m.writable = true
+	m.armed = true
 	m.mode = modeTree
 	m.bucket = "b"
 	m.level = &levelState{complete: true}

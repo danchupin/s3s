@@ -66,14 +66,18 @@ type levelState struct {
 func (l *levelState) count() int { return len(l.dirs) + len(l.objects) }
 
 // Backend describes the storage client plus the display metadata for the active
-// context (shown in the header). The UI never builds clients itself.
+// context (shown in the header). The UI never builds clients itself. Store is the
+// RAW (unguarded) client — the UI guards it dynamically per the runtime write-arm
+// state (005 US5). Writable is the *initial* arm intent (the --write flag); ReadOnly
+// is the context's absolute readonly:true lock.
 type Backend struct {
 	Store    storage.Storage
 	Cluster  string
 	User     string
 	Endpoint string
 	Region   string
-	Writable bool // true when --write is set and the context is not readonly
+	Writable bool // initial write-arm intent (--write)
+	ReadOnly bool // context is readonly:true — never armable (FR-028)
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil
@@ -82,13 +86,14 @@ type Resolver func(context string) (Backend, error)
 
 // App is the root Bubble Tea model.
 type App struct {
-	store    storage.Storage
-	info     Backend
-	ctxName  string
-	contexts []string
-	resolve  Resolver
-	imgProto preview.Protocol
-	writable bool // active context permits mutations (Backend.Writable)
+	raw         storage.Storage // RAW (unguarded) client; guarded dynamically per arm state
+	info        Backend
+	ctxName     string
+	contexts    []string
+	resolve     Resolver
+	imgProto    preview.Protocol
+	armed       bool // runtime write-arm intent (toggle / --write initial) — 005 US5
+	ctxReadOnly bool // active context is readonly:true (absolute lock, FR-028)
 
 	keys  keyMap
 	cache *cache.Cache[*levelState]
@@ -139,6 +144,9 @@ type App struct {
 	opCh   chan progressEvent // streaming progress channel (upload / recursive delete)
 	notice string             // transient non-error outcome line (e.g. partial counts)
 
+	// write-mode arm confirmation pending (005 US5): true while awaiting y/N to arm write
+	armConfirm bool
+
 	// local file browser state (active during an upload's phaseBrowse)
 	fbDir     string
 	fbEntries []localfs.Entry
@@ -152,18 +160,19 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // image protocol for previews.
 func New(initial Backend, ctxName string, contexts []string, resolve Resolver, imgProto preview.Protocol) App {
 	m := App{
-		store:    initial.Store,
-		info:     initial,
-		ctxName:  ctxName,
-		contexts: contexts,
-		resolve:  resolve,
-		imgProto: imgProto,
-		writable: initial.Writable,
-		keys:     defaultKeys(),
-		cache:    cache.New[*levelState](),
-		mode:     modeBuckets,
-		width:    80,
-		height:   24,
+		raw:         initial.Store,
+		info:        initial,
+		ctxName:     ctxName,
+		contexts:    contexts,
+		resolve:     resolve,
+		imgProto:    imgProto,
+		armed:       initial.Writable,
+		ctxReadOnly: initial.ReadOnly,
+		keys:        defaultKeys(),
+		cache:       cache.New[*levelState](),
+		mode:        modeBuckets,
+		width:       80,
+		height:      24,
 	}
 	// Arm the initial bucket load here, not in Init: in Bubble Tea v2 Init returns
 	// only a Cmd and cannot mutate the model, so the generation/context must be set
@@ -172,9 +181,20 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, i
 	return m
 }
 
+// writable reports whether mutations are currently permitted: the session is armed
+// AND the active context is not hard-locked readonly (005 FR-024/FR-028). This
+// derived value replaces the old static field, recomputed on every toggle/switch.
+func (m App) writable() bool { return m.armed && !m.ctxReadOnly }
+
+// activeStore returns the backend guarded for the current arm state: the raw client
+// when writable, else a read-only wrapper that refuses mutations without a network
+// call. This is the single runtime enforcement point — every operation uses it, so a
+// mutating call is impossible while disarmed (005 US5, write-toggle-contract C1).
+func (m App) activeStore() storage.Storage { return storage.Guard(m.raw, m.writable()) }
+
 // Init kicks off the initial bucket load armed by New.
 func (m App) Init() tea.Cmd {
-	return tea.Batch(loadBuckets(m.loadCtx, m.store, m.gen), spinnerTick())
+	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen), spinnerTick())
 }
 
 // beginLoad cancels any in-flight load, bumps the generation, and starts a fresh
@@ -289,6 +309,11 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onSearchKey(msg)
 	}
 
+	// A pending write-arm confirmation is modal: y/N resolves it (005 US5).
+	if m.armConfirm {
+		return m.onArmConfirmKey(key)
+	}
+
 	// A running mutation is modal: only cancel (Esc/Back) and quit work. Navigation and
 	// starting another mutation are blocked so a streaming op is never superseded
 	// out from under its progress reader (which would orphan the worker goroutine)
@@ -335,6 +360,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.prevMode = m.mode
 		m.mode = modeHelp
 		return m, nil
+	}
+
+	// Write-arm toggle: a global safety primitive (005 US5). Arming prompts to
+	// confirm; disarming is instant. Refused on a readonly:true context.
+	if matches(key, m.keys.WriteToggle) {
+		return m.toggleWrite()
 	}
 
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
@@ -461,9 +492,12 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 		m.mode = modeBuckets
 		return m, nil
 	}
-	m.store = be.Store
+	m.raw = be.Store
 	m.info = be
-	m.writable = be.Writable
+	// Preserve the arm intent across the switch; re-derive the context lock. Switching
+	// to a writable context keeps write armed; switching to a readonly:true context
+	// forces read-only via writable() (FR-029).
+	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
 	m.ctxName = target
 	m.cache.Clear()
@@ -474,7 +508,7 @@ func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
 	m.level = nil
 	m.mode = modeBuckets
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.store, m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
 }
 
 // clampSelection keeps selection indices within bounds after resize/data change.
@@ -528,14 +562,19 @@ func (m App) errorText() string {
 func (m App) View() tea.View {
 	w := clampW(m.width)
 
+	// The alt-screen overlays (help, action menu) render without the footer, so the
+	// loud WRITE/RO badge is injected here too — it must be present on EVERY screen
+	// (005 FR-027, write-toggle-contract C3).
+	badge := writeBadge(m.writable()) + "\n"
+
 	if m.mode == modeHelp {
-		v := tea.NewView(m.helpView())
+		v := tea.NewView(badge + m.helpView())
 		v.AltScreen = true
 		return v
 	}
 
 	if m.mode == modeActionMenu {
-		v := tea.NewView(m.actionMenuView(w))
+		v := tea.NewView(badge + m.actionMenuView(w))
 		v.AltScreen = true
 		return v
 	}
@@ -587,7 +626,7 @@ func (m App) View() tea.View {
 func (m App) footerBlock(w int) string {
 	// ≤ 3 rows: compact identity, one contextual hint row, optional status (FR-006).
 	lines := []string{
-		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable),
+		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()),
 		footerHints(hintCtx{
 			mode:         m.mode,
 			searchActive: m.searchActive(),
@@ -614,6 +653,10 @@ func (m App) searchActive() bool {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
+	// A pending write-arm confirmation owns the status line (005 US5).
+	if m.armConfirm {
+		return m.armConfirmLine()
+	}
 	// An interactive operation prompt (name/dest entry, confirmation) takes priority.
 	// A running streaming op shows live progress; other phases fall through.
 	if m.op != nil {

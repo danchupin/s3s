@@ -49,9 +49,9 @@ build on. **No story phase may start until this is complete.**
 - [X] T004 Add read methods `GetObject(ctx, bucket, key) (io.ReadCloser, error)` and `UsageOf(ctx, bucket, prefix, onProgress) (UsageReport, error)` to the `Storage` interface, plus types `UsageReport`/`UsageChild`/`UsageProgress`, in `internal/storage/storage.go` (per data-model.md + storage-read-ops-contract C1/C2).
 - [X] T005 [P] Implement `GetObject` + `UsageOf` in `internal/storage/fake.go` (deterministic in-memory: full bytes for GetObject; recursive aggregate + immediate-child bucketing + ranking for UsageOf) so unit tests can drive both.
 - [X] T006 [P] Guard parity test in `internal/storage/guard_test.go`: assert `readOnlyGuard` exposes `GetObject`/`UsageOf` (reads pass through, no `ErrReadOnly`) — storage-read-ops-contract C3.
-- [ ] T007 Refactor `ui.Backend`/`ui.Resolver` to carry the **raw** (unguarded) store + `ReadOnly bool`; update `cmd/s3s/main.go` to stop calling `storage.Guard` at construction and pass raw store + ReadOnly + initial armed state into `ui.New` (write-toggle-contract C1).
-- [ ] T008 In `internal/ui/app.go`: replace `writable bool` with `raw storage.Storage`, `ctxReadOnly bool`, `armed bool`; add `writable()` derived (`armed && !ctxReadOnly`) and `activeStore() storage.Storage` (`storage.Guard(raw, writable())`); re-derive on `applyContext` (write-toggle-contract C4).
-- [ ] T009 Route every existing mutating start (`startRemoveObject`/`startCopy`/`startMove`/`startUpload`/`startCreateFolder`/`startRecursiveDelete`) and `dispatchOp` through `activeStore()` instead of `m.store`; update the read paths (loadBuckets/level/metadata/preview) to use `activeStore()` (a read, harmless) or `raw`. Confirm `make build` + existing tests green.
+- [X] T007 Refactor `ui.Backend`/`ui.Resolver` to carry the **raw** (unguarded) store + `ReadOnly bool`; update `cmd/s3s/main.go` to stop calling `storage.Guard` at construction and pass raw store + ReadOnly + initial armed state into `ui.New` (write-toggle-contract C1).
+- [X] T008 In `internal/ui/app.go`: replace `writable bool` with `raw storage.Storage`, `ctxReadOnly bool`, `armed bool`; add `writable()` derived (`armed && !ctxReadOnly`) and `activeStore() storage.Storage` (`storage.Guard(raw, writable())`); re-derive on `applyContext` (write-toggle-contract C4).
+- [X] T009 Route every existing mutating start (`startRemoveObject`/`startCopy`/`startMove`/`startUpload`/`startCreateFolder`/`startRecursiveDelete`) and `dispatchOp` through `activeStore()` instead of `m.store`; update the read paths (loadBuckets/level/metadata/preview) to use `activeStore()` (a read, harmless) or `raw`. Confirm `make build` + existing tests green.
 
 **Checkpoint**: storage reads available; dynamic guard in place; existing behavior unchanged.
 
@@ -67,18 +67,18 @@ actions appear; toggle → instant RO; `readonly:true` context refuses to arm.
 
 ### Tests for User Story 5 (write first, must FAIL)
 
-- [ ] T010 [P] [US5] Test in `internal/ui/writemode_test.go`: RO + WriteToggle → confirm prompt; confirm → `writable()` true; second toggle → instant RO (no confirm) — write-toggle-contract C2.
-- [ ] T011 [P] [US5] Test in `internal/ui/writemode_test.go`: `ctxReadOnly` context + WriteToggle → refused, stays RO with reason (FR-028); `--write` initial → starts armed (FR-031).
-- [ ] T012 [P] [US5] Test in `internal/ui/writemode_test.go`: armed → `applyContext` to a `readonly:true` context forces RO; to a writable context preserves armed (FR-029).
-- [ ] T013 [P] [US5] View test in `internal/ui/writemode_test.go`: `App.View().Content` contains the loud WRITE marker on each mode + the action-menu/help/object overlays while armed, and the calm RO marker while disarmed, including a narrow-width render (FR-027, write-toggle-contract C3).
-- [ ] T014 [P] [US5] Log test in `internal/ui/writemode_test.go`: each RO↔write transition emits a slog record with new state + context (FR-032, contract C5).
+- [X] T010 [P] [US5] Test in `internal/ui/writemode_test.go`: RO + WriteToggle → confirm prompt; confirm → `writable()` true; second toggle → instant RO (no confirm) — write-toggle-contract C2.
+- [X] T011 [P] [US5] Test in `internal/ui/writemode_test.go`: `ctxReadOnly` context + WriteToggle → refused, stays RO with reason (FR-028); `--write` initial → starts armed (FR-031).
+- [X] T012 [P] [US5] Test in `internal/ui/writemode_test.go`: armed → `applyContext` to a `readonly:true` context forces RO; to a writable context preserves armed (FR-029).
+- [X] T013 [P] [US5] View test in `internal/ui/writemode_test.go`: `App.View().Content` contains the loud WRITE marker on each mode + the action-menu/help/object overlays while armed, and the calm RO marker while disarmed, including a narrow-width render (FR-027, write-toggle-contract C3).
+- [X] T014 [P] [US5] Log test in `internal/ui/writemode_test.go`: each RO↔write transition emits a slog record with new state + context (FR-032, contract C5).
 
 ### Implementation for User Story 5
 
-- [ ] T015 [US5] Add `WriteToggle` binding to `keyMap`/`defaultKeys()` in `internal/ui/keys.go` (pick a free key, e.g. `w`); add it to the help surface (`helpLines`).
-- [ ] T016 [US5] Implement arm/disarm flow in `internal/ui/writemode.go`: WriteToggle → if `ctxReadOnly` refuse with notice; else if disarmed open a simple confirm then set `armed=true`; if armed set `armed=false` instantly; log the transition (FR-025/026/028/032).
-- [ ] T017 [US5] Add `writeBadgeStyle` (high-contrast inverse/red, bold) in `internal/ui/styles.go`; render the WRITE/RO badge in `footerIdentityCompact` and inject it into the alt-screen overlay renderers (`actionMenuView`, `helpView`, `objectView`) so it shows on every screen and is never dropped first when narrow (FR-027).
-- [ ] T018 [US5] In `cmd/s3s/main.go`, set the initial `armed` from the `--write` flag and pass it into `ui.New`; keep `--write` help text updated to "start in write mode (toggle at runtime with the write key)".
+- [X] T015 [US5] Add `WriteToggle` binding to `keyMap`/`defaultKeys()` in `internal/ui/keys.go` (pick a free key, e.g. `w`); add it to the help surface (`helpLines`).
+- [X] T016 [US5] Implement arm/disarm flow in `internal/ui/writemode.go`: WriteToggle → if `ctxReadOnly` refuse with notice; else if disarmed open a simple confirm then set `armed=true`; if armed set `armed=false` instantly; log the transition (FR-025/026/028/032).
+- [X] T017 [US5] Add `writeBadgeStyle` (high-contrast inverse/red, bold) in `internal/ui/styles.go`; render the WRITE/RO badge in `footerIdentityCompact` and inject it into the alt-screen overlay renderers (`actionMenuView`, `helpView`, `objectView`) so it shows on every screen and is never dropped first when narrow (FR-027).
+- [X] T018 [US5] In `cmd/s3s/main.go`, set the initial `armed` from the `--write` flag and pass it into `ui.New`; keep `--write` help text updated to "start in write mode (toggle at runtime with the write key)".
 
 **Checkpoint**: US5 fully testable; mutating actions are gated by the runtime toggle.
 
