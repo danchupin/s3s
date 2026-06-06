@@ -178,6 +178,55 @@ func (c *s3Client) GetObjectRange(ctx context.Context, bucket, key string, start
 	return out.Body, nil
 }
 
+// GetObject streams the full object body (no Range). A read — the caller closes the
+// reader. Used by download (005 FR-001/FR-002).
+func (c *s3Client) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	out, err := c.api.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	})
+	if err != nil {
+		return nil, classify(err)
+	}
+	return out.Body, nil
+}
+
+// UsageOf recursively lists every object under prefix (delimiter-less, paginated)
+// and aggregates totals plus an immediate-child breakdown ranked largest-first. A
+// read (005 FR-008..FR-012). onProgress (nil-safe) receives running totals; a
+// cancelled ctx returns the partial report with Complete=false and ctx.Err().
+func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
+	agg := newUsageAgg(bucket, prefix)
+	var token *string
+	for {
+		if err := ctx.Err(); err != nil {
+			return agg.report(false), err
+		}
+		in := &s3.ListObjectsV2Input{
+			Bucket:            aws.String(bucket),
+			ContinuationToken: token,
+		}
+		if prefix != "" {
+			in.Prefix = aws.String(prefix)
+		}
+		out, err := c.api.ListObjectsV2(ctx, in)
+		if err != nil {
+			return agg.report(false), classify(err)
+		}
+		for _, o := range out.Contents {
+			agg.add(aws.ToString(o.Key), aws.ToInt64(o.Size))
+		}
+		if onProgress != nil {
+			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
+		}
+		if !aws.ToBool(out.IsTruncated) {
+			break
+		}
+		token = out.NextContinuationToken
+	}
+	return agg.report(true), nil
+}
+
 // classify maps SDK/transport errors onto the package's error sentinels. It never
 // embeds secret values — only error codes and HTTP statuses (FR-005, FR-021).
 func classify(err error) error {

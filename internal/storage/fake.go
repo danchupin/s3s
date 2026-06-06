@@ -304,6 +304,52 @@ func (f *Fake) DeleteRecursive(ctx context.Context, bucket, prefix string, onPro
 	return sum, nil
 }
 
+// GetObject returns a reader over the full object body (005 FR-001).
+func (f *Fake) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return nil, fmt.Errorf("get %q: %w", bucket, ErrNotFound)
+	}
+	o, ok := b.Objects[key]
+	if !ok {
+		return nil, fmt.Errorf("get %q/%q: %w", bucket, key, ErrNotFound)
+	}
+	if o.AccessDenied {
+		return nil, fmt.Errorf("get %q/%q: %w", bucket, key, ErrAccessDenied)
+	}
+	return io.NopCloser(bytes.NewReader(o.Data)), nil
+}
+
+// UsageOf recursively aggregates objects under prefix with the shared usageAgg, so
+// the Fake ranks children identically to the real client (005 FR-008/FR-009).
+func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
+	agg := newUsageAgg(bucket, prefix)
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return agg.report(false), fmt.Errorf("usage %q: %w", bucket, ErrNotFound)
+	}
+	keys := make([]string, 0, len(b.Objects))
+	for k := range b.Objects {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := ctx.Err(); err != nil {
+			return agg.report(false), err
+		}
+		agg.add(k, int64(len(b.Objects[k].Data)))
+		if onProgress != nil {
+			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
+		}
+	}
+	return agg.report(true), nil
+}
+
 // GetObjectRange returns a reader over Data[start : end+1] (clamped).
 func (f *Fake) GetObjectRange(ctx context.Context, bucket, key string, start, end int64) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {

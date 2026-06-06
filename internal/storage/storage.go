@@ -104,6 +104,43 @@ type Storage interface {
 	// GetObjectRange streams at most (end-start+1) bytes; callers cap at 5 MiB
 	// for preview and close the reader. FR-014, FR-016.
 	GetObjectRange(ctx context.Context, bucket, key string, start, end int64) (io.ReadCloser, error)
+
+	// GetObject streams the full object body (no range cap). The caller closes the
+	// reader. A read — usable in read-only contexts (download is local-only writes).
+	// 005 FR-001/FR-002.
+	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
+
+	// UsageOf recursively aggregates every object under prefix: total size/count and
+	// an immediate-child breakdown ranked largest-first. onProgress (nil-safe) gets
+	// running totals; a cancelled ctx returns the partial report (Complete=false) with
+	// ctx.Err(). A read. 005 FR-008..FR-012.
+	UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error)
+}
+
+// UsageChild is one immediate child (sub-prefix or direct object) of an analyzed
+// prefix, with the bytes/objects beneath it (005 data-model).
+type UsageChild struct {
+	Name  string // sub-prefix has a trailing "/", a direct object does not
+	IsDir bool   // true => sub-prefix, false => direct object
+	Size  int64  // bytes beneath this child (recursive for a sub-prefix)
+	Count int    // object count beneath this child
+}
+
+// UsageReport is the aggregate result of UsageOf for one prefix. Children are ranked
+// by Size descending (ties by Name). Complete is false when the scan was cancelled.
+type UsageReport struct {
+	Bucket     string
+	Prefix     string
+	TotalSize  int64
+	TotalCount int
+	Children   []UsageChild
+	Complete   bool
+}
+
+// UsageProgress is a running tick emitted during a long UsageOf scan (005 FR-011).
+type UsageProgress struct {
+	ScannedCount int
+	ScannedSize  int64
 }
 
 // Bucket is a top-level container listed for the active context.
