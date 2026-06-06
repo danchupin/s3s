@@ -63,7 +63,7 @@ func TestFooterFitsWidthAndShowsHints(t *testing.T) {
 	f.Seed("hot")
 	m := New(Backend{Store: f, Cluster: "c", User: "u",
 		Endpoint: "https://very-long-endpoint.example.storage.internal:9000", Region: "us-east-1"},
-		"my-context", []string{"my-context"}, nil, 0)
+		"my-context", []string{"my-context"}, nil, nil, 0)
 	m.width, m.height = 60, 16
 	m = deliver(m, bucketsMsg{gen: m.gen, buckets: []storage.Bucket{{Name: "hot"}}})
 
@@ -115,11 +115,13 @@ func containsAny(s string, subs ...string) string {
 // --- US2 footer contract obligations ---
 
 func TestFooterHintsAdvertiseActionsNotWriteKeys(t *testing.T) { // obligation 1/2
-	h := footerHints(hintCtx{mode: modeTree, width: 80})
+	// footerHints now serves overlay/list modes (the buckets/tree hints moved to the 006
+	// hint bar); it must still always show help/quit and never advertise write ops.
+	h := footerHints(hintCtx{mode: modeUsage, width: 80})
 	if strings.Count(h, "\n") != 0 {
 		t.Fatalf("hint row must be a single line; got %q", h)
 	}
-	for _, want := range []string{"actions", "help", "quit"} {
+	for _, want := range []string{"help", "quit"} {
 		if !strings.Contains(h, want) {
 			t.Errorf("hint row missing %q; got %q", want, h)
 		}
@@ -167,10 +169,7 @@ func TestFooterHintsNarrowDropsWithMoreCue(t *testing.T) { // obligation 5
 }
 
 func TestFooterHintsArrowPrimaryNoVim(t *testing.T) { // obligation 6 (FR-031)
-	h := footerHints(hintCtx{mode: modeTree, width: 120})
-	if !strings.Contains(h, "↵") {
-		t.Errorf("nav cue should use the arrow/enter glyph; got %q", h)
-	}
+	h := footerHints(hintCtx{mode: modeUsage, multiContext: true, width: 120})
 	if bad := containsAny(h, " j", " k", " g", " G", "Home", "End", "hjkl"); bad != "" {
 		t.Errorf("footer must not advertise vim/Top-Bottom keys; found %q in %q", bad, h)
 	}
@@ -184,22 +183,6 @@ func TestFooterHintsSearchClearVsBack(t *testing.T) { // obligation 7 (FR-009)
 	idle := footerHints(hintCtx{mode: modeTree, searchActive: false, width: 120})
 	if !strings.Contains(idle, "back") || strings.Contains(idle, "clear") {
 		t.Errorf("idle footer should show 'esc back' and not 'esc clear'; got %q", idle)
-	}
-}
-
-func TestFooterHintsCapSixDropsLowestPrio(t *testing.T) { // obligation 8 (SC-003)
-	h := footerHints(hintCtx{mode: modeTree, multiContext: true, width: 200})
-	// 8 applicable > 6: the lowest-prio (context/switch, prio 40) are dropped first.
-	if strings.Contains(h, "switch") {
-		t.Errorf("cap should drop the lowest-prio switch hint; got %q", h)
-	}
-	if !strings.Contains(h, "? more") {
-		t.Errorf("capped footer should show '? more'; got %q", h)
-	}
-	for _, want := range []string{"open", "actions", "help", "quit"} {
-		if !strings.Contains(h, want) {
-			t.Errorf("high-prio hint %q should survive the cap; got %q", want, h)
-		}
 	}
 }
 

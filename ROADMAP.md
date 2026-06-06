@@ -5,6 +5,15 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## Done
 
+- **UI redesign (006)** — k9s-style rework: the modal action menu is gone; every item
+  action is a single direct key (`d` download, `a` analyze, `x`/`X` delete/recursive,
+  `y` copy, `m` move, `u` upload, `+` mkdir, `r` refresh) with an always-visible
+  contextual hint bar. A persistent details/preview pane sits beside the list (debounced
+  per-selection load; collapses on narrow terminals). A `:` command bar jumps between
+  views. Cluster connections can be added from inside the app (`:conn`) — persisted to
+  config as a cluster+user+context triple with the secret in the OS keychain (never
+  plaintext), reachability-tested with a save-anyway override. See `specs/006-ui-redesign/`.
+  (Integration test against MinIO — `connections_integration_test.go` — still TODO.)
 - **Storage operations & analytics (005)** — download objects to local disk, `du`
   storage analytics (ranked breakdown + drill-down), multi-select bulk
   download/delete/copy, sortable lists, a runtime read-only↔write toggle with a loud

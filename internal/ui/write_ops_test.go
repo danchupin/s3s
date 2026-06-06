@@ -21,7 +21,7 @@ import (
 // writable per the flag. White-box: it sets the level state directly.
 func treeApp(f *storage.Fake, writable bool) App {
 	m := New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x", Writable: writable},
-		"ctx", []string{"ctx"}, nil, preview.ProtoNone)
+		"ctx", []string{"ctx"}, nil, nil, preview.ProtoNone)
 	bs, _ := f.ListBuckets(context.Background())
 	m = deliver(m, bucketsMsg{gen: m.gen, buckets: bs})
 	m.mode = modeTree
@@ -41,6 +41,29 @@ func selectObject(m *App, key string) {
 			return
 		}
 	}
+}
+
+// viaMenu drives an operation through its 006 entry point: the direct single key on the
+// selection (the modal action menu was removed in US1). It maps the former menu label to
+// the new key and presses it, so the large existing op-flow test suite keeps exercising
+// the SAME start* entry points.
+func viaMenu(t *testing.T, m App, label string) App {
+	t.Helper()
+	key, ok := map[string]string{
+		"download":         "d",
+		"analyze":          "a",
+		"delete":           "x",
+		"copy":             "y",
+		"move / rename":    "m",
+		"recursive delete": "X",
+		"upload here":      "u",
+		"new folder":       "+",
+		"refresh":          "r",
+	}[label]
+	if !ok {
+		t.Fatalf("viaMenu: no direct key for label %q", label)
+	}
+	return press(m, key)
 }
 
 // selectDir positions the selection on the dir with the given prefix.

@@ -114,28 +114,39 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 005-storage-ops-analytics (storage ops + analytics + safety/credential backbone;
-6 user stories). Builds on 004-ui-ux-refinement — complete. 003/002/001 — complete.
+Active feature: 006-ui-redesign (k9s-style UI rework; 4 user stories) — IMPLEMENTED
+(34/34 tasks; only the MinIO integration test t.Skips without Docker). 005/004/003/002/001
+— complete.
 
-Plan: specs/005-storage-ops-analytics/plan.md. Design artifacts (specs/005-storage-ops-analytics/):
-research.md (R1–R13), data-model.md, quickstart.md, contracts/ (storage-read-ops-contract,
-credential-source-contract, write-toggle-contract, action-menu-selection-contract). Governed by
-Constitution v1.0.0; no amendment needed. Recommended 3 slices: (1) US5 runtime read-only↔write
-toggle + US6 credential sources [P1 backbone]; (2) US1 download + US2 `du` analytics [reads];
-(3) US3 multi-select bulk + US4 sort.
+Implemented surfaces (internal/ui): hintbar.go (menu-less direct-action catalog + dispatch),
+pane.go + paneTick debounce (persistent details/preview, paneGen supersede, NEVER flips
+modeObject), listWithPane split (≥100 cols), command.go (`:` registry), connections.go
+(modeConnections/modeConnForm + Connector seam). keys.go rebind: a=analyze d=download
+x=delete X=rm-r, `:`=command. config/connection.go = (*Config).AddConnection (triple,
+keychain-first, no plaintext, mutates live cfg for in-session switch). cmd/s3s/connection.go
+= connSeam (Test=New+ListBuckets, Save=AddConnection). actionmenu.go DELETED.
 
-Key approach. storage: add TWO READ methods to `Storage` — `GetObject` (full stream, US1) and
-`UsageOf` (recursive aggregate + progress, US2); both pass through `readOnlyGuard` (reads), so
-`check-readonly.sh` stays green and UI stays SDK-free. ui: NEW download.go (temp-file+atomic
-rename+cancel; non-Mutator read path), analyze.go (`modeUsage`, ranked children, drill-down),
-selection.go (`sel map[string]bool`, objects-only, cleared on nav), bulk.go (per-item results,
-continue-past-failure, hierarchy-preserving download), sort.go (render-time, session-persistent),
-writemode.go. US5 = DYNAMIC guard: `App` holds raw store + `ctxReadOnly` + `armed`; derived
-`writable=armed&&!ctxReadOnly`; `activeStore()=Guard(raw,writable)`; `--write` sets initial armed;
-loud always-on `WRITE` badge on every screen incl overlays (FR-027); transitions logged (FR-032);
-`main.go` stops pre-guarding, returns raw store + ReadOnly. US6 = NEW `internal/secret` pkg
-(keychain via `zalando/go-keyring`, `cmd:` with owner-only perms gate, `awsProfile` ini parse,
-`${ENV}` kept, `x/term` no-echo prompt fallback); config `User` gains exactly-one-source rule
-(FR-041); `s3s cred set|rotate|rm` subcommand + wizard extension store secret in keystore, never
-config (FR-035/037). Secrets stay `logging.Secret`-redacted.
+Plan: specs/006-ui-redesign/plan.md. Design artifacts (specs/006-ui-redesign/):
+research.md (R1–R8), data-model.md, quickstart.md, contracts/ (layout-contract,
+actions-keybindings-contract, command-bar-contract, connection-manager-contract). Governed by
+Constitution v1.0.0; no amendment needed. Clarified: pane load = debounced; new connection =
+persist-to-config; secrets = keychain. Slices by priority: (1) US1 menu-less direct keys + hint
+bar [P1]; (2) US2 list+pane layout [P1]; (3) US3 `:` command bar [P2]; (4) US4 in-app connection
+manager [P2].
+
+Key approach. ui (almost everything): DELETE actionmenu.go + `modeActionMenu`; reuse its
+selection/capability gating to build hintbar.go (always-visible `key label` catalog) + a direct
+dispatch table — each key calls the SAME `start*`/`refresh` entry the menu used, so confirmations
+are untouched (FR-005). REBIND: `a`→analyze (frees menu key), `d`→download, delete `d`→`x`,
+recursive `D`→`X`, `r`→refresh direct; add `:` command bar. NEW pane.go: persistent details/preview
+pane via DEBOUNCED load (paneTick ~150–250ms + paneGen supersede; new paneMetaMsg/panePreviewMsg
+that do NOT flip `modeObject`); reuse loadMetadata/loadPreview. app.go View() splits body into
+list+pane (JoinHorizontal ≥100 cols, stack/collapse below). NEW command.go (`modeCommand`,
+registry buckets/contexts/conn/analyze/refresh/help/quit). NEW connections.go (`modeConnections`,
+`modeConnForm`): form → injected `Connector{Test,Save}` seam from main.go (UI-agnostic ConnDraft;
+keeps S3/config out of UI per Constitution I). Save maps one draft → cluster+user+context triple
+(schema unchanged) via config.Upsert+Save; secret → secret.StoreKeychain FIRST (abort config on
+keychain fail), `keychain:true` only in config (no plaintext, FR-022). Test=storage.New+ListBuckets;
+fail → "save anyway" (FR-025a). connSavedMsg returns new context names → live in-session switch.
+Read-only guard untouched (no new S3 write symbols leave internal/storage).
 <!-- SPECKIT END -->

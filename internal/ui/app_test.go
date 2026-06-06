@@ -16,7 +16,7 @@ import (
 // newApp builds a test App with a fake store and no image protocol.
 func newApp(f *storage.Fake, contexts []string, resolve Resolver) App {
 	return New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x"},
-		"ctx", contexts, resolve, preview.ProtoNone)
+		"ctx", contexts, resolve, nil, preview.ProtoNone)
 }
 
 func deliver(m App, msg tea.Msg) App {

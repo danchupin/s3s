@@ -163,7 +163,10 @@ func run() error {
 	case "auto":
 		imgProto = preview.DetectProtocol(os.Getenv)
 	}
-	model := ui.New(initial, active, cfg.ContextNames(), resolve, imgProto)
+	// connSeam lets the UI add a cluster connection from inside the app (006 US4): it
+	// tests reachability and persists the triple + keychain secret, mutating the live cfg
+	// so the new context is switchable without a restart.
+	model := ui.New(initial, active, cfg.ContextNames(), resolve, connSeam{cfg: cfg}, imgProto)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
 	}

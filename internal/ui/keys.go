@@ -18,7 +18,8 @@ type keyMap struct {
 	Search      []string
 	Refresh     []string
 	Context     []string
-	Menu        []string // open the contextual action menu
+	Analyze     []string // du analytics on folder/level/bucket (006 US1) — read
+	Download    []string // download the selected object / marked set (006 US1) — read
 	NewFolder   []string // create an empty folder (write mode)
 	Delete      []string // delete the selected object (write mode)
 	Upload      []string // upload a local file into the current level (write mode)
@@ -29,6 +30,7 @@ type keyMap struct {
 	Mark        []string // mark/unmark an object for multi-select (005 US3)
 	Sort        []string // cycle the sort column (005 US4)
 	SortDir     []string // toggle the sort direction (005 US4)
+	Command     []string // open the `:` command bar (006 US3)
 	Quit        []string
 	Help        []string
 }
@@ -45,17 +47,19 @@ func defaultKeys() keyMap {
 		Search:      []string{"/"},
 		Refresh:     []string{"r"},
 		Context:     []string{"c"},
-		Menu:        []string{"a"},
+		Analyze:     []string{"a"}, // analyze (du) — frees the old menu key (006 US1)
+		Download:    []string{"d"}, // download — read, works read-only (006 US1)
 		NewFolder:   []string{"+"},
-		Delete:      []string{"d"},
+		Delete:      []string{"x"}, // k9s-style delete; frees "d" for download (006 US1)
 		Upload:      []string{"u"},
 		Copy:        []string{"y"}, // "yank"; "c" is taken by context switch
 		Move:        []string{"m"},
-		DeleteAll:   []string{"D"},
+		DeleteAll:   []string{"X"},          // recursive delete — matches the "x" family (006 US1)
 		WriteToggle: []string{"w"},          // arm/disarm write at runtime (005 US5)
 		Mark:        []string{" ", "space"}, // multi-select (005 US3)
 		Sort:        []string{"s"},          // cycle sort column (005 US4)
 		SortDir:     []string{"S"},          // toggle sort direction (005 US4)
+		Command:     []string{":"},          // open the `:` command bar (006 US3)
 		Quit:        []string{"ctrl+c", "q"},
 		Help:        []string{"?"},
 	}
@@ -100,8 +104,8 @@ func (m App) helpView() string {
 }
 
 // helpLines is the content of the categorized help surface (FR-010..FR-014c). Sections:
-// Navigation / Search & View / Actions (the `a` menu) / Context / Global / Connection.
-// The key column is derived from defaultKeys() so help can never drift from bindings.
+// Navigation / Search & View / Actions (single-key, no menu) / Context / Global /
+// Connection. The key column is derived from defaultKeys() so help can never drift.
 func (m App) helpLines() []string {
 	k := m.keys
 	sec := func(s string) string { return titleStyle.Render(s) }
@@ -115,7 +119,7 @@ func (m App) helpLines() []string {
 		return "  " + dimCellStyle.Render(pad(label, 14)) + st.Render(val)
 	}
 
-	// Write-capability tag for the Actions menu items (FR-013/H4).
+	// Write-capability tag for the write actions (FR-013/H4).
 	wtag := dimCellStyle.Render("  (write)")
 	if !m.writable() {
 		wtag = warnStyle.Render("  (needs --write)")
@@ -132,17 +136,19 @@ func (m App) helpLines() []string {
 		"",
 		sec("Search & View"),
 		row(formatKeys(k.Search), "filter buckets / search a level (prefix)"),
-		row(formatKeys(k.Mark), "mark/unmark an object (multi-select → a: bulk)"),
+		row(formatKeys(k.Mark), "mark/unmark an object (multi-select → d/x/y act on the set)"),
 		row(formatKeys(k.Sort)+", "+formatKeys(k.SortDir), "cycle sort column · toggle direction"),
 		"",
-		sec("Actions") + dimCellStyle.Render("  ("+formatKeys(k.Menu)+" opens the contextual menu)"),
-		row("refresh", "reload the current list"),
-		row("new folder", "create a folder") + wtag,
-		row("delete", "delete the selected object") + wtag,
-		row("upload here", "upload a local file") + wtag,
-		row("copy", "copy the selected object to a new key") + wtag,
-		row("move / rename", "move/rename the selected object") + wtag,
-		row("recursive delete", "delete the selected folder") + wtag,
+		sec("Actions") + dimCellStyle.Render("  (single key on the selection — no menu)"),
+		row(formatKeys(k.Download), "download the selected object / marked set"),
+		row(formatKeys(k.Analyze), "analyze (du) a bucket / folder / level"),
+		row(formatKeys(k.Refresh), "reload the current list"),
+		row(formatKeys(k.NewFolder), "create a folder") + wtag,
+		row(formatKeys(k.Delete), "delete the selected object / marked set") + wtag,
+		row(formatKeys(k.Upload), "upload a local file") + wtag,
+		row(formatKeys(k.Copy), "copy the selected object / marked set") + wtag,
+		row(formatKeys(k.Move), "move/rename the selected object") + wtag,
+		row(formatKeys(k.DeleteAll), "recursively delete the selected folder") + wtag,
 		"",
 		sec("Context"),
 		row(formatKeys(k.Context), "switch context"),

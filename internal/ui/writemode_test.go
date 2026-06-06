@@ -16,7 +16,7 @@ import (
 func buildApp(f *storage.Fake, armed, readonly bool) App {
 	return New(
 		Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x", Writable: armed, ReadOnly: readonly},
-		"ctx", []string{"ctx"}, nil, preview.ProtoNone,
+		"ctx", []string{"ctx"}, nil, nil, preview.ProtoNone,
 	)
 }
 
