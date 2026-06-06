@@ -96,8 +96,9 @@ func TestActionMenuReadOnly(t *testing.T) {
 	selectObject(&m, "a.txt")
 	m = press(m, "a")
 
-	if got := menuLabels(m); len(got) != 1 || got[0] != "refresh" {
-		t.Fatalf("read-only menu = %v, want [refresh] only", got)
+	// Download is a read — offered even read-only (005 US1); no bulk/write items appear.
+	if got := menuLabels(m); len(got) != 2 || got[0] != "download" || got[1] != "refresh" {
+		t.Fatalf("read-only menu = %v, want [download refresh]", got)
 	}
 }
 
@@ -122,7 +123,8 @@ func TestActionMenuInvokeDeleteEntersTypedConfirm(t *testing.T) {
 	f.Seed("b", "a.txt")
 	m := treeApp(f, true)
 	selectObject(&m, "a.txt")
-	m = press(m, "a") // menuSel=0 -> "delete"
+	m = press(m, "a")    // menuSel=0 -> "download" (read, always first for an object)
+	m = press(m, "down") // -> "delete"
 	m = press(m, "enter")
 
 	if m.op == nil || m.op.kind != "delete_object" {
@@ -142,6 +144,7 @@ func TestActionMenuInvokeCopyEntersDestEntry(t *testing.T) {
 	m := treeApp(f, true)
 	selectObject(&m, "a.txt")
 	m = press(m, "a")
+	m = press(m, "down") // download -> delete
 	m = press(m, "down") // -> "copy"
 	m = press(m, "enter")
 

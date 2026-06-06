@@ -71,13 +71,14 @@ func (l *levelState) count() int { return len(l.dirs) + len(l.objects) }
 // state (005 US5). Writable is the *initial* arm intent (the --write flag); ReadOnly
 // is the context's absolute readonly:true lock.
 type Backend struct {
-	Store    storage.Storage
-	Cluster  string
-	User     string
-	Endpoint string
-	Region   string
-	Writable bool // initial write-arm intent (--write)
-	ReadOnly bool // context is readonly:true — never armable (FR-028)
+	Store       storage.Storage
+	Cluster     string
+	User        string
+	Endpoint    string
+	Region      string
+	Writable    bool   // initial write-arm intent (--write)
+	ReadOnly    bool   // context is readonly:true — never armable (FR-028)
+	DownloadDir string // default local download dir from config (005 FR-007)
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil

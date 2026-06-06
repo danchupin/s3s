@@ -324,6 +324,10 @@ func hasControl(s string) bool {
 // a progress channel consumed by a waitForProgress command.
 func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	op := m.op
+	// Download is a READ (US1) — it needs no Mutator and works read-only.
+	if op.kind == "download" {
+		return m.dispatchDownload(op)
+	}
 	mut, ok := m.activeStore().(storage.Mutator)
 	if !ok {
 		m.op = nil
@@ -383,14 +387,31 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.gen {
 		return m, nil // superseded — drop
 	}
+	// Download is a read: it changes nothing remote, so it reports a notice and skips
+	// the post-mutation refresh (005 US1).
+	isDownload := m.op != nil && m.op.kind == "download"
+	dlDest := ""
+	if isDownload {
+		dlDest = m.op.localPath
+	}
 	m.loading = false
 	m.op = nil
 	m.opCh = nil
 	switch {
 	case msg.err != nil && errors.Is(msg.err, context.Canceled):
-		// Indeterminate outcome: never success; refresh to ground truth (FR-007).
+		// Indeterminate outcome: never success (FR-004/FR-007).
+		m.notice = "cancelled — partial download removed"
+		if isDownload {
+			return m, nil
+		}
 		m.notice = "operation cancelled — nothing reported as done"
 		return m.refresh()
+	case isDownload && msg.err != nil:
+		m.err = msg.err
+		return m, nil
+	case isDownload:
+		m.notice = "downloaded to " + dlDest
+		return m, nil
 	case msg.err != nil && errors.Is(msg.err, storage.ErrMovePartial):
 		// No data loss: copied to the destination, source remains (FR-007).
 		m.notice = "moved partially: copied to destination, source still present"
@@ -460,6 +481,8 @@ func (m App) simpleConfirmText() string {
 		return fmt.Sprintf("copy to %s ?", sanitizeLabel(op.target))
 	case "upload":
 		return fmt.Sprintf("upload to %s ?", sanitizeLabel(op.target))
+	case "download":
+		return fmt.Sprintf("overwrite local %s ?", sanitizeLabel(op.target))
 	default:
 		return fmt.Sprintf("%s %s ?", op.kind, sanitizeLabel(op.target))
 	}
@@ -472,6 +495,10 @@ func (m App) opProgressLine() string {
 	case "upload":
 		return accentStyle.Render(m.spinnerView()) +
 			dimCellStyle.Render(fmt.Sprintf(" uploading %s / %s  (x to cancel)",
+				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
+	case "download":
+		return accentStyle.Render(m.spinnerView()) +
+			dimCellStyle.Render(fmt.Sprintf(" downloading %s / %s  (x to cancel)",
 				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
 	case "delete_recursive":
 		return accentStyle.Render(m.spinnerView()) +

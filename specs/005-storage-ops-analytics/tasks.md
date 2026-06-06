@@ -133,16 +133,16 @@ existing local file prompts before overwrite; cancel leaves no partial.
 
 - [X] T037 [P] [US1] Unit test in `internal/storage/fake_test.go` (or `storage_test.go`): `GetObject` returns seeded bytes byte-for-byte; missing key → `ErrNotFound` (storage-read-ops-contract C1).
 - [X] T038 [P] [US1] Integration test in `internal/storage/s3client_integration_test.go` (`//go:build integration`): download a large (multipart-sized) object from MinIO and verify full length + content; cancellation mid-stream surfaces `ctx.Err()`.
-- [ ] T039 [P] [US1] UI test in `internal/ui/download_test.go`: download writes a byte-identical file to the default dir; runs in a RO context (no `--write`) — FR-002.
-- [ ] T040 [P] [US1] UI test in `internal/ui/download_test.go`: an existing local file triggers a simple overwrite confirm before writing (FR-005); cancel mid-download leaves no `.partial` file (FR-004); failure leaves no complete-looking file (FR-006).
+- [X] T039 [P] [US1] UI test in `internal/ui/download_test.go`: download writes a byte-identical file to the default dir; runs in a RO context (no `--write`) — FR-002.
+- [X] T040 [P] [US1] UI test in `internal/ui/download_test.go`: an existing local file triggers a simple overwrite confirm before writing (FR-005); cancel mid-download leaves no `.partial` file (FR-004); failure leaves no complete-looking file (FR-006).
 
 ### Implementation for User Story 1
 
 - [X] T041 [US1] Implement `GetObject` (full-object stream, no range) in `internal/storage/s3client.go` with sentinel classification (storage-read-ops-contract C1).
-- [ ] T042 [US1] Implement the download operation in `internal/ui/download.go`: stream `GetObject` → `dest+".partial"` → atomic rename on success; remove partial on cancel/failure; progress via the existing `progressEvent`/`opCh`; HeadObject for the progress total (data-model download transfer).
-- [ ] T043 [US1] Add a non-`Mutator` (read) dispatch path for the `download` op kind in `internal/ui/operation.go` (download must not require write).
-- [ ] T044 [US1] Wire the overwrite confirm (simple tier) + the default destination (resolve `S3S_DOWNLOAD_DIR` env > `downloadDir` config key > cwd) with per-download override via the existing file browser (`phaseBrowse`) in `internal/ui/download.go` (FR-005/007); add the `downloadDir` field to `internal/config/config.go`.
-- [ ] T045 [US1] Add the `download` item to the action menu in `internal/ui/actionmenu.go` for an object selection (read — available in RO). Menu-only — no dedicated top-level key (FR-023, keep the footer uncluttered) (action-menu-selection-contract C4).
+- [X] T042 [US1] Implement the download operation in `internal/ui/download.go`: stream `GetObject` → `dest+".partial"` → atomic rename on success; remove partial on cancel/failure; progress via the existing `progressEvent`/`opCh`; HeadObject for the progress total (data-model download transfer).
+- [X] T043 [US1] Add a non-`Mutator` (read) dispatch path for the `download` op kind in `internal/ui/operation.go` (download must not require write).
+- [X] T044 [US1] Wire the overwrite confirm (simple tier) + the default destination (resolve `S3S_DOWNLOAD_DIR` env > `downloadDir` config key > cwd) with per-download override via the existing file browser (`phaseBrowse`) in `internal/ui/download.go` (FR-005/007); add the `downloadDir` field to `internal/config/config.go`.
+- [X] T045 [US1] Add the `download` item to the action menu in `internal/ui/actionmenu.go` for an object selection (read — available in RO). Menu-only — no dedicated top-level key (FR-023, keep the footer uncluttered) (action-menu-selection-contract C4).
 
 **Checkpoint**: US1 fully functional; download works against production read-only.
 

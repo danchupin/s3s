@@ -25,6 +25,11 @@ func (m App) menuItemsFor() []menuItem {
 	}
 
 	var items []menuItem
+	// Download is a read — available for an object selection in any context, incl.
+	// read-only (005 US1, FR-002). Menu-only: no dedicated top-level key (FR-023).
+	if m.selKind() == selObject {
+		items = append(items, menuItem{label: "download", invoke: App.startDownload})
+	}
 	if m.writable() {
 		switch m.selKind() {
 		case selObject:
