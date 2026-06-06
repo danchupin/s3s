@@ -17,14 +17,14 @@ import (
 // storage-read-ops-contract C1).
 func TestIntegrationGetObjectFull(t *testing.T) {
 	b := startBackend(t)
-	b.createBucket(t, "dl")
+	b.createBucket(t, "dlbucket")
 
 	// ~3 MiB body (larger than the 5 MiB preview cap is unnecessary; this proves the
 	// full stream is returned, not a bounded slice).
 	body := bytes.Repeat([]byte("s3s-download-payload-"), 150_000) // ~3.15 MiB
-	b.put(t, "dl", "big/data.bin", string(body), "application/octet-stream")
+	b.put(t, "dlbucket", "big/data.bin", string(body), "application/octet-stream")
 
-	rc, err := b.store.GetObject(context.Background(), "dl", "big/data.bin")
+	rc, err := b.store.GetObject(context.Background(), "dlbucket", "big/data.bin")
 	if err != nil {
 		t.Fatalf("GetObject: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestIntegrationGetObjectFull(t *testing.T) {
 	// Cancellation mid-flight surfaces ctx.Err().
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := b.store.GetObject(ctx, "dl", "big/data.bin"); err == nil {
+	if _, err := b.store.GetObject(ctx, "dlbucket", "big/data.bin"); err == nil {
 		t.Error("GetObject with cancelled ctx returned nil error")
 	}
 }
