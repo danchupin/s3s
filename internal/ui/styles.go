@@ -131,6 +131,37 @@ func truncate(s string, w int) string {
 	return b.String()
 }
 
+// truncateTail keeps the TAIL of s within display width w (rune/width-aware), prefixing
+// an ellipsis when cut — the mirror of truncate (which keeps the head). Used to keep the
+// end of a long typed identifier visible as the operator types (007 FR-023a). Never cuts
+// mid-rune.
+func truncateTail(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	runes := []rune(s)
+	var b strings.Builder
+	width := 0
+	for i := len(runes) - 1; i >= 0; i-- {
+		cw := lipgloss.Width(string(runes[i]))
+		if width+cw > w-1 { // reserve one cell for the leading ellipsis
+			break
+		}
+		b.WriteRune(runes[i])
+		width += cw
+	}
+	// b holds the tail reversed-by-append? No: we appended from the end forward, so the
+	// builder has runes in reverse order — reverse them back.
+	tail := []rune(b.String())
+	for l, r := 0, len(tail)-1; l < r; l, r = l+1, r-1 {
+		tail[l], tail[r] = tail[r], tail[l]
+	}
+	return "…" + string(tail)
+}
+
 // pad truncates then right-pads s to width w.
 func pad(s string, w int) string {
 	s = truncate(s, w)

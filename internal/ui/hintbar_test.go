@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -66,6 +69,21 @@ func TestChordRecursiveDeleteStartsTypedConfirm(t *testing.T) {
 	}
 	if m.op.expect != "p/" {
 		t.Errorf("recursive expect = %q, want p/", m.op.expect)
+	}
+}
+
+func TestChordFolderWithMarksRoutesToRecursive(t *testing.T) {
+	// review #1: a folder cursor WITH marks active must still route ctrl+x to recursive
+	// delete of the highlighted folder — NOT bulk delete of the marked set.
+	f := storage.NewFake()
+	f.Seed("b", "obj.txt", "p/a", "p/b")
+	m := treeApp(f, true)
+	selectObject(&m, "obj.txt")
+	m = press(m, " ")   // mark obj.txt
+	selectDir(&m, "p/") // move cursor to the folder while a mark exists
+	m = press(m, "ctrl+x")
+	if m.op == nil || m.op.kind != "delete_recursive" || m.op.prefix != "p/" {
+		t.Fatalf("ctrl+x on a folder (with marks) should recurse the folder, not bulk-delete marks; op=%+v", m.op)
 	}
 }
 
@@ -206,7 +224,7 @@ func TestWriteEntryStatesDistinct(t *testing.T) {
 	// Read-only → every write entry is dimmed.
 	ro := treeApp(f, false)
 	selectObject(&ro, "a.txt")
-	for _, e := range ro.writeEntries() {
+	for _, e := range ro.writeEntries(ro.selKind()) {
 		if e.state != entryDimmed {
 			t.Errorf("read-only write entry %q state=%v, want entryDimmed", e.label, e.state)
 		}
@@ -216,7 +234,7 @@ func TestWriteEntryStatesDistinct(t *testing.T) {
 	rw := treeApp(f, true)
 	selectObject(&rw, "a.txt")
 	var sawInapplicable bool
-	for _, e := range rw.writeEntries() {
+	for _, e := range rw.writeEntries(rw.selKind()) {
 		if e.state == entryInapplicable {
 			sawInapplicable = true
 			if e.role == roleWriteDimmed {
@@ -282,5 +300,27 @@ func TestAvailLabelsReadOnlyOmitsWriteFromAvailable(t *testing.T) {
 	ls := availLabels(m)
 	if !hasStr(ls, "download") {
 		t.Errorf("read-only must still offer download; got %v", ls)
+	}
+}
+
+// review #4: truncateTail keeps the tail of a long identifier, rune-aware (no mid-rune cut).
+func TestTruncateTailRuneAware(t *testing.T) {
+	if got := truncateTail("short", 20); got != "short" {
+		t.Errorf("fitting string must be unchanged; got %q", got)
+	}
+	got := truncateTail("a-very-long-bucket-name-here", 10)
+	if []rune(got)[0] != '…' {
+		t.Errorf("truncated tail must start with an ellipsis; got %q", got)
+	}
+	if lipgloss.Width(got) > 10 {
+		t.Errorf("truncated tail must fit width 10; got width %d (%q)", lipgloss.Width(got), got)
+	}
+	if !strings.HasSuffix(got, "here") {
+		t.Errorf("truncateTail must keep the END visible; got %q", got)
+	}
+	// Multibyte input must not be cut mid-rune (valid UTF-8 out).
+	mb := truncateTail("контейнер-очень-длинное-имя", 8)
+	if !utf8.ValidString(mb) {
+		t.Errorf("truncateTail produced invalid UTF-8: %q", mb)
 	}
 }

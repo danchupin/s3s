@@ -79,13 +79,10 @@ func (m App) typedConfirmForm(w int) string {
 	badge := writeBadge(m.writable())
 
 	head := bar + badge + " " + titleStyle.Render("type to confirm")
-	// Window the input to the available width so a long identifier scrolls into view.
-	avail := max(8, w-len(noun)-18)
-	shown := op.input
-	if len(shown) > avail {
-		shown = "…" + shown[len(shown)-avail+1:]
-	}
-	field := objCellStyle.Render(shown) + accentStyle.Render("▏")
+	// Window the input to the available width so a long identifier scrolls into view —
+	// rune/width-aware (never cuts mid-rune; review #4).
+	avail := max(8, w-lipgloss.Width(noun)-18)
+	field := objCellStyle.Render(truncateTail(op.input, avail)) + accentStyle.Render("▏")
 	prompt := bar + dimCellStyle.Render(fmt.Sprintf("%s — type %s ", verb, noun)) +
 		accentStyle.Render(sanitizeLabel(op.expect)) + dimCellStyle.Render(": ") + field
 	hint := bar + dimCellStyle.Render("Enter confirm · Esc cancel")

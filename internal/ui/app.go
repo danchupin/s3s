@@ -429,6 +429,21 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onSearchKey(msg)
 	}
 
+	// A running mutation is modal in EVERY mode: only cancel (Esc/Back) and quit work.
+	// Checked before the mode-specific handlers so a running op (incl. a connection delete
+	// in modeConnections) never traps quit/cancel behind a mode handler (review #7).
+	if m.op != nil && m.op.phase == phaseRunning {
+		switch {
+		case matches(key, m.keys.Quit):
+			(&m).cancelLoad()
+			return m, tea.Quit
+		case matches(key, m.keys.Back):
+			(&m).cancelLoad()
+			return m, nil
+		}
+		return m, nil
+	}
+
 	// The command bar / connection form own all keys while open (text input) — modal,
 	// before the global bindings so typing "q"/":" is not intercepted (006 US3/US4).
 	if m.mode == modeCommand {
@@ -449,22 +464,6 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// A pending write-arm confirmation is modal: y/N resolves it (005 US5).
 	if m.armConfirm {
 		return m.onArmConfirmKey(key)
-	}
-
-	// A running mutation is modal: only cancel (Esc/Back) and quit work. Navigation and
-	// starting another mutation are blocked so a streaming op is never superseded
-	// out from under its progress reader (which would orphan the worker goroutine)
-	// and so two mutations can't run at once. Cancel is the back/escape key (FR-029).
-	if m.op != nil && m.op.phase == phaseRunning {
-		switch {
-		case matches(key, m.keys.Quit):
-			(&m).cancelLoad()
-			return m, tea.Quit
-		case matches(key, m.keys.Back):
-			(&m).cancelLoad()
-			return m, nil
-		}
-		return m, nil
 	}
 
 	// An interactive operation (name/dest entry, confirmation, file browser) owns

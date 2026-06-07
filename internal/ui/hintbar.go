@@ -23,10 +23,11 @@ type action struct {
 	writeOnly bool
 	bulk      bool // routes to the bulk variant + shows a count when a multi-select is active
 	// dangerous gates the action behind a Ctrl chord (007 US4, FR-021): the bare key is
-	// inert (nudge only); chord is the displayed/triggering key. chord is the key string
-	// (e.g. "ctrl+x") used both to render the `^x` glyph and to route the chord press.
+	// inert (nudge only); chordKeys is the keymap binding (e.g. m.keys.DeleteChord) used
+	// both to render the `^x` glyph and to route the chord press — sourced from the keymap
+	// (not a literal) so a rebind follows everywhere (dispatch, glyph, help).
 	dangerous bool
-	chord     string
+	chordKeys []string
 	// avail receives the precomputed selection kind so each predicate avoids re-deriving it
 	// (selKind→selected→treeEntries re-sorts the level; recomputing per action is wasteful).
 	avail  func(App, selKind) bool
@@ -47,11 +48,15 @@ func (m App) actionCatalog() []action {
 		return []action{
 			{binds: k.Analyze, label: "analyze", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startAnalyze},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
-			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chord: "ctrl+x",
+			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chordKeys: k.DeleteChord,
 				avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startRemoveBucket},
 		}
 	}
 	objOrMarks := func(a App, kind selKind) bool { return kind == selObject || a.hasMarks() }
+	// deleteTarget gates the single/bulk delete to an OBJECT cursor (with or without marks)
+	// — NOT a folder cursor, so the shared ctrl+x on a highlighted folder routes to the
+	// recursive delete below, never to bulk delete of the marked set (007 review #1).
+	deleteTarget := func(a App, kind selKind) bool { return kind == selObject || (a.hasMarks() && kind != selFolder) }
 	return []action{
 		{binds: k.Download, label: "download", bulk: true, avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
@@ -60,20 +65,20 @@ func (m App) actionCatalog() []action {
 			return a.startDownload()
 		}},
 		{binds: k.Analyze, label: "analyze", avail: func(_ App, kind selKind) bool { return kind != selObject }, invoke: App.startAnalyze},
-		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chord: "ctrl+x", avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
+		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chordKeys: k.DeleteChord, avail: deleteTarget, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkDelete()
 			}
 			return a.startRemoveObject()
 		}},
-		{binds: k.DeleteAll, label: "delete", writeOnly: true, dangerous: true, chord: "ctrl+x", avail: func(_ App, kind selKind) bool { return kind == selFolder }, invoke: App.startRecursiveDelete},
+		{binds: k.DeleteAll, label: "delete", writeOnly: true, dangerous: true, chordKeys: k.DeleteChord, avail: func(_ App, kind selKind) bool { return kind == selFolder }, invoke: App.startRecursiveDelete},
 		{binds: k.Copy, label: "copy", writeOnly: true, bulk: true, avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkCopy()
 			}
 			return a.startCopy()
 		}},
-		{binds: k.Move, label: "move", writeOnly: true, dangerous: true, chord: "ctrl+o", avail: func(_ App, kind selKind) bool { return kind == selObject }, invoke: App.startMove},
+		{binds: k.Move, label: "move", writeOnly: true, dangerous: true, chordKeys: k.MoveChord, avail: func(_ App, kind selKind) bool { return kind == selObject }, invoke: App.startMove},
 		{binds: k.Upload, label: "upload", writeOnly: true, avail: always, invoke: App.startUpload},
 		{binds: k.NewFolder, label: "new folder", writeOnly: true, avail: always, invoke: App.startCreateFolder},
 		{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refresh},
@@ -115,7 +120,7 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 		if a.dangerous {
 			// Bare dangerous key never triggers; require the chord (FR-021). Nudge only.
 			if m.writable() {
-				m.notice = "press " + glyph(a.chord) + " to " + a.label + " (Ctrl chord required)"
+				m.notice = "press " + glyph(firstBind(a.chordKeys)) + " to " + a.label + " (Ctrl chord required)"
 			} else {
 				m.err = storage.ErrReadOnly
 			}
@@ -139,7 +144,7 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 func (m App) dispatchChord(key string) (tea.Model, tea.Cmd, bool) {
 	kind := m.selKind()
 	for _, a := range m.actionCatalog() {
-		if !a.dangerous || a.chord == "" || a.chord != key {
+		if !a.dangerous || !matches(key, a.chordKeys) {
 			continue
 		}
 		if a.avail != nil && !a.avail(m, kind) {

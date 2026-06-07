@@ -187,11 +187,11 @@ func resolveRef(v string) (string, error) {
 func (c *Config) Validate() error {
 	// A fully-empty config is the valid "no connections yet" state (007 US5: the last
 	// connection is deletable, leaving the app in its add-connection state). A PARTIAL
-	// set is still invalid (caught by the cross-reference checks below).
-	if len(c.Clusters) == 0 && len(c.Users) == 0 && len(c.Contexts) == 0 {
-		return nil
-	}
-	if len(c.Clusters) == 0 || len(c.Users) == 0 || len(c.Contexts) == 0 {
+	// set is still invalid. The cross-reference + dangling-current-context checks below
+	// STILL run for the empty case (a non-empty current-context over zero contexts is
+	// caught there, review #5).
+	allEmpty := len(c.Clusters) == 0 && len(c.Users) == 0 && len(c.Contexts) == 0
+	if !allEmpty && (len(c.Clusters) == 0 || len(c.Users) == 0 || len(c.Contexts) == 0) {
 		return fmt.Errorf("%w: need at least one cluster, user, and context", ErrInvalid)
 	}
 

@@ -143,14 +143,27 @@ func TestRemoveConnectionDropsTripleAndSecret(t *testing.T) {
 	}
 }
 
-func TestRemoveConnectionRefusesActive(t *testing.T) {
+func TestRemoveConnectionRepointsCurrentContext(t *testing.T) {
 	keyring.MockInit()
-	cfg := loadBase(t)
-	if _, err := cfg.RemoveConnection("base"); err == nil {
-		t.Fatal("deleting the active context must be refused")
+	cfg := loadBase(t) // current-context = base
+	if _, err := cfg.AddConnection(NewConnection{
+		Name: "extra", Endpoint: "http://h:9000", AccessKeyID: "AKID",
+	}, "SECRET"); err != nil {
+		t.Fatalf("AddConnection: %v", err)
 	}
-	if _, ok := cfg.context("base"); !ok {
-		t.Error("the active context must remain after a refused delete")
+	// Deleting the persisted current-context re-points it to a remaining context so the
+	// on-disk config never dangles (the live-session active guard lives in the UI).
+	if _, err := cfg.RemoveConnection("base"); err != nil {
+		t.Fatalf("RemoveConnection(base) = %v, want nil (re-point, not refuse)", err)
+	}
+	if _, ok := cfg.context("base"); ok {
+		t.Error("base context should be gone")
+	}
+	if cfg.CurrentContext != "extra" {
+		t.Errorf("current-context should re-point to extra; got %q", cfg.CurrentContext)
+	}
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("config must stay valid after re-point; got %v", err)
 	}
 }
 

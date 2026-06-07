@@ -66,9 +66,10 @@ type infoField struct {
 
 // readEntries builds the read block: open + search/filter, then the read (non-write)
 // actions for the current mode. A read action inapplicable to the current selection is
-// marked entryInapplicable (still shown), never hidden.
-func (m App) readEntries() []barEntry {
-	kind := m.selKind()
+// marked entryInapplicable (still shown), never hidden. kind is passed in (computed once
+// per render by the caller) to avoid re-deriving the selection — which re-sorts the whole
+// level (review #9).
+func (m App) readEntries(kind selKind) []barEntry {
 	searchLabel := "search"
 	if m.mode == modeBuckets {
 		searchLabel = "filter"
@@ -93,8 +94,7 @@ func (m App) readEntries() []barEntry {
 // writeEntries builds the write block: every write action, ALWAYS shown. State is dimmed
 // when the context is read-only (FR-007), inapplicable for the wrong selection (FR-018),
 // else active (FR-008). Dangerous actions display their chord glyph (FR-026).
-func (m App) writeEntries() []barEntry {
-	kind := m.selKind()
+func (m App) writeEntries(kind selKind) []barEntry {
 	writable := m.writable()
 	var out []barEntry
 	for _, a := range m.actionCatalog() {
@@ -105,7 +105,7 @@ func (m App) writeEntries() []barEntry {
 		role := roleWriteActive
 		state := entryActive
 		if a.dangerous {
-			key = glyph(a.chord)
+			key = glyph(firstBind(a.chordKeys))
 		}
 		switch {
 		case !writable:
@@ -131,19 +131,25 @@ func (m App) infoFields() []infoField {
 	}
 }
 
-// entryStyled renders one read/write entry as "key label" in its role style.
+// entryStyled renders one read/write entry as "key label" in its role style (a single
+// Render of the whole "key label" string — review #10).
 func entryStyled(e barEntry) string {
-	return roleStyle[e.role].Render(e.key) + " " + roleStyle[e.role].Render(e.label)
+	return roleStyle[e.role].Render(e.key + " " + e.label)
 }
 
 // commandBarView renders the three-block command bar (or the collapsed compact row on a
-// narrow terminal). It always includes the arm badge and the write block.
+// narrow terminal). It always includes the arm badge and the write block. The selection
+// kind is derived ONCE here and threaded into the read/write builders (review #9), and the
+// narrow path returns early WITHOUT building the wide columns it would discard.
 func (m App) commandBarView(w int) string {
-	info, read, write := m.infoColumn(), m.readColumn(), m.writeColumn()
-	natural := lipgloss.Width(info) // info is the widest fixed column; add read+write+gaps
-	natural += lipgloss.Width(read) + lipgloss.Width(write) + 4
-	if w < blockColMin || natural > w {
-		return m.collapsedBarView(w)
+	kind := m.selKind()
+	if w < blockColMin {
+		return m.collapsedBarView(w, kind)
+	}
+	info, read, write := m.infoColumn(), m.readColumn(kind), m.writeColumn(kind)
+	natural := lipgloss.Width(info) + lipgloss.Width(read) + lipgloss.Width(write) + 4
+	if natural > w {
+		return m.collapsedBarView(w, kind)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, info, "  ", read, "  ", write)
 }
@@ -171,9 +177,9 @@ func (m App) infoColumn() string {
 }
 
 // readColumn renders the read block as a titled column.
-func (m App) readColumn() string {
+func (m App) readColumn(kind selKind) string {
 	rows := []string{blockTitleStyle.Render("READ")}
-	for _, e := range m.readEntries() {
+	for _, e := range m.readEntries(kind) {
 		rows = append(rows, entryStyled(e))
 	}
 	return blockColumn(rows)
@@ -181,13 +187,13 @@ func (m App) readColumn() string {
 
 // writeColumn renders the write block as a titled column. The title gains a "(w to arm)"
 // cue when read-only so the inactive state survives NO_COLOR (FR-015).
-func (m App) writeColumn() string {
+func (m App) writeColumn(kind selKind) string {
 	title := blockTitleStyle.Render("WRITE")
 	if !m.writable() {
 		title += warnStyle.Render("  (w to arm)")
 	}
 	rows := []string{title}
-	for _, e := range m.writeEntries() {
+	for _, e := range m.writeEntries(kind) {
 		rows = append(rows, entryStyled(e))
 	}
 	return blockColumn(rows)
@@ -211,9 +217,9 @@ func blockColumn(rows []string) string {
 // badge, a read row, and a write row — each width-fit by DROPPING trailing entries (never
 // by clipping styled text mid-escape, which would corrupt the line). The write row keeps
 // at least one entry + a "…" so the write block is never dropped entirely (FR-016).
-func (m App) collapsedBarView(w int) string {
+func (m App) collapsedBarView(w int, kind selKind) string {
 	identity := footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable())
-	read := append([]barEntry{}, m.readEntries()...)
+	read := append([]barEntry{}, m.readEntries(kind)...)
 	if m.connect != nil {
 		read = append(read, barEntry{key: glyph(m.keys.AddConn[0]), label: "new conn", role: roleRead, state: entryActive})
 	}
@@ -221,7 +227,7 @@ func (m App) collapsedBarView(w int) string {
 	globals := dimCellStyle.Render(" · ") + accentStyle.Render("?") + " " + dimCellStyle.Render("help") +
 		dimCellStyle.Render(" · ") + accentStyle.Render("q") + " " + dimCellStyle.Render("quit")
 	readRow := fitEntries(read, max(1, w-lipgloss.Width(globals)), 0) + globals
-	writeRow := fitEntries(m.writeEntries(), w, 1) // keep ≥1 write entry (FR-016)
+	writeRow := fitEntries(m.writeEntries(kind), w, 1) // keep ≥1 write entry (FR-016)
 	return identity + "\n" + readRow + "\n" + writeRow
 }
 
