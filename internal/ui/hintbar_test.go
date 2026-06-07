@@ -1,12 +1,11 @@
 package ui
 
 import (
+	"context"
 	"strings"
 	"testing"
-	"unicode/utf8"
 
-	"charm.land/lipgloss/v2"
-
+	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
 
@@ -157,16 +156,26 @@ func TestDirectAnalyzeNoMenu(t *testing.T) {
 
 // --- 007 US1: the three-block command bar ---
 
-func TestCommandBarHasThreeBlocks(t *testing.T) {
+// 008 US5 (FR-013): the command bar drops ALL THREE block headings (INFO/READ/WRITE) while
+// keeping the info/read/write entries grouped in distinct columns.
+func TestCommandBarHasNoBlockTitles(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "a.txt")
 	m := treeApp(f, true)
+	selectObject(&m, "a.txt")
 	m.width = 140
 	bar := m.commandBarView(140)
-	for _, want := range []string{"INFO", "READ", "WRITE"} {
-		if !strings.Contains(bar, want) {
-			t.Errorf("command bar missing block %q; got:\n%s", want, bar)
+	for _, gone := range []string{"INFO", "READ", "WRITE"} {
+		if strings.Contains(bar, gone) {
+			t.Errorf("command bar must NOT show the %q heading; got:\n%s", gone, bar)
 		}
+	}
+	// Grouping still readable: a read key and a write key both render.
+	if !strings.Contains(bar, "open") {
+		t.Errorf("read entries should still render (e.g. 'open'); got:\n%s", bar)
+	}
+	if !strings.Contains(bar, "delete") {
+		t.Errorf("write entries should still render (e.g. 'delete'); got:\n%s", bar)
 	}
 }
 
@@ -189,6 +198,123 @@ func TestCommandBarReadOnlyShowsWriteDimmed(t *testing.T) {
 	}
 }
 
+// 008 US8: an applied filter (not actively typing) shows an "Esc clear" reset affordance in
+// the read group; no affordance when no filter is active (FR-021).
+func hasReadLabel(m App, label string) bool {
+	for _, e := range m.readEntries(m.selKind(), m.actionCatalog()) {
+		if e.label == label {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFilterResetAffordanceBuckets(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := withBuckets(f, []string{"ctx"}, nil)
+	if hasReadLabel(m, "clear") {
+		t.Errorf("no filter active → no clear affordance")
+	}
+	m.bucketFilter = "foo" // applied, not typing
+	if !hasReadLabel(m, "clear") {
+		t.Errorf("applied bucket filter must show a clear affordance")
+	}
+}
+
+func TestFilterResetAffordanceTree(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.search = "pre" // applied search, not typing
+	if !hasReadLabel(m, "clear") {
+		t.Errorf("applied tree search must show a clear affordance")
+	}
+	m.search = ""
+	m.searching = true // actively typing → its own Enter/Esc hints, no clear entry
+	if hasReadLabel(m, "clear") {
+		t.Errorf("while typing the filter, no clear affordance should appear")
+	}
+}
+
+// 008 US7: the connection affordance reads "connections" (not "new conn") and survives a
+// collapsed/narrow bar (FR-019/FR-020).
+func TestCommandBarConnectionsAffordance(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.connect = &fakeConnector{}
+	m.width = 140
+	wide := m.commandBarView(140)
+	if !strings.Contains(wide, "connections") {
+		t.Errorf("bar should show 'connections'; got:\n%s", wide)
+	}
+	if strings.Contains(wide, "new conn") {
+		t.Errorf("bar must not show the old 'new conn' label; got:\n%s", wide)
+	}
+	narrow := m.commandBarView(40) // forces the collapsed bar + entry dropping
+	if !strings.Contains(narrow, "connections") {
+		t.Errorf("collapsed bar must keep 'connections' (not dropped first); got:\n%s", narrow)
+	}
+}
+
+// 008 US9: the write group shows only the selection-applicable delete — never two identical
+// "delete" labels (FR-022).
+func writeLabels(m App) []string {
+	var out []string
+	for _, e := range m.writeEntries(m.selKind(), m.actionCatalog()) {
+		out = append(out, e.label)
+	}
+	return out
+}
+
+func countLabel(labels []string, want string) int {
+	n := 0
+	for _, l := range labels {
+		if l == want {
+			n++
+		}
+	}
+	return n
+}
+
+func TestNoDuplicateDeleteObjectCursor(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt", "p/x")
+	m := treeApp(f, true)
+	selectObject(&m, "a.txt")
+	labels := writeLabels(m)
+	if got := countLabel(labels, "delete"); got != 1 {
+		t.Errorf("object cursor: want exactly one 'delete' entry, got %d (%v)", got, labels)
+	}
+}
+
+func TestNoDuplicateDeleteFolderCursor(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt", "p/x")
+	m := treeApp(f, true)
+	selectDir(&m, "p/")
+	labels := writeLabels(m)
+	if got := countLabel(labels, "delete"); got != 1 {
+		t.Errorf("folder cursor: want exactly one 'delete' entry, got %d (%v)", got, labels)
+	}
+}
+
+// 008 US9 regression: suppressing the inapplicable delete must NOT empty the write group in
+// bucket mode (where "delete" is the lone write action) — FR-016 keeps the capability shown.
+func TestWriteGroupKeptInBucketModeZeroMatches(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x", Writable: true},
+		"ctx", []string{"ctx"}, nil, nil, preview.ProtoNone)
+	bs, _ := f.ListBuckets(context.Background())
+	m = deliver(m, bucketsMsg{gen: m.gen, buckets: bs})
+	m.bucketFilter = "zzz-matches-nothing" // delete becomes inapplicable (0 buckets)
+	if got := m.writeEntries(m.selKind(), m.actionCatalog()); len(got) == 0 {
+		t.Errorf("bucket-mode write group must not be emptied by delete suppression (FR-016)")
+	}
+}
+
 func TestCommandBarShowsChordLabels(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "a.txt")
@@ -196,8 +322,8 @@ func TestCommandBarShowsChordLabels(t *testing.T) {
 	selectObject(&m, "a.txt")
 	m.width = 140
 	bar := m.commandBarView(140)
-	if !strings.Contains(bar, "^x") {
-		t.Errorf("write block must advertise the delete chord '^x'; got:\n%s", bar)
+	if !strings.Contains(bar, "Ctrl+X") {
+		t.Errorf("write block must advertise the delete chord 'Ctrl+X'; got:\n%s", bar)
 	}
 }
 
@@ -229,10 +355,12 @@ func TestWriteEntryStatesDistinct(t *testing.T) {
 			t.Errorf("read-only write entry %q role=%v, want roleWriteDimmed", e.label, e.role)
 		}
 	}
-	// Writable, object selected → recursive delete is inapplicable (needs a folder),
-	// DISTINCT from dimmed; other write entries are active.
+	// Writable, FOLDER selected → copy/move are inapplicable (need an object), DISTINCT from
+	// dimmed; other write entries are active. (008 US9: the inapplicable DELETE is now
+	// suppressed entirely rather than shown dimmed, so the inapplicable role is exercised via
+	// copy/move on a folder.)
 	rw := treeApp(f, true)
-	selectObject(&rw, "a.txt")
+	selectDir(&rw, "docs/")
 	var sawInapplicable bool
 	for _, e := range rw.writeEntries(rw.selKind(), rw.actionCatalog()) {
 		if e.role == roleWriteInapplicable {
@@ -243,7 +371,7 @@ func TestWriteEntryStatesDistinct(t *testing.T) {
 		}
 	}
 	if !sawInapplicable {
-		t.Error("recursive delete on an object selection should use the inapplicable role")
+		t.Error("copy/move on a folder selection should use the inapplicable role")
 	}
 }
 
@@ -300,27 +428,5 @@ func TestAvailLabelsReadOnlyOmitsWriteFromAvailable(t *testing.T) {
 	ls := availLabels(m)
 	if !hasStr(ls, "download") {
 		t.Errorf("read-only must still offer download; got %v", ls)
-	}
-}
-
-// review #4: truncateTail keeps the tail of a long identifier, rune-aware (no mid-rune cut).
-func TestTruncateTailRuneAware(t *testing.T) {
-	if got := truncateTail("short", 20); got != "short" {
-		t.Errorf("fitting string must be unchanged; got %q", got)
-	}
-	got := truncateTail("a-very-long-bucket-name-here", 10)
-	if []rune(got)[0] != '…' {
-		t.Errorf("truncated tail must start with an ellipsis; got %q", got)
-	}
-	if lipgloss.Width(got) > 10 {
-		t.Errorf("truncated tail must fit width 10; got width %d (%q)", lipgloss.Width(got), got)
-	}
-	if !strings.HasSuffix(got, "here") {
-		t.Errorf("truncateTail must keep the END visible; got %q", got)
-	}
-	// Multibyte input must not be cut mid-rune (valid UTF-8 out).
-	mb := truncateTail("контейнер-очень-длинное-имя", 8)
-	if !utf8.ValidString(mb) {
-		t.Errorf("truncateTail produced invalid UTF-8: %q", mb)
 	}
 }

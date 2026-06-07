@@ -59,8 +59,8 @@ var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "s
 // only at save) — never via secret.Prompt (x/term), which only works before the TUI starts
 // (005 R12) and would corrupt the alt-screen.
 type connForm struct {
-	name, endpoint, region, accessKey string
-	secret                            string
+	name, endpoint, region, accessKey textField
+	secret                            textField // masked on render, never logged
 	pathStyle                         bool
 	readOnly                          bool
 	cursor                            int    // 0..fldReadOnly
@@ -194,8 +194,26 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 		return m, nil
 	case "enter":
 		return m.submitConnForm()
+	case "left":
+		m.formCaret((*textField).Left)
+		return m, nil
+	case "right":
+		m.formCaret((*textField).Right)
+		return m, nil
+	case "home":
+		m.formCaret((*textField).Home)
+		return m, nil
+	case "end":
+		m.formCaret((*textField).End)
+		return m, nil
 	case "backspace":
 		m.formBackspace()
+		return m, nil
+	case "delete":
+		if p := f.focusField(); p != nil {
+			p.DeleteFwd()
+			f.tested, f.testOK = false, false
+		}
 		return m, nil
 	case " ", "space":
 		switch f.cursor {
@@ -215,9 +233,9 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	}
 }
 
-// textField returns a pointer to the raw text field under the cursor, or nil for the
-// boolean toggle rows. The single field selector shared by append/backspace.
-func (f *connForm) textField() *string {
+// focusField returns a pointer to the editable textField under the cursor, or nil for the
+// boolean toggle rows. The single field selector shared by all editing ops.
+func (f *connForm) focusField() *textField {
 	switch f.cursor {
 	case fldName:
 		return &f.name
@@ -235,28 +253,36 @@ func (f *connForm) textField() *string {
 
 func (m App) formAppend(s string) {
 	f := m.form
-	if p := f.textField(); p != nil {
-		*p += s
+	if p := f.focusField(); p != nil {
+		p.Insert(s)
 	}
 	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
 }
 
 func (m App) formBackspace() {
 	f := m.form
-	if p := f.textField(); p != nil && len(*p) > 0 {
-		*p = (*p)[:len(*p)-1]
+	if p := f.focusField(); p != nil {
+		p.Backspace()
 	}
 	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
+}
+
+// formCaret applies a caret-movement op to the focused text field (008 US3, FR-006). A
+// no-op on the boolean toggle rows (FR-008). Caret moves never invalidate the test.
+func (m App) formCaret(move func(*textField)) {
+	if p := m.form.focusField(); p != nil {
+		move(p)
+	}
 }
 
 // draft builds the ConnDraft from the form.
 func (f *connForm) draft() ConnDraft {
 	return ConnDraft{
-		Name:        strings.TrimSpace(f.name),
-		Endpoint:    strings.TrimSpace(f.endpoint),
-		Region:      strings.TrimSpace(f.region),
-		AccessKeyID: strings.TrimSpace(f.accessKey),
-		Secret:      logging.Secret(f.secret),
+		Name:        strings.TrimSpace(f.name.Value),
+		Endpoint:    strings.TrimSpace(f.endpoint.Value),
+		Region:      strings.TrimSpace(f.region.Value),
+		AccessKeyID: strings.TrimSpace(f.accessKey.Value),
+		Secret:      logging.Secret(f.secret.Value),
 		PathStyle:   f.pathStyle,
 		ReadOnly:    f.readOnly,
 	}
@@ -265,15 +291,16 @@ func (f *connForm) draft() ConnDraft {
 // validate enforces required/format rules + name uniqueness before any backend call.
 func (m App) validateForm() string {
 	f := m.form
-	if strings.TrimSpace(f.name) == "" {
+	name := strings.TrimSpace(f.name.Value)
+	if name == "" {
 		return "name is required"
 	}
 	for _, c := range m.contexts {
-		if c == strings.TrimSpace(f.name) {
-			return "a context named " + strings.TrimSpace(f.name) + " already exists"
+		if c == name {
+			return "a context named " + name + " already exists"
 		}
 	}
-	ep := strings.TrimSpace(f.endpoint)
+	ep := strings.TrimSpace(f.endpoint.Value)
 	if ep == "" {
 		return "endpoint is required"
 	}
@@ -283,10 +310,10 @@ func (m App) validateForm() string {
 	// Credentials are required: the connection is persisted with a keychain source, which
 	// the config validator rejects without an access key id (and an empty secret is
 	// useless). Catch it here so a bad draft never reaches the config writer (FR-021).
-	if strings.TrimSpace(f.accessKey) == "" {
+	if strings.TrimSpace(f.accessKey.Value) == "" {
 		return "access key id is required"
 	}
-	if f.secret == "" {
+	if f.secret.Value == "" {
 		return "secret access key is required"
 	}
 	return ""
@@ -356,9 +383,45 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// connectionsView renders the connection-list body (existing contexts + an add row).
+// connDeleteHint is the connection-list help line (008 US1). It always advertises
+// navigation; the delete segment is appended ONLY for a deletable (non-active, existing)
+// selection — absent on the "+ add connection" row, the empty list, and the active
+// connection (FR-001/FR-003). The delete keystroke is sourced from the keymap so it tracks
+// rebinds and the chord-label format (FR-004).
+func (m App) connDeleteHint() string {
+	base := "↑/↓ select · Enter open/switch · Esc back"
+	if m.connSel >= 0 && m.connSel < len(m.contexts) && m.contexts[m.connSel] != m.ctxName {
+		return base + " · " + glyph(m.keys.DeleteChord[0]) + " delete"
+	}
+	return base
+}
+
+// connectionsView renders the connection-list body (existing contexts + an add row) plus the
+// inline help line carrying the delete hint (008 US1).
 func (m App) connectionsView(w, rows int) string {
-	return ctxTable(w, rows, m.connSel, "connection", m.connRows(), m.ctxName)
+	hint := m.connDeleteHint()
+	body := ctxTable(w, max(1, rows-2), m.connSel, "connection", m.connRows(), m.ctxName)
+	return body + "\n\n" + dimCellStyle.Render(truncate(hint, max(1, w-1)))
+}
+
+// connFieldHint returns the focused-field guidance line (008 US4, FR-009/FR-010). The secret
+// field names what to enter (the secret access key, stored in the OS keychain) and that the
+// other credential sources are config-file-only — it deliberately does NOT promise ${ENV}
+// resolution, since the form stores the secret verbatim to the keychain.
+func (m App) connFieldHint(cursor int) string {
+	switch cursor {
+	case fldName:
+		return "unique context name"
+	case fldEndpoint:
+		return "absolute URL, e.g. https://host:9000"
+	case fldRegion:
+		return "region, e.g. us-east-1 (optional)"
+	case fldAccessKey:
+		return "access key id"
+	case fldSecret:
+		return "secret access key — stored in your OS keychain · env var / cmd / AWS profile via config file"
+	}
+	return ""
 }
 
 // connFormView renders the add-connection form body.
@@ -367,18 +430,20 @@ func (m App) connFormView(w int) string {
 	if f == nil {
 		return ""
 	}
-	vals := []string{f.name, f.endpoint, f.region, f.accessKey, strings.Repeat("•", len(f.secret))}
+	fields := []textField{f.name, f.endpoint, f.region, f.accessKey, f.secret}
 	checkbox := func(on bool) string {
 		if on {
 			return "[x] (space toggles)"
 		}
 		return "[ ] (space toggles)"
 	}
+	avail := max(1, w-20)
 	var b strings.Builder
 	for i, label := range connFieldLabels {
 		marker := "  "
 		lblStyle := dimCellStyle
-		if i == f.cursor {
+		focused := i == f.cursor
+		if focused {
 			marker = "▶ "
 			lblStyle = formActiveStyle
 		}
@@ -388,15 +453,28 @@ func (m App) connFormView(w int) string {
 			val = checkbox(f.pathStyle)
 		case fldReadOnly:
 			val = checkbox(f.readOnly)
+		case fldSecret:
+			if focused {
+				val = fields[i].Render(avail, true) // masked, with caret
+			} else {
+				val = strings.Repeat("•", len([]rune(fields[i].Value)))
+			}
 		default:
-			val = vals[i]
+			if focused {
+				val = fields[i].Render(avail, false) // windowed, with caret
+			} else {
+				val = truncate(fields[i].Value, avail)
+			}
 		}
-		b.WriteString(marker + lblStyle.Render(pad(label, 16)) + objCellStyle.Render(truncate(val, max(1, w-20))) + "\n")
+		b.WriteString(marker + lblStyle.Render(pad(label, 16)) + objCellStyle.Render(val) + "\n")
 	}
 	b.WriteString("\n")
+	if hint := m.connFieldHint(f.cursor); hint != "" {
+		b.WriteString(dimCellStyle.Render(truncate(hint, max(1, w-1))) + "\n")
+	}
 	if f.err != "" {
 		b.WriteString(formErrStyle.Render(truncate(f.err, max(1, w-1))) + "\n")
 	}
-	b.WriteString(dimCellStyle.Render("↑/↓ field · space toggle · Enter test+save · Esc cancel"))
+	b.WriteString(dimCellStyle.Render("↑/↓ field · ←/→ move · space toggle · Enter test+save · Esc cancel"))
 	return b.String()
 }

@@ -16,21 +16,34 @@ func (m App) onConfirmKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			m.op = nil
 			return m, nil
 		case "enter":
-			if op.input == op.expect { // byte-for-byte exact
+			if op.input.Value == op.expect { // byte-for-byte exact
 				return m.dispatchOp()
 			}
 			// Mismatch aborts with no action and no command (SC-003).
 			m.op = nil
 			m.err = errConfirmMismatch
 			return m, nil
+		case "left":
+			op.input.Left()
+			return m, nil
+		case "right":
+			op.input.Right()
+			return m, nil
+		case "home":
+			op.input.Home()
+			return m, nil
+		case "end":
+			op.input.End()
+			return m, nil
 		case "backspace":
-			if n := len(op.input); n > 0 {
-				op.input = op.input[:n-1]
-			}
+			op.input.Backspace()
+			return m, nil
+		case "delete":
+			op.input.DeleteFwd()
 			return m, nil
 		default:
 			if msg.Text != "" {
-				op.input += msg.Text
+				op.input.Insert(msg.Text)
 			}
 			return m, nil
 		}

@@ -459,3 +459,37 @@ func findEntry(t *testing.T, m App, name string) localfs.Entry {
 	t.Fatalf("entry %q not found in browser", name)
 	return localfs.Entry{}
 }
+
+// --- 008 US3: paste extends to the copy/move destination + new-folder name entries ---
+
+func TestPasteIntoDestKey(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "src.txt")
+	m := treeApp(f, true)
+	selectObject(&m, "src.txt")
+	mm, _ := m.startCopy()
+	m = mm.(App)
+	if m.op == nil || m.op.phase != phaseDest {
+		t.Fatalf("startCopy should enter dest-key entry; op=%+v", m.op)
+	}
+	before := m.op.dstKey
+	m = deliver(m, tea.PasteMsg{Content: "-copy\n"}) // trailing newline stripped
+	if m.op.dstKey != before+"-copy" {
+		t.Errorf("paste should append to the destination key; got %q, want %q", m.op.dstKey, before+"-copy")
+	}
+}
+
+func TestPasteIntoNewFolderName(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	mm, _ := m.startCreateFolder()
+	m = mm.(App)
+	if m.op == nil || m.op.phase != phaseName {
+		t.Fatalf("startCreateFolder should enter name entry; op=%+v", m.op)
+	}
+	m = deliver(m, tea.PasteMsg{Content: "reports\n"})
+	if m.op.name != "reports" {
+		t.Errorf("paste should fill the folder name (newline stripped); got %q", m.op.name)
+	}
+}
