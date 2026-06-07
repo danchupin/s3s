@@ -80,10 +80,10 @@ func run() error {
 
 	active := ""
 	if !firstRun {
+		// No flag / $S3S_CONTEXT / current-context selects a context. Rather than erroring
+		// before the TUI starts, leave active empty: the app opens the connection manager so
+		// the user picks one in the UI (it already receives the full context list).
 		active = config.ActiveContextName(ctxFlag, os.Getenv(config.EnvContext), cfg.CurrentContext)
-		if active == "" {
-			return errors.New("no context selected: set current-context in config or pass --context")
-		}
 	}
 
 	// Insecure-permissions warning (005 FR-040) — printed pre-TUI to stderr.
@@ -142,7 +142,7 @@ func run() error {
 	// failure (e.g. an empty keystore) fall back to the prompt and offer to save. On
 	// first run there is no active context — the add-connection form opens instead (009).
 	var initial ui.Backend
-	if !firstRun {
+	if !firstRun && active != "" {
 		initial, err = resolve(active)
 		if err != nil {
 			if !term.IsTerminal(int(os.Stdin.Fd())) {
