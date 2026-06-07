@@ -277,8 +277,8 @@ read-only context (dimmed, `(w to arm)`) so the full capability set is always le
 | `r` | refresh the current list |
 | `y` · `u` · `+` | copy · upload · new folder (write mode; safe — bare key) |
 | `w` | **arm/disarm write** at runtime (confirm to arm; instant to disarm) |
-| `n` | **add a new connection** (in-app connection manager) |
-| `c` | switch context · `1`–`9` jump to a context by number |
+| `c` | **connections** — switch context · add (via the "+ add connection" row) · delete · `1`–`9` jump to a context by number |
+| `Tab` · `→` | cross focus into the objects pane (then `←`/`Esc` / `Tab` back) — two-pane browse |
 | `?` | help (full keymap, incl. vim aliases, + connection details) · `q` / `Ctrl+C` quit |
 
 ### Dangerous actions (Ctrl chord + confirmation)

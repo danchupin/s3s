@@ -28,8 +28,8 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 **Purpose**: test infrastructure needed before any test-first story work.
 
-- [ ] T001 [P] Add a read-only list-call counter to `storage.Fake` (count `ListBuckets` + `ListLevel` invocations, expose a `Calls()`/`ListLevelCalls()` getter; read-only — `check-readonly` must stay green) in `internal/storage/fake.go`
-- [ ] T002 [P] Add a width-parametrized render helper for tier tests (e.g. `viewAtWidth(m, w, h)` building on the existing `viewOf`/`deliver` so a test can drive `WindowSizeMsg{w,h}` and assert on `App.View().Content`) in `internal/ui/helpers_test.go` (confirm against existing helpers before adding)
+- [x] T001 [P] Add a read-only list-call counter to `storage.Fake` (count `ListBuckets` + `ListLevel` invocations, expose a `Calls()`/`ListLevelCalls()` getter; read-only — `check-readonly` must stay green) in `internal/storage/fake.go`
+- [x] T002 [P] Add a width-parametrized render helper for tier tests (e.g. `viewAtWidth(m, w, h)` building on the existing `viewOf`/`deliver` so a test can drive `WindowSizeMsg{w,h}` and assert on `App.View().Content`) in `internal/ui/helpers_test.go` (confirm against existing helpers before adding)
 
 ---
 
@@ -39,10 +39,10 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 **⚠️ CRITICAL**: US1/US2/US3 cannot begin until this phase is complete. (US4 is independent and may start in parallel — see Dependencies.)
 
-- [ ] T003 [P] Write failing unit test for `layoutTier(w)` boundaries — Full ≥130, Dual 100–129, Single ≤99 (assert 130/129/100/99) in `internal/ui/styles_test.go`
-- [ ] T004 Add `layoutTier(w)` classifier returning Full/Dual/Single per the normative tiers in `internal/ui/styles.go` (reuse existing `paneSplitMin=100` for the Single boundary)
-- [ ] T005 Add focus state to the `App` struct — `focusZone` (zoneBuckets|zoneObjects, default zoneBuckets) + `bucketLoadGen int` (bucket→objects reload debounce counter). The objects zone REUSES `m.level` (content) and `m.treeSel` (cursor) — NO new level/cursor field — per data-model.md / research R6 reconciliation — in `internal/ui/app.go`
-- [ ] T006 [P] Add active/dim zone style tokens (focused zone border+title use the accent style, unfocused use the dim style) in `internal/ui/styles.go`
+- [x] T003 [P] Write failing unit test for `layoutTier(w)` boundaries — Full ≥130, Dual 100–129, Single ≤99 (assert 130/129/100/99) in `internal/ui/styles_test.go`
+- [x] T004 Add `layoutTier(w)` classifier returning Full/Dual/Single per the normative tiers in `internal/ui/styles.go` (reuse existing `paneSplitMin=100` for the Single boundary)
+- [x] T005 Add focus state to the `App` struct — `focusZone` (zoneBuckets|zoneObjects, default zoneBuckets) + `bucketLoadGen int` (bucket→objects reload debounce counter). The objects zone REUSES `m.level` (content) and `m.treeSel` (cursor) — NO new level/cursor field — per data-model.md / research R6 reconciliation — in `internal/ui/app.go`
+- [x] T006 [P] Add active/dim zone style tokens (focused zone border+title use the accent style, unfocused use the dim style) in `internal/ui/styles.go`
 
 **Checkpoint**: layout tier + focus/objects state available — story phases can begin.
 
@@ -56,19 +56,19 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 ### Tests for User Story 1 (write first — MUST fail) ⚠️
 
-- [ ] T007 [P] [US1] Failing test: entering the browse screen with K buckets issues exactly one bucket-name listing and **zero** object-level listings (`Fake` counter) in `internal/ui/lazyload_test.go`
-- [ ] T008 [P] [US1] Failing test: at Dual width, highlighting a bucket renders that bucket's first-level folders+objects in the objects zone (`viewAtWidth` asserts zone title + entries) in `internal/ui/twopane_test.go`
-- [ ] T009 [P] [US1] Failing test: fast scroll across N buckets issues ≤1 `ListLevel` (settled-only; `Fake` counter) in `internal/ui/lazyload_test.go`
-- [ ] T010 [P] [US1] Failing test: re-highlighting a previously-viewed bucket issues **zero** additional listings (cache hit) in `internal/ui/lazyload_test.go`
-- [ ] T011 [P] [US1] Failing test: empty bucket → `(empty)`; in-flight → `loading…`; denied (`AccessDeniedBuckets`) → `error:` line AND a revisit re-attempts (not cached) in `internal/ui/lazyload_test.go`
+- [x] T007 [P] [US1] Failing test: entering the browse screen with K buckets issues exactly one bucket-name listing and **zero** object-level listings (`Fake` counter) in `internal/ui/lazyload_test.go`
+- [x] T008 [P] [US1] Failing test: at Dual width, highlighting a bucket renders that bucket's first-level folders+objects in the objects zone (`viewAtWidth` asserts zone title + entries) in `internal/ui/twopane_test.go`
+- [x] T009 [P] [US1] Failing test: fast scroll across N buckets issues ≤1 `ListLevel` (settled-only; `Fake` counter) in `internal/ui/lazyload_test.go`
+- [x] T010 [P] [US1] Failing test: re-highlighting a previously-viewed bucket issues **zero** additional listings (cache hit) in `internal/ui/lazyload_test.go`
+- [x] T011 [P] [US1] Failing test: empty bucket → `(empty)`; in-flight → `loading…`; denied (`AccessDeniedBuckets`) → `error:` line AND a revisit re-attempts (not cached) in `internal/ui/lazyload_test.go`
 
 ### Implementation for User Story 1
 
-- [ ] T012 [US1] Add the objects-zone debounce: bump `bucketLoadGen` on bucket-cursor move and schedule a settle tick (reuse `paneDebounce` 180 ms; mirror `afterSelectionMove`/`onPaneTick`) — `bucketTickCmd(gen,bucket)` + `bucketTickMsg` — in `internal/ui/commands.go` and `internal/ui/messages.go`
-- [ ] T013 [US1] On settle (`bucketLoadGen`+bucket match), load the bucket's first level **into `m.level`** reusing `loadLevel` + `levelKeyFor(bucket,"")` + cache `Get`/`Put` (reset `treeSel=0` as `enterLevel`); reuse the existing `onLevel` (cache only on success `levelMsg`; failures arrive as `errMsg`, uncached, so revisit re-attempts) — in `internal/ui/tree.go` and `internal/ui/app.go`
-- [ ] T014 [US1] Compose the Dual tier in `listWithPane`: buckets box │ objects box via `lipgloss.JoinHorizontal`, objects rendered from `m.level` windowed by `windowBounds`, both in `boxView` rounded borders — in `internal/ui/app.go`
-- [ ] T015 [US1] Render the objects zone + its explicit states (`(empty)` / `loading…` / `error:`) in a new `objectsView` helper (reuses the `renderTable`/`windowBounds` level-render path on `m.level`), called from `listWithPane`, without disturbing the bucket list — in `internal/ui/app.go`
-- [ ] T016 [US1] Wire bucket-cursor movement (`onBucketsKey` up/down/top/bottom) to bump `bucketLoadGen` and schedule the settle tick; ensure startup `loadBuckets` stays names-only (no eager object listing) — in `internal/ui/app.go`
+- [x] T012 [US1] Add the objects-zone debounce: bump `bucketLoadGen` on bucket-cursor move and schedule a settle tick (reuse `paneDebounce` 180 ms; mirror `afterSelectionMove`/`onPaneTick`) — `bucketTickCmd(gen,bucket)` + `bucketTickMsg` — in `internal/ui/commands.go` and `internal/ui/messages.go`
+- [x] T013 [US1] On settle (`bucketLoadGen`+bucket match), load the bucket's first level **into `m.level`** reusing `loadLevel` + `levelKeyFor(bucket,"")` + cache `Get`/`Put` (reset `treeSel=0` as `enterLevel`); reuse the existing `onLevel` (cache only on success `levelMsg`; failures arrive as `errMsg`, uncached, so revisit re-attempts) — in `internal/ui/tree.go` and `internal/ui/app.go`
+- [x] T014 [US1] Compose the Dual tier in `listWithPane`: buckets box │ objects box via `lipgloss.JoinHorizontal`, objects rendered from `m.level` windowed by `windowBounds`, both in `boxView` rounded borders — in `internal/ui/app.go`
+- [x] T015 [US1] Render the objects zone + its explicit states (`(empty)` / `loading…` / `error:`) in a new `objectsView` helper (reuses the `renderTable`/`windowBounds` level-render path on `m.level`), called from `listWithPane`, without disturbing the bucket list — in `internal/ui/app.go`
+- [x] T016 [US1] Wire bucket-cursor movement (`onBucketsKey` up/down/top/bottom) to bump `bucketLoadGen` and schedule the settle tick; ensure startup `loadBuckets` stays names-only (no eager object listing) — in `internal/ui/app.go`
 
 **Checkpoint**: US1 independently testable — MVP deliverable.
 
@@ -82,18 +82,18 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 ### Tests for User Story 2 (write first — MUST fail) ⚠️
 
-- [ ] T017 [P] [US2] Failing test: `→`/`Tab` from the bucket list moves focus into the objects zone (active-zone style asserted) and the objects cursor moves independently of `bucketSel` in `internal/ui/focus_test.go`
-- [ ] T018 [P] [US2] Failing test: Enter/`→` on a folder descends the objects level (`m.level`, `treeSel`); the bucket list (and `bucketSel`) is unchanged in `internal/ui/focus_test.go`
-- [ ] T019 [P] [US2] Failing test: Enter on an object opens `modeObject`; leaving it restores the objects-zone position + focus in `internal/ui/focus_test.go`
-- [ ] T020 [P] [US2] Failing test: `←`/`Esc` precedence in objects zone — clears active search first, else ascends one level, else (at root) returns focus to buckets in `internal/ui/focus_test.go`
-- [ ] T021 [P] [US2] Failing test: `Tab` is a symmetric toggle — from a deep objects level it jumps straight back to buckets, both zone cursors preserved in `internal/ui/focus_test.go`
+- [x] T017 [P] [US2] Failing test: `→`/`Tab` from the bucket list moves focus into the objects zone (active-zone style asserted) and the objects cursor moves independently of `bucketSel` in `internal/ui/focus_test.go`
+- [x] T018 [P] [US2] Failing test: Enter/`→` on a folder descends the objects level (`m.level`, `treeSel`); the bucket list (and `bucketSel`) is unchanged in `internal/ui/focus_test.go`
+- [x] T019 [P] [US2] Failing test: Enter on an object opens `modeObject`; leaving it restores the objects-zone position + focus in `internal/ui/focus_test.go`
+- [x] T020 [P] [US2] Failing test: `←`/`Esc` precedence in objects zone — clears active search first, else ascends one level, else (at root) returns focus to buckets in `internal/ui/focus_test.go`
+- [x] T021 [P] [US2] Failing test: `Tab` is a symmetric toggle — from a deep objects level it jumps straight back to buckets, both zone cursors preserved in `internal/ui/focus_test.go`
 
 ### Implementation for User Story 2
 
-- [ ] T022 [US2] Add focus-aware key dispatch in `Update`: branch on `focusZone`; `→`/`l`/`Tab`/Enter-on-bucket cross into objects; `←`/`h`/`Esc` follow FR-009 precedence; `Tab` toggles both ways — in `internal/ui/app.go`
-- [ ] T023 [US2] Objects-zone cursor navigation + drill on `m.level`/`treeSel`, gated by `focusZone == zoneObjects`: reuse the existing level key logic (`onTreeKey` cursor, folder `enterLevel`, ascend `goBack`, paging via `fetchNextPage`). FR-011 search/marking/sorting carry over from this reuse; **marks/sort scoping is FR-011 derived consistency and MAY be deferred** per spec (cursor + drill + open are the must) — in `internal/ui/tree.go`
-- [ ] T024 [US2] Apply active/dim zone styling per `focusZone` in `listWithPane` (focused zone border/title = accent) in `internal/ui/app.go`
-- [ ] T025 [US2] Open `modeObject` from the objects zone on Enter-on-object and restore focus+position on return in `internal/ui/app.go`
+- [x] T022 [US2] Add focus-aware key dispatch in `Update`: branch on `focusZone`; `→`/`l`/`Tab`/Enter-on-bucket cross into objects; `←`/`h`/`Esc` follow FR-009 precedence; `Tab` toggles both ways — in `internal/ui/app.go`
+- [x] T023 [US2] Objects-zone cursor navigation + drill on `m.level`/`treeSel`, gated by `focusZone == zoneObjects`: reuse the existing level key logic (`onTreeKey` cursor, folder `enterLevel`, ascend `goBack`, paging via `fetchNextPage`). FR-011 search/marking/sorting carry over from this reuse; **marks/sort scoping is FR-011 derived consistency and MAY be deferred** per spec (cursor + drill + open are the must) — in `internal/ui/tree.go`
+- [x] T024 [US2] Apply active/dim zone styling per `focusZone` in `listWithPane` (focused zone border/title = accent) in `internal/ui/app.go`
+- [x] T025 [US2] Open `modeObject` from the objects zone on Enter-on-object and restore focus+position on return in `internal/ui/app.go`
 
 **Checkpoint**: US1+US2 = fully navigable two-zone browse.
 
@@ -107,15 +107,15 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 ### Tests for User Story 3 (write first — MUST fail) ⚠️
 
-- [ ] T026 [P] [US3] Failing test: at Full width three zone titles render and details shows bucket metadata while focus is on a bucket in `internal/ui/details_test.go`
-- [ ] T027 [P] [US3] Failing test: with focus in the objects zone on an object, details shows object metadata + bounded preview in `internal/ui/details_test.go`
-- [ ] T028 [P] [US3] Failing test: narrowing from Full to Dual collapses the details zone (buckets│objects remain) in `internal/ui/details_test.go`
+- [x] T026 [P] [US3] Failing test: at Full width three zone titles render and details shows bucket metadata while focus is on a bucket in `internal/ui/details_test.go`
+- [x] T027 [P] [US3] Failing test: with focus in the objects zone on an object, details shows object metadata + bounded preview in `internal/ui/details_test.go`
+- [x] T028 [P] [US3] Failing test: narrowing from Full to Dual collapses the details zone (buckets│objects remain) in `internal/ui/details_test.go`
 
 ### Implementation for User Story 3
 
-- [ ] T029 [US3] Full-tier composition: append the details box as a third `JoinHorizontal` zone (reuse pane width math) in `internal/ui/app.go`
-- [ ] T030 [US3] Make `paneView` adaptive to `focusZone`: bucket metadata when a bucket is focused, object metadata + preview when an object is focused (reuse existing field set) in `internal/ui/pane.go`
-- [ ] T031 [US3] Drive the details object-metadata load off the objects-zone selection reusing the existing pane debounce/gen (no new load machinery) in `internal/ui/commands.go`
+- [x] T029 [US3] Full-tier composition: append the details box as a third `JoinHorizontal` zone (reuse pane width math) in `internal/ui/app.go`
+- [x] T030 [US3] Make `paneView` adaptive to `focusZone`: bucket metadata when a bucket is focused, object metadata + preview when an object is focused (reuse existing field set) in `internal/ui/pane.go`
+- [x] T031 [US3] Drive the details object-metadata load off the objects-zone selection reusing the existing pane debounce/gen (no new load machinery) in `internal/ui/commands.go`
 
 **Checkpoint**: full three-zone master-detail at wide widths; graceful collapse.
 
@@ -131,17 +131,17 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 ### Tests for User Story 4 (write first — MUST fail) ⚠️
 
-- [ ] T032 [P] [US4] Failing test: pressing `n` on the bucket list does NOT open the add-connection form, and the "+ add connection" row (connections list) still opens it in `internal/ui/keys_test.go`
-- [ ] T033 [P] [US4] Failing test: every action key advertised in the hint bar and help is rendered with a bold ANSI attribute in `internal/ui/keys_test.go`
-- [ ] T034 [P] [US4] Failing test: with `$NO_COLOR` set, each advertised key remains distinguishable from its label via the non-color cue in `internal/ui/keys_test.go`
-- [ ] T035 [P] [US4] Failing test: navigation keys (arrows, `hjkl`, `gG`) and locked keys (Enter/Esc/`q`/`?`/`:`/Space) are unchanged in `defaultKeys` in `internal/ui/keys_test.go`
+- [x] T032 [P] [US4] Failing test: pressing `n` on the bucket list does NOT open the add-connection form, and the "+ add connection" row (connections list) still opens it in `internal/ui/keys_test.go`
+- [x] T033 [P] [US4] Failing test: every action key advertised in the hint bar and help is rendered with a bold ANSI attribute in `internal/ui/keys_test.go`
+- [x] T034 [P] [US4] Failing test: with `$NO_COLOR` set, each advertised key remains distinguishable from its label via the non-color cue in `internal/ui/keys_test.go`
+- [x] T035 [P] [US4] Failing test: navigation keys (arrows, `hjkl`, `gG`) and locked keys (Enter/Esc/`q`/`?`/`:`/Space) are unchanged in `defaultKeys` in `internal/ui/keys_test.go`
 
 ### Implementation for User Story 4
 
-- [ ] T036 [US4] Remove `AddConn` from `defaultKeys` and delete its dispatch (the `matches(key, m.keys.AddConn)` branch ~`app.go:604`); the "+ add connection" row (`connections.go:103`) remains the sole affordance — in `internal/ui/keys.go` and `internal/ui/app.go`
-- [ ] T037 [US4] Render key glyphs bold: add `.Bold(true)` to the key style used by `keyGlyph`/`formatKeys`, the hint bar key render, and `helpLines` (single keymap source preserved) — in `internal/ui/keys.go` and `internal/ui/hintbar.go`
-- [ ] T038 [US4] Ensure an NO_COLOR-safe non-color cue for keys (bold attribute survives color stripping and/or a stable delimiter) in `internal/ui/keys.go`/`internal/ui/hintbar.go`
-- [ ] T039 [US4] Record the migration in the help surface (note `n` removed → "+ add connection" row only) in `internal/ui/keys.go`
+- [x] T036 [US4] Remove `AddConn` from `defaultKeys` and delete its dispatch (the `matches(key, m.keys.AddConn)` branch ~`app.go:604`); the "+ add connection" row (`connections.go:103`) remains the sole affordance — in `internal/ui/keys.go` and `internal/ui/app.go`
+- [x] T037 [US4] Render key glyphs bold: add `.Bold(true)` to the key style used by `keyGlyph`/`formatKeys`, the hint bar key render, and `helpLines` (single keymap source preserved) — in `internal/ui/keys.go` and `internal/ui/hintbar.go`
+- [x] T038 [US4] Ensure an NO_COLOR-safe non-color cue for keys (bold attribute survives color stripping and/or a stable delimiter) in `internal/ui/keys.go`/`internal/ui/hintbar.go`
+- [x] T039 [US4] Record the migration in the help surface (note `n` removed → "+ add connection" row only) in `internal/ui/keys.go`
 
 **Checkpoint**: keymap reviewed, `n` gone, all keys bold, NO_COLOR-safe.
 
@@ -149,14 +149,14 @@ Single Go project. Source in `internal/ui/`, `internal/storage/`, `internal/cach
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T040 [P] Resize-reflow test: crossing Full↔Dual↔Single boundaries preserves the highlighted bucket, the objects cursor, and `focusZone`, and never breaks a border in `internal/ui/twopane_test.go` (SC-008)
-- [ ] T041 [P] Footer-always-visible test: at the minimum row budget the identity + hint line (incl. help/quit) stay on screen across tiers in `internal/ui/footer_test.go` (FR-017)
-- [ ] T042 Run `make check-readonly` — MUST stay green (no new write-S3 symbol, no new `storage.Storage` method) (SC-009)
-- [ ] T043 [P] Run `make fmt vet lint` — zero issues (golangci-lint built with the module toolchain)
+- [x] T040 [P] Resize-reflow test: crossing Full↔Dual↔Single boundaries preserves the highlighted bucket, the objects cursor, and `focusZone`, and never breaks a border in `internal/ui/twopane_test.go` (SC-008)
+- [x] T041 [P] Footer-always-visible test: at the minimum row budget the identity + hint line (incl. help/quit) stay on screen across tiers in `internal/ui/footer_test.go` (FR-017)
+- [x] T042 Run `make check-readonly` — MUST stay green (no new write-S3 symbol, no new `storage.Storage` method) (SC-009)
+- [x] T043 [P] Run `make fmt vet lint` — zero issues (golangci-lint built with the module toolchain)
 - [ ] T044 Manual smoke per quickstart.md at ≥130 / 100–129 / ≤99 cols (three-zone / two-zone / single-column parity); the ≤99 pass MUST exercise the full Single-tier flow buckets → Enter → objects → Enter → object (SC-007)
-- [ ] T045 [P] Update any user-facing keybinding docs (README/help blurb) for the `n` removal + bold keys
-- [ ] T046 Coverage check: `go test -cover ./internal/ui/` maintains or improves the package coverage baseline
-- [ ] T047 [P] Single-tier parity test (SC-007): at ≤99 cols, assert the browse flow is behaviourally identical to today — Enter-on-a-bucket drills full-screen (`modeTree`), no objects zone rendered, `focusZone` inert — in `internal/ui/twopane_test.go`
+- [x] T045 [P] Update any user-facing keybinding docs (README/help blurb) for the `n` removal + bold keys
+- [x] T046 Coverage check: `go test -cover ./internal/ui/` maintains or improves the package coverage baseline
+- [x] T047 [P] Single-tier parity test (SC-007): at ≤99 cols, assert the browse flow is behaviourally identical to today — Enter-on-a-bucket drills full-screen (`modeTree`), no objects zone rendered, `focusZone` inert — in `internal/ui/twopane_test.go`
 
 ---
 

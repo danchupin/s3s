@@ -30,6 +30,18 @@ func (m App) paneView(w, rows int) string {
 	return ""
 }
 
+// browseDetailsView renders the adaptive third zone for the bucket browse (011 US3): the
+// highlighted bucket's metadata when focus is on the bucket list, or the selected object's
+// metadata + bounded preview when focus is in the objects zone (reusing the 006 pane render).
+// The object metadata is filled in by the existing debounced pane load (afterSelectionMove →
+// onPaneTick), armed as the objects cursor moves.
+func (m App) browseDetailsView(w, rows int) string {
+	if m.focusZone == zoneObjects {
+		return m.paneTree(w, rows)
+	}
+	return m.paneBucket(w)
+}
+
 func (m App) paneBucket(w int) string {
 	fb := m.filteredBuckets()
 	if m.bucketSel < 0 || m.bucketSel >= len(fb) {

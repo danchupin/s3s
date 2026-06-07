@@ -28,7 +28,6 @@ type keyMap struct {
 	DeleteAll   []string // recursively delete the selected folder/prefix (write mode)
 	DeleteChord []string // dangerous-action chord: object/group/recursive/bucket/connection delete (007 US4)
 	MoveChord   []string // dangerous-action chord: move/rename (ctrl+m is Enter, so ctrl+o) (007 US4)
-	AddConn     []string // visible add-connection affordance (007 US2)
 	WriteToggle []string // arm/disarm write at runtime (005 US5)
 	Mark        []string // mark/unmark an object for multi-select (005 US3)
 	Sort        []string // cycle the sort column (005 US4)
@@ -60,7 +59,6 @@ func defaultKeys() keyMap {
 		DeleteAll:   []string{"X"},          // recursive delete — matches the "x" family (006 US1)
 		DeleteChord: []string{"ctrl+x"},     // dangerous delete chord (007 US4, FR-021)
 		MoveChord:   []string{"ctrl+o"},     // move chord — ctrl+m is Enter (reserved), so ctrl+o (007 US4)
-		AddConn:     []string{"n"},          // add a new connection (007 US2, FR-011)
 		WriteToggle: []string{"w"},          // arm/disarm write at runtime (005 US5)
 		Mark:        []string{" ", "space"}, // multi-select (005 US3)
 		Sort:        []string{"s"},          // cycle sort column (005 US4)
@@ -125,7 +123,7 @@ func (m App) helpLines() []string {
 	k := m.keys
 	sec := func(s string) string { return titleStyle.Render(s) }
 	row := func(keys, desc string) string {
-		return "  " + accentStyle.Render(pad(keys, 17)) + dimCellStyle.Render(desc)
+		return "  " + keyStyle.Render(pad(keys, 17)) + dimCellStyle.Render(desc)
 	}
 	conn := func(label, val string, st lipgloss.Style) string {
 		if val == "" {
@@ -168,10 +166,10 @@ func (m App) helpLines() []string {
 		row(glyph(firstBind(k.MoveChord)), "move/rename the selected object") + wtag,
 		"",
 		sec("Context"),
-		row(formatKeys(k.Context), "switch context"),
+		row(formatKeys(k.Context), "connections: switch · add · delete"),
 		row("1-9", "switch to context by number"),
-		row(formatKeys(k.AddConn), "add a new connection"),
 		row(glyph(firstBind(k.DeleteChord))+" (on contexts)", "delete the selected connection"),
+		dimCellStyle.Render("  changed in 011: the standalone n add-connection key was removed — c opens the connections manager"),
 		"",
 		sec("Global"),
 		row(formatKeys(k.WriteToggle), "arm/disarm write (confirm to arm; instant to disarm)"),

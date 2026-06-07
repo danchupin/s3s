@@ -115,8 +115,11 @@ assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
 Active feature: 011-two-pane-hotkeys (three-zone master-detail browse + hotkey mnemonic review; 4
-user stories) — PLANNED (spec + plan + Phase 0/1 artifacts done; tasks not yet generated).
-010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
+user stories) — IMPLEMENTED (46/47 tasks; only T044 manual smoke pending. go test ./... + fmt + vet +
+lint(0) + check-readonly green; ui coverage 78.1%). Reuse m.level/treeSel (Design B): bucketLoadGen
+debounce → objects zone; focusZone (zoneBuckets|zoneObjects) + Tab toggle; boxViewFocus active/dim;
+3-zone Full tier (browseDetailsView adaptive); AddConn 'n' REMOVED → 'c' opens connections manager;
+keyStyle bold glyphs. 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
 
 Plan: specs/011-two-pane-hotkeys/plan.md. Artifacts (specs/011-two-pane-hotkeys/): spec.md (US1 live
 bucket-contents pane P1, US2 cross-pane focus nav P1, US3 preserve adaptive details pane P2, US4

@@ -13,7 +13,7 @@ import (
 func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 	switch {
 	case matches(key, m.keys.Back):
-		m.mode = modeTree
+		m.mode = m.objReturn // restore the browse mode we opened from (011 US2)
 		m.meta = nil
 		m.prev = nil
 		m.prevOff = 0
