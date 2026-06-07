@@ -63,16 +63,27 @@ func run() error {
 	}
 
 	cfg, err := config.Load(cfgPath)
+	firstRun := false
 	if err != nil {
-		if errors.Is(err, config.ErrNotFound) {
-			return fmt.Errorf("no config found at %s\n  create one — see specs/.../quickstart.md for the format", cfgPath)
+		if !errors.Is(err, config.ErrNotFound) {
+			return err
 		}
-		return err
+		// No config yet (009): start the TUI in the add-connection form instead of erroring.
+		// An empty config bound to cfgPath lets the in-app form write the first connection.
+		cfg = config.Empty(cfgPath)
+		firstRun = true
+	}
+	// A config that exists but declares no contexts is the same "no connections yet" state.
+	if len(cfg.ContextNames()) == 0 {
+		firstRun = true
 	}
 
-	active := config.ActiveContextName(ctxFlag, os.Getenv(config.EnvContext), cfg.CurrentContext)
-	if active == "" {
-		return errors.New("no context selected: set current-context in config or pass --context")
+	active := ""
+	if !firstRun {
+		active = config.ActiveContextName(ctxFlag, os.Getenv(config.EnvContext), cfg.CurrentContext)
+		if active == "" {
+			return errors.New("no context selected: set current-context in config or pass --context")
+		}
 	}
 
 	// Insecure-permissions warning (005 FR-040) — printed pre-TUI to stderr.
@@ -128,25 +139,29 @@ func run() error {
 
 	// The active context resolves at startup, where an interactive secure prompt IS
 	// allowed (before the TUI starts — Constitution V, 005 R12). On a resolution
-	// failure (e.g. an empty keystore) fall back to the prompt and offer to save.
-	initial, err := resolve(active)
-	if err != nil {
-		if !term.IsTerminal(int(os.Stdin.Fd())) {
-			return err
+	// failure (e.g. an empty keystore) fall back to the prompt and offer to save. On
+	// first run there is no active context — the add-connection form opens instead (009).
+	var initial ui.Backend
+	if !firstRun {
+		initial, err = resolve(active)
+		if err != nil {
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "s3s: %v\n", err)
+			sec, perr := secret.Prompt(fmt.Sprintf("secret for context %q: ", active))
+			if perr != nil {
+				return perr
+			}
+			cc, cerr := cfg.ClientConfigWithSecret(active, sec)
+			if cerr != nil {
+				return cerr
+			}
+			if initial, err = backendFrom(active, cc); err != nil {
+				return err
+			}
+			offerSaveToKeychain(cfg, active, sec)
 		}
-		fmt.Fprintf(os.Stderr, "s3s: %v\n", err)
-		sec, perr := secret.Prompt(fmt.Sprintf("secret for context %q: ", active))
-		if perr != nil {
-			return perr
-		}
-		cc, cerr := cfg.ClientConfigWithSecret(active, sec)
-		if cerr != nil {
-			return cerr
-		}
-		if initial, err = backendFrom(active, cc); err != nil {
-			return err
-		}
-		offerSaveToKeychain(cfg, active, sec)
 	}
 
 	// Image rendering. Default to ANSI half-block: Bubble Tea v2's cell renderer

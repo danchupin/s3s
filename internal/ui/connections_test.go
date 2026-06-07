@@ -187,6 +187,60 @@ func TestEditAfterFailedTestRetests(t *testing.T) {
 	}
 }
 
+// --- 009: first-run opens the add-connection form, save enters the connection ---
+
+func TestFirstRunOpensAddForm(t *testing.T) {
+	// No store (no config yet) + a connector → the add-connection form opens at start.
+	m := New(Backend{}, "", nil, nil, &fakeConnector{}, preview.ProtoNone)
+	if m.mode != modeConnForm || m.form == nil {
+		t.Fatalf("first run should open the add form; mode=%v form=%v", m.mode, m.form)
+	}
+	if cmd := m.Init(); cmd != nil {
+		t.Error("first-run Init must not load buckets from a nil store")
+	}
+	// The full View must render (no nil-store panic) and show the form.
+	if v := viewOf(m); !strings.Contains(v, "endpoint") || !strings.Contains(v, "secret") {
+		t.Errorf("first-run view should render the add-connection form; got:\n%s", v)
+	}
+}
+
+func TestFirstRunSaveEntersConnection(t *testing.T) {
+	f := storage.NewFake()
+	resolve := func(string) (Backend, error) {
+		return Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x"}, nil
+	}
+	m := New(Backend{}, "", nil, resolve, &fakeConnector{names: []string{"newc"}}, preview.ProtoNone)
+	m.form = &connForm{
+		name:      textField{Value: "newc"},
+		endpoint:  textField{Value: "http://h:9000"},
+		accessKey: textField{Value: "AK"},
+		secret:    textField{Value: "SK"},
+	}
+	mm, cmd := m.onConnSaved(connSavedMsg{names: []string{"newc"}})
+	m = mm.(App)
+	if m.mode != modeBuckets {
+		t.Errorf("first-run save should enter the new connection (modeBuckets); mode=%v", m.mode)
+	}
+	if cmd == nil {
+		t.Error("entering the connection should dispatch a resolve/load cmd")
+	}
+	if m.form != nil {
+		t.Error("form should be cleared after save")
+	}
+}
+
+// A subsequent add (an existing active context) still returns to the manager list, not the
+// browser — first-run behaviour must not leak into normal adds.
+func TestSubsequentSaveReturnsToManager(t *testing.T) {
+	m := connApp(&fakeConnector{names: []string{"ctx", "newc"}}, []string{"ctx"})
+	m.mode = modeConnForm
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}}
+	mm, _ := m.onConnSaved(connSavedMsg{names: []string{"ctx", "newc"}})
+	if mm.(App).mode != modeConnections {
+		t.Errorf("a normal add (active ctx present) should return to the manager; mode=%v", mm.(App).mode)
+	}
+}
+
 // --- 008 US1: discoverable connection delete ---
 
 func TestConnDeleteHintVisibleForNonActive(t *testing.T) {

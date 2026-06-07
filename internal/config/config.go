@@ -120,6 +120,11 @@ func DefaultPath() string {
 	return filepath.Join(home, ".config", "s3s", "config.yaml")
 }
 
+// Empty returns a valid, connection-less config bound to path — the "no connections yet"
+// state (009 first-run). AddConnection writes the first triple to path (creating the parent
+// dir), so a fresh install needs no `config init` before adding a connection in-app.
+func Empty(path string) *Config { return &Config{path: path} }
+
 // Load reads, env-resolves, and validates the config at path.
 func Load(path string) (*Config, error) {
 	raw, err := os.ReadFile(path)
