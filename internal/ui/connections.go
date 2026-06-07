@@ -378,8 +378,13 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 		name = m.form.draft().Name
 	}
 	m.form = nil
-	m.mode = modeConnections
 	m.notice = "connection saved: " + name
+	// First run (no active context yet): enter the just-added connection directly instead of
+	// dropping to the manager list, so a fresh install lands in the browser (009).
+	if m.ctxName == "" && m.resolve != nil {
+		return m.applyContext(name)
+	}
+	m.mode = modeConnections
 	return m, nil
 }
 

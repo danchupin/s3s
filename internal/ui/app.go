@@ -209,6 +209,15 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		width:       80,
 		height:      24,
 	}
+	// First run: no connection yet (nil store) — open the add-connection form straight
+	// away instead of trying to load buckets from a backend that does not exist (009).
+	// Reuses the entire connForm/Connector flow; on save the app enters the new connection
+	// (onConnSaved). beginLoad is skipped — there is nothing to load until then.
+	if m.raw == nil && connect != nil {
+		m.mode = modeConnForm
+		m.form = &connForm{pathStyle: true} // path-style default (Ceph RGW / MinIO)
+		return m
+	}
 	// Arm the initial bucket load here, not in Init: in Bubble Tea v2 Init returns
 	// only a Cmd and cannot mutate the model, so the generation/context must be set
 	// on the model the program actually keeps.
@@ -227,8 +236,12 @@ func (m App) writable() bool { return m.armed && !m.ctxReadOnly }
 // mutating call is impossible while disarmed (005 US5, write-toggle-contract C1).
 func (m App) activeStore() storage.Storage { return storage.Guard(m.raw, m.writable()) }
 
-// Init kicks off the initial bucket load armed by New.
+// Init kicks off the initial bucket load armed by New. On first run (no backend yet —
+// the add-connection form is open) there is nothing to load (009).
 func (m App) Init() tea.Cmd {
+	if m.raw == nil {
+		return nil
+	}
 	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen), spinnerTick())
 }
 

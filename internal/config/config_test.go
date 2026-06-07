@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zalando/go-keyring"
 )
 
 const validYAML = `
@@ -139,5 +141,38 @@ func TestSecretRedactedInConfig(t *testing.T) {
 	u, _ := c.user("dev")
 	if strings.Contains(u.SecretAccessKey.String(), "leak-me") {
 		t.Error("secret leaked through String()")
+	}
+}
+
+// 009: Empty is the valid connection-less state bound to a path; AddConnection writes there.
+func TestEmptyConfigIsValidAndBound(t *testing.T) {
+	c := Empty("/tmp/s3s-x/config.yaml")
+	if c.Path() != "/tmp/s3s-x/config.yaml" {
+		t.Errorf("Empty must bind the path; got %q", c.Path())
+	}
+	if len(c.ContextNames()) != 0 {
+		t.Errorf("Empty must have no contexts; got %v", c.ContextNames())
+	}
+	if err := c.Validate(); err != nil {
+		t.Errorf("an empty config must be valid (no connections yet); got %v", err)
+	}
+}
+
+func TestEmptyConfigAddConnectionWrites(t *testing.T) {
+	keyring.MockInit()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "config.yaml") // parent dir does not exist yet
+	c := Empty(path)
+	names, err := c.AddConnection(NewConnection{
+		Name: "first", Endpoint: "http://h:9000", AccessKeyID: "AK", PathStyle: true,
+	}, "SK")
+	if err != nil {
+		t.Fatalf("AddConnection on an empty config should create the file + dir; got %v", err)
+	}
+	if len(names) != 1 || names[0] != "first" {
+		t.Errorf("context names after add = %v, want [first]", names)
+	}
+	if _, statErr := os.Stat(path); statErr != nil {
+		t.Errorf("config file should be written at %s; %v", path, statErr)
 	}
 }
