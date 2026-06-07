@@ -19,7 +19,7 @@ func (m App) onConfirmKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 			if op.input.Value == op.expect { // byte-for-byte exact
 				return m.dispatchOp()
 			}
-			// Mismatch aborts with no action and no command (SC-003).
+			// Mismatch aborts with no action and no command.
 			m.op = nil
 			m.err = errConfirmMismatch
 			return m, nil
@@ -49,12 +49,14 @@ func (m App) onConfirmKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 		}
 	}
 
-	// Simple tier (reversible): only y/Enter confirms; n/Esc aborts; other keys are
-	// ignored so a stray press neither confirms nor cancels.
-	switch key {
-	case "y", "Y", "enter":
+	// Simple tier (reversible): y/Enter confirms; n or the Back binding aborts; other keys
+	// are ignored so a stray press neither confirms nor cancels. Cancel is sourced from the
+	// keymap so a rebind of Back takes effect here too. (The typed tier keeps a
+	// literal Esc cancel — its Back aliases left/h are live text-editing keys there.)
+	switch {
+	case key == "y" || key == "Y" || key == "enter":
 		return m.dispatchOp()
-	case "n", "N", "esc":
+	case key == "n" || key == "N" || matches(key, m.keys.Back):
 		m.op = nil
 		return m, nil
 	default:

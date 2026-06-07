@@ -12,19 +12,19 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// In-app connection manager (006 US4). A connection list (modeConnections) and an add
+// In-app connection manager. A connection list (modeConnections) and an add
 // form (modeConnForm) reach the config writer + keychain ONLY through the injected
 // Connector seam, so the UI never imports the SDK or config marshalling (Constitution I).
 
 // ConnDraft is the UI-agnostic working value of the add-connection form. The secret is
-// held redacted and never persisted to config (FR-022).
+// held redacted and never persisted to config.
 type ConnDraft struct {
 	Name        string
 	Endpoint    string
 	Region      string
 	AccessKeyID string
 	Secret      logging.Secret
-	Buckets     []string // pinned bucket names (010 US3) — empty ⇒ list-all
+	Buckets     []string // pinned bucket names — empty ⇒ list-all
 	PathStyle   bool
 	ReadOnly    bool
 }
@@ -38,10 +38,10 @@ type Connector interface {
 	// updated context-name list. Never writes the secret to config in plaintext.
 	Save(ctx context.Context, d ConnDraft) ([]string, error)
 	// Delete removes the named connection (config triple + keychain secret) and returns
-	// the updated context-name list. Refuses the active context (007 US5 / FR-031/032).
+	// the updated context-name list. Refuses the active context.
 	Delete(ctx context.Context, name string) ([]string, error)
 	// AddBucket pins a bucket name to the named connection and returns the updated pinned
-	// bucket list (010 US2). A CONFIG mutation (no keychain, no S3 write); idempotent.
+	// bucket list. A CONFIG mutation (no keychain, no S3 write); idempotent.
 	AddBucket(ctx context.Context, ctxName, bucket string) ([]string, error)
 }
 
@@ -53,7 +53,7 @@ const (
 	fldRegion
 	fldAccessKey
 	fldSecret
-	fldBuckets // pinned bucket names (010 US3) — optional, comma/space separated
+	fldBuckets // pinned bucket names — optional, comma/space separated
 	fldPathStyle
 	fldReadOnly
 	connFieldCount
@@ -68,7 +68,7 @@ var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "s
 type connForm struct {
 	name, endpoint, region, accessKey textField
 	secret                            textField // masked on render, never logged
-	buckets                           textField // pinned bucket names (010 US3), comma/space separated
+	buckets                           textField // pinned bucket names, comma/space separated
 	pathStyle                         bool
 	readOnly                          bool
 	cursor                            int    // 0..fldReadOnly
@@ -105,7 +105,7 @@ func (m App) connRows() []string {
 
 // onConnectionsKey handles the connection-list navigation: pick a context to switch, or
 // the last "add" row to open the form. ctrl+x deletes the selected (non-active)
-// connection (007 US5). Esc returns to the bucket list.
+// connection. Esc returns to the bucket list.
 func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 	rows := m.connRows()
 	switch {
@@ -134,9 +134,9 @@ func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startRemoveConnection begins deleting the selected connection (007 US5). It is the
+// startRemoveConnection begins deleting the selected connection. It is the
 // highest-tier dangerous action: typed confirmation of the exact connection name (the
-// shared typed surface). The ACTIVE context is refused (FR-032); the "+ add" row and
+// shared typed surface). The ACTIVE context is refused; the "+ add" row and
 // out-of-range selections are no-ops.
 func (m App) startRemoveConnection() (tea.Model, tea.Cmd) {
 	if m.connSel < 0 || m.connSel >= len(m.contexts) {
@@ -159,7 +159,7 @@ func (m App) startRemoveConnection() (tea.Model, tea.Cmd) {
 }
 
 // connDeleteCmd removes a connection off the event loop via the injected Connector
-// (007 US5). Returns the updated context-name list on success.
+// Returns the updated context-name list on success.
 func connDeleteCmd(c Connector, name string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		names, err := c.Delete(context.Background(), name)
@@ -168,7 +168,7 @@ func connDeleteCmd(c Connector, name string, gen int) tea.Cmd {
 }
 
 // onConnDeleted applies the delete outcome: success → refresh the live context list and
-// stay in the manager; failure → surface the error (007 US5 / FR-033).
+// stay in the manager; failure → surface the error.
 func (m App) onConnDeleted(msg connDeletedMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.gen {
 		return m, nil // superseded
@@ -192,10 +192,17 @@ func (m App) onConnDeleted(msg connDeletedMsg) (tea.Model, tea.Cmd) {
 // test — FR-025a); Esc cancels.
 func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	f := m.form
+	// Field advance via the keymap Tab binding so a rebind follows.
+	if matches(key, m.keys.Tab) {
+		if f.cursor < connFieldCount-1 {
+			f.cursor++
+		}
+		return m, nil
+	}
 	switch key {
 	case "esc":
 		m.form = nil
-		m.err = nil // clear any test error so it doesn't leak into the list footer (010 US4)
+		m.err = nil // clear any test error so it doesn't leak into the list footer
 		m.mode = modeConnections
 		return m, nil
 	case "up":
@@ -203,7 +210,7 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 			f.cursor--
 		}
 		return m, nil
-	case "down", "tab":
+	case "down":
 		if f.cursor < connFieldCount-1 {
 			f.cursor++
 		}
@@ -274,7 +281,7 @@ func (m App) formAppend(s string) {
 	if p := f.focusField(); p != nil {
 		p.Insert(s)
 	}
-	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
+	f.tested, f.testOK = false, false // editing invalidates a prior reachability test
 }
 
 func (m App) formBackspace() {
@@ -282,11 +289,11 @@ func (m App) formBackspace() {
 	if p := f.focusField(); p != nil {
 		p.Backspace()
 	}
-	f.tested, f.testOK = false, false // editing invalidates a prior reachability test (FR-025a)
+	f.tested, f.testOK = false, false // editing invalidates a prior reachability test
 }
 
-// formCaret applies a caret-movement op to the focused text field (008 US3, FR-006). A
-// no-op on the boolean toggle rows (FR-008). Caret moves never invalidate the test.
+// formCaret applies a caret-movement op to the focused text field. A
+// no-op on the boolean toggle rows. Caret moves never invalidate the test.
 func (m App) formCaret(move func(*textField)) {
 	if p := m.form.focusField(); p != nil {
 		move(p)
@@ -307,7 +314,7 @@ func (f *connForm) draft() ConnDraft {
 	}
 }
 
-// parseBuckets normalizes a free-text bucket list (010 US3/FR-006): split on commas and
+// parseBuckets normalizes a free-text bucket list: split on commas and
 // whitespace, trim, drop empties, de-duplicate preserving first-seen order. nil when empty.
 func parseBuckets(s string) []string {
 	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
@@ -345,7 +352,7 @@ func (m App) validateForm() string {
 	}
 	// Credentials are required: the connection is persisted with a keychain source, which
 	// the config validator rejects without an access key id (and an empty secret is
-	// useless). Catch it here so a bad draft never reaches the config writer (FR-021).
+	// useless). Catch it here so a bad draft never reaches the config writer.
 	if strings.TrimSpace(f.accessKey.Value) == "" {
 		return "access key id is required"
 	}
@@ -369,12 +376,12 @@ func (m App) submitConnForm() (tea.Model, tea.Cmd) {
 	return m, testConnCmd(m.connect, m.form.draft())
 }
 
-// testConnCmd runs the reachability test off the event loop (FR-025a/FR-030).
+// testConnCmd runs the reachability test off the event loop.
 func testConnCmd(c Connector, d ConnDraft) tea.Cmd {
 	return func() tea.Msg { return connTestedMsg{err: c.Test(context.Background(), d)} }
 }
 
-// saveConnCmd persists the connection off the event loop (FR-030).
+// saveConnCmd persists the connection off the event loop.
 func saveConnCmd(c Connector, d ConnDraft) tea.Cmd {
 	return func() tea.Msg {
 		names, err := c.Save(context.Background(), d)
@@ -383,15 +390,15 @@ func saveConnCmd(c Connector, d ConnDraft) tea.Cmd {
 }
 
 // onConnTested applies the reachability result: success → save; failure → offer
-// "save anyway" (FR-025a).
+// "save anyway".
 func (m App) onConnTested(msg connTestedMsg) (tea.Model, tea.Cmd) {
 	if m.form == nil {
 		return m, nil
 	}
-	// nil OR access-denied counts as reachable → save (010 US4/FR-009): the endpoint resolved
+	// nil OR access-denied counts as reachable → save: the endpoint resolved
 	// and the server answered; bucket-scoped creds simply may lack list-all. Other failures
 	// (unreachable/not-found/invalid-config) show the CLASSIFIED reason (not a blanket
-	// "unreachable") and keep the "save anyway" affordance (FR-010).
+	// "unreachable") and keep the "save anyway" affordance.
 	if msg.err == nil || errors.Is(msg.err, storage.ErrAccessDenied) {
 		m.form.tested, m.form.testOK = true, true
 		m.err = nil
@@ -404,7 +411,7 @@ func (m App) onConnTested(msg connTestedMsg) (tea.Model, tea.Cmd) {
 }
 
 // onConnSaved applies the save outcome: success → refresh the context list and switch back
-// to the manager; failure → show the error in the form (FR-025/FR-026).
+// to the manager; failure → show the error in the form.
 func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		if m.form != nil {
@@ -420,7 +427,7 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 		name = m.form.draft().Name
 	}
 	m.form = nil
-	m.err = nil // a stale test error must not bleed into the bucket-list footer (010 US4)
+	m.err = nil // a stale test error must not bleed into the bucket-list footer
 	m.notice = "connection saved: " + name
 	// Enter the just-saved connection so the user lands in its bucket list — where a scoped
 	// connection (no pinned buckets, list-all denied) shows the "+ add bucket" row. This makes
@@ -433,7 +440,7 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// openAddBucket opens the "+ add bucket" input (010 US2). No-op without a Connector.
+// openAddBucket opens the "+ add bucket" input. No-op without a Connector.
 func (m App) openAddBucket() (tea.Model, tea.Cmd) {
 	if m.connect == nil {
 		return m, nil
@@ -445,7 +452,7 @@ func (m App) openAddBucket() (tea.Model, tea.Cmd) {
 }
 
 // addBucketCmd persists a pinned bucket off the event loop via the injected Connector
-// (010 US2), mirroring saveConnCmd. The result list flows back via addBucketMsg.
+// , mirroring saveConnCmd. The result list flows back via addBucketMsg.
 func addBucketCmd(c Connector, ctxName, bucket string) tea.Cmd {
 	return func() tea.Msg {
 		buckets, err := c.AddBucket(context.Background(), ctxName, bucket)
@@ -492,7 +499,7 @@ func (m App) onAddBucketKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
-// onAddBucket applies the persist outcome (010 US2): on success update the live pinned list
+// onAddBucket applies the persist outcome: on success update the live pinned list
 // and reload the bucket view so the new bucket appears; on failure surface it on the form.
 func (m App) onAddBucket(msg addBucketMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
@@ -509,7 +516,7 @@ func (m App) onAddBucket(msg addBucketMsg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
 }
 
-// addBucketView renders the "+ add bucket" input body (010 US2).
+// addBucketView renders the "+ add bucket" input body.
 func (m App) addBucketView(w int) string {
 	f := m.addForm
 	if f == nil {
@@ -526,11 +533,11 @@ func (m App) addBucketView(w int) string {
 	return b.String()
 }
 
-// connDeleteHint is the connection-list help line (008 US1). It always advertises
+// connDeleteHint is the connection-list help line. It always advertises
 // navigation; the delete segment is appended ONLY for a deletable (non-active, existing)
 // selection — absent on the "+ add connection" row, the empty list, and the active
-// connection (FR-001/FR-003). The delete keystroke is sourced from the keymap so it tracks
-// rebinds and the chord-label format (FR-004).
+// connection. The delete keystroke is sourced from the keymap so it tracks
+// rebinds and the chord-label format.
 func (m App) connDeleteHint() string {
 	base := "↑/↓ select · Enter open/switch · Esc back"
 	if m.connSel >= 0 && m.connSel < len(m.contexts) && m.contexts[m.connSel] != m.ctxName {
@@ -540,14 +547,14 @@ func (m App) connDeleteHint() string {
 }
 
 // connectionsView renders the connection-list body (existing contexts + an add row) plus the
-// inline help line carrying the delete hint (008 US1).
+// inline help line carrying the delete hint.
 func (m App) connectionsView(w, rows int) string {
 	hint := m.connDeleteHint()
 	body := ctxTable(w, max(1, rows-2), m.connSel, "connection", m.connRows(), m.ctxName)
 	return body + "\n\n" + dimCellStyle.Render(truncate(hint, max(1, w-1)))
 }
 
-// connFieldHint returns the focused-field guidance line (008 US4, FR-009/FR-010). The secret
+// connFieldHint returns the focused-field guidance line. The secret
 // field names what to enter (the secret access key, stored in the OS keychain) and that the
 // other credential sources are config-file-only — it deliberately does NOT promise ${ENV}
 // resolution, since the form stores the secret verbatim to the keychain.

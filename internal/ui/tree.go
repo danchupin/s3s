@@ -24,7 +24,7 @@ func (m App) treeEntries() []treeEntry {
 	}
 	out := make([]treeEntry, 0, m.level.count())
 	// Apply the session sort at build time so selection indices match the display and
-	// resize/reflow stays trivial (005 US4, FR-020). Dirs sort by name (FR-021).
+	// resize/reflow stays trivial. Dirs sort by name.
 	dirs := m.sortedDirs(m.level.dirs)
 	objs := m.sortedObjects(m.level.objects)
 	for _, d := range dirs {
@@ -46,7 +46,7 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Up):
 		if m.treeSel > 0 {
 			m.treeSel--
-			return m.afterSelectionMove() // rearm the debounced details pane (006 US2)
+			return m.afterSelectionMove() // rearm the debounced details pane
 		}
 	case matches(key, m.keys.Down):
 		if m.treeSel < n-1 {
@@ -89,11 +89,11 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Back):
 		return m.goBack()
 	default:
-		// Dangerous-action chords first (007 US4): ctrl+x → delete/recursive, ctrl+o → move.
+		// Dangerous-action chords first: ctrl+x → delete/recursive, ctrl+o → move.
 		if mm, cmd, ok := m.dispatchChord(key); ok {
 			return mm, cmd
 		}
-		// Direct single-key actions (006 US1): download/analyze/copy/upload/mkdir/refresh —
+		// Direct single-key actions: download/analyze/copy/upload/mkdir/refresh —
 		// straight into the existing flow, no menu. Bare dangerous keys are inert (nudge).
 		if mm, cmd, ok := m.dispatchActionKey(key); ok {
 			return mm, cmd
@@ -112,11 +112,11 @@ func (m App) selected() *treeEntry {
 }
 
 // enterLevel switches to the tree view for the current (bucket, prefix, search),
-// serving from cache on a hit (FR-011) or fetching the first page on a miss.
+// serving from cache on a hit or fetching the first page on a miss.
 func (m App) enterLevel() (tea.Model, tea.Cmd) {
 	m.mode = modeTree
 	m.treeSel = 0
-	m.sel = nil // selection is per-level — cleared on navigation (005 FR-019)
+	m.sel = nil // selection is per-level — cleared on navigation
 	key := m.levelKey()
 	if cached, ok := m.cache.Get(key); ok {
 		m.level = cached
@@ -129,7 +129,7 @@ func (m App) enterLevel() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
-// fetchNextPage requests the next page of the current level (FR-010).
+// fetchNextPage requests the next page of the current level.
 func (m App) fetchNextPage() (tea.Model, tea.Cmd) {
 	key := m.levelKey()
 	token := m.level.nextToken
@@ -138,7 +138,7 @@ func (m App) fetchNextPage() (tea.Model, tea.Cmd) {
 	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
-// refresh discards the cached level and re-fetches from the first page (FR-011a).
+// refresh discards the cached level and re-fetches from the first page.
 func (m App) refresh() (tea.Model, tea.Cmd) {
 	key := m.levelKey()
 	m.cache.Invalidate(key)
@@ -175,7 +175,7 @@ func (m App) openObject(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
 	m.meta = nil
 	m.prev = nil
 	m.prevOff = 0
-	// Remember the browse mode to restore on Esc (011 US2): modeBuckets when opened from the
+	// Remember the browse mode to restore on Esc: modeBuckets when opened from the
 	// objects zone (multi-pane), modeTree from the Single-tier full-screen level.
 	m.objReturn = m.mode
 	m.mode = modeObject
@@ -230,14 +230,14 @@ func (m App) treeView(w, rows int) string {
 			data = append(data, []string{e.label, "dir", "—", "—"})
 		} else {
 			label := e.label
-			if m.sel[e.full] { // marked for multi-select (005 US3)
+			if m.sel[e.full] { // marked for multi-select
 				label = "✓ " + label
 			}
 			data = append(data, []string{label, "obj", humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
 		}
 		dirs = append(dirs, e.isDir)
 	}
-	return renderTable(w, cols, data, dirs, m.treeSel-off)
+	return renderTableActive(w, cols, data, dirs, m.treeSel-off, rows-(end-off))
 }
 
 // parentPrefix returns the prefix one level up ("a/b/" -> "a/", "a/" -> "").

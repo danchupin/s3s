@@ -6,8 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Multi-select (005 US3). Only OBJECTS are markable (folders/prefixes are not, FR-014);
-// the selection is per-level and cleared on navigation (FR-019). Recursive folder
+// Multi-select. Only OBJECTS are markable (folders/prefixes are not, FR-014);
+// the selection is per-level and cleared on navigation. Recursive folder
 // deletion stays its own dedicated action — never driven by multi-select.
 
 // toggleMark marks/unmarks the highlighted object.

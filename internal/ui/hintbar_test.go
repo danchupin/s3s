@@ -192,9 +192,10 @@ func TestCommandBarReadOnlyShowsWriteDimmed(t *testing.T) {
 			t.Errorf("read-only command bar must still show write action %q; got:\n%s", want, bar)
 		}
 	}
-	// The "(w to arm)" cue marks the dimmed write block (NO_COLOR-safe, FR-015).
-	if !strings.Contains(bar, "w to arm") {
-		t.Errorf("read-only write block must carry a non-color 'w to arm' cue; got:\n%s", bar)
+	// The "w enable write" cue marks the disarmed write block (NO_COLOR-safe; 012 FR-007 made
+	// the old "w to arm" explicit).
+	if !strings.Contains(bar, "enable write") {
+		t.Errorf("read-only write block must carry a non-color 'enable write' cue; got:\n%s", bar)
 	}
 }
 

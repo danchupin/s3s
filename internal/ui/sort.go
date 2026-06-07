@@ -8,12 +8,10 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Sortable lists (005 US4). The sort is applied at RENDER time to a copy of the level,
+// Sortable lists. The sort is applied at RENDER time to a copy of the level,
 // keeping selection indices the only mutable list state (the architecture's stateless
-// window model). It persists across navigation for the session (FR-020). Folders have
+// window model). It persists across navigation for the session. Folders have
 // no size/date, so when sorting by those columns they group consistently above objects
-// (FR-021).
-
 type sortCol int
 
 const (

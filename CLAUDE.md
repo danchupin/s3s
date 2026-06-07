@@ -44,12 +44,16 @@ go test -cover ./...                            # coverage
 ## Architecture (the big picture)
 
 The codebase is governed by a **constitution** (`.specify/memory/constitution.md`,
-v1.0.0). Its five principles are **I. Core/UI Separation**, **II. Non-Blocking
+v1.1.0). Its seven principles are **I. Core/UI Separation**, **II. Non-Blocking
 TUI**, **III. Test-First**, **IV. Integration Testing**, **V. Observability & Safe
-Operations**. Note that principle V already anticipates *writes*: it mandates
-explicit confirmation + logging for destructive actions (delete object/bucket,
-overwrite, recursive remove). Adding mutations therefore does **not** require a
-constitution amendment.
+Operations**, **VI. UI Legibility** (every resource identifier fully visible or
+revealable to read/copy; footer/command bar never scrolled off), and **VII. UI
+Consistency & Design System** (shared prompt/label patterns; color as a consistent
+accent via palette roles, never ad-hoc). Note that principle V already anticipates
+*writes*: it mandates explicit confirmation + logging for destructive actions (delete
+object/bucket, overwrite, recursive remove). Adding mutations therefore does **not**
+require a constitution amendment. Principles VI–VII were added by feature 012
+(`specs/012-ui-visibility-write-clarity`).
 
 **Read-only is a current implementation posture of the 001 feature, not a
 constitution principle** — it is enforced structurally and is expected to relax
@@ -114,46 +118,44 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 011-two-pane-hotkeys (three-zone master-detail browse + hotkey mnemonic review; 4
-user stories) — IMPLEMENTED (46/47 tasks; only T044 manual smoke pending. go test ./... + fmt + vet +
-lint(0) + check-readonly green; ui coverage 78.1%). Reuse m.level/treeSel (Design B): bucketLoadGen
-debounce → objects zone; focusZone (zoneBuckets|zoneObjects) + Tab toggle; boxViewFocus active/dim;
-3-zone Full tier (browseDetailsView adaptive); AddConn 'n' REMOVED → 'c' opens connections manager;
-keyStyle bold glyphs. 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
+Active feature: 012-ui-visibility-write-clarity (UI legibility, hotkey parity, breadcrumbs, write-mode
+clarity; 9 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 011-two-pane-hotkeys
+— IMPLEMENTED. 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/011-two-pane-hotkeys/plan.md. Artifacts (specs/011-two-pane-hotkeys/): spec.md (US1 live
-bucket-contents pane P1, US2 cross-pane focus nav P1, US3 preserve adaptive details pane P2, US4
-hotkey mnemonic review + bold glyphs P2; FR-001..027 incl. FR-002a/006a-e, SC-001..010, 8
-clarifications), research.md (R1..R10), data-model.md, quickstart.md, contracts/ (keymap-contract,
-two-pane-layout, lazy-load-cache), checklists/ (requirements 16/16, lazy-load 28/28). Constitution
-v1.0.0; NO amendment (touches I+II+III; IV N/A justified — no storage-contract change). check-readonly
-STAYS green (no new write-S3 symbol, no new storage method; only a test-only read counter on Fake).
+Plan: specs/012-ui-visibility-write-clarity/plan.md. Artifacts: spec.md (US1 names-never-hidden P1, US2
+write-state legible+reversible P1, US3 breadcrumb P2, US4 prominent arm-confirm P2, US5 design-system P2,
+US6 objects-zone hotkey parity P1 REGRESSION, US7 filter current level + prominent input P1, US8 sort
+reachable+advertised P2, US9 declutter P2; FR-001..041, SC-001..015, 4 clarifications), research.md
+(R1..R10), data-model.md, quickstart.md, contracts/ (keymap, reveal-popup, level-filter, layout-visibility,
+writemode), checklists/requirements.md (16/16). Constitution v1.1.0 (ADDED VI UI Legibility + VII UI
+Consistency/Design System for this feature). check-readonly STAYS green (no new write-S3 symbol, no storage
+method; only a test-only read counter on Fake). NO integration (no storage-contract change; IV N/A justified).
 
-GOAL: split browse into Miller-columns — buckets │ objects │ details. Highlighting a bucket lazily
-loads its first level into the OBJECTS zone (no Enter); details zone (feature 006) preserved as
-adaptive 3rd zone (bucket-meta when bucket focused, object-meta+preview when object focused). Focus
-crosses: Tab=symmetric toggle, →/l/Enter-on-bucket cross IN, ←/h/Esc ascend-or-return (FR-009 precedence:
-clear-search → ascend → return-to-buckets). Tiers: Full ≥130 (3 zones) / Dual 100-129 (buckets│objects,
-details collapses) / Single ≤99 (today's single-column stack UNCHANGED, Enter-on-bucket still drills).
+GOAL: presentation/UX iteration on the two-pane browser. Make every resource identifier fully visible or
+revealable; make write mode legible+reversible; add a location breadcrumb; FIX the confirmed regressions
+where the objects zone (focusZone==zoneObjects) had dead hotkeys + wrong filter scope; surface sort; and
+single-source every hint. Border-mounted RO/WRITE mode chip (like Claude Code's ultracode chip) + a
+Claude-Code-style filter input that commits on Enter and hands focus to the filtered pane.
 
-Key approach (canonical Design B — reuse m.level/treeSel, see research.md R6 reconciliation): objects
-zone REUSES m.level (content) + treeSel (cursor) — NO separate objLevel. Load REUSES loadLevel→levelMsg
-→onLevel + cache.Key{ctx,bucket,Prefix:"",Search:""} via levelKeyFor (shared cache w/ tree view). NEW
-state = ONLY App.focusZone (zoneBuckets|zoneObjects, default zoneBuckets) + App.bucketLoadGen (debounce
-counter). Scrolling buckets → bucketLoadGen debounce tick (paneDebounce 180ms ≤200ms, mirror
-afterSelectionMove/onPaneTick) → settle: beginLoad+loadLevel into m.level, reset treeSel=0 (as enterLevel);
-superseded load dropped by m.gen guard in onLevel, superseded tick by bucketLoadGen. CROSSING NEVER LOADS
-(m.level already loaded lazily); load only on folder-drill inside objects. Lazy: startup loadBuckets =
-NAMES only, 0 object listings (FR-002a/SC-010). First page = DefaultMaxKeys 1000 (SAME as enterLevel →
-shared-cache invariant); paging via fetchNextPage. Errors NOT cached (failure=errMsg, onLevel Puts only on
-levelMsg) → revisit re-attempts (FR-006c). In-flight dedup via the gen guard (FR-006d). Layout: listWithPane
-→ 3 boxes via JoinHorizontal, paneW math reused, boxView active(accent)/dim per focusZone; windowBounds
-stateless reflow; footer never scrolls (boxView minRows cap). Focus: Update dispatch branches on focusZone
-(zoneBuckets→bucketSel, zoneObjects→treeSel) for →/←/Esc/Tab/Enter; Tab=symmetric toggle.
-Hotkeys: defaultKeys REMOVES AddConn 'n' (app.go:604 dispatch gone; "+ add connection" row connections.go:103
-stays sole affordance); y/ctrl+o kept; ALL advertised keys rendered Bold (today accentStyle fg-only — add
-.Bold(true)) in keyGlyph/formatKeys/hintbar/helpLines; NO_COLOR keeps non-color cue; single keymap source
-→ dispatch+hintbar+help never drift. Tests: white-box package ui (deliver/press/viewOf) + storage.Fake
-NEW read list-call counter (assert 0 obj-listings at startup, ≤1 per fast-scroll, 0 on revisit, re-attempt
-after denied); NO integration (no storage contract change).
+Key approach (grounded research.md R1-R10): (R3, regression) onObjectsKey (app.go:445-486) shipped with nav
+only — factor a shared onLevelKey from onTreeKey (tree.go:41-103) so both delegate; make selKind (app.go:60)
++ actionCatalog (hintbar.go:44) treat (modeBuckets && zoneObjects) as a LEVEL context (object catalog +
+real selObject/selFolder, not bucket catalog/selNone); add the 5 missing branches (Mark/Sort/SortDir/Context
++ dispatchChord/dispatchActionKey); FIX marks leak — clear m.sel in loadObjectsLevel. (R2/US7) `/` in objects
+zone reuses LevelQuery.Search server-side current-prefix filter (s3client.go:107 effPrefix=prefix+search,
+Delimiter:/) — afterFilterEdit/Esc/searchActive branch on focusZone; NEW prominent filter input commits on
+Enter → moves focus to filtered pane, re-open pre-fills, Esc cancels-to-committed, back/clear removes. (R1/US1)
+reveal.go NEW: 'i' opens centered popup (reuse confirmPopupView) showing full id + tea.SetClipboard OSC52
+copy; bucket col auto-grows into objects-zone slack + active-row wrap (renderTable variant, within minRows
+cap → footer safe; fall back to popup). (R5/US3) breadcrumb ctx→bucket→prefix in objects-zone center label /
+Single box title, elideMiddle keeps bucket+deepest. (R6+R7/US2/US4) badge space-color fix (styles.go:411);
+symmetric enable/disable labels from m.keys.WriteToggle; armConfirmPopupView (prominent, reuse
+confirmPopupView, badge+chip stay); NEW mode chip = right-aligned slot in boxViewWith top border
+(WRITE accent / RO neutral, NO_COLOR-safe, safety-redundant exception to dedup). (R8/US8) sort = first
+read-block barEntry "s name↑" (sortIndicator), drops via fitEntries; sortModified already exists. (R7-glyphs/
+US5/US9) +Reveal +Tab in keyMap; replace ~22 hardcoded hint literals (pane.go:71 ^x, app.go:1341/keys.go:152
+d/x/y, confirm.go literal "esc", connections/operation/filebrowser Enter/Esc/↑↓) with glyph()/formatKeys();
+confirm.go dispatch via m.keys.Back. Reuse-only styling (styles.go palette/roles, no new hue). Tests: white-
+box package ui (deliver/press/viewOf, dualApp/crossToObjects/treeApp/buildApp) + Fake.ListLevelCalls; failing-
+first per US (R10). Layout invariant: boxView minRows cap → footer never scrolls (FR-022) at every tier.
 <!-- SPECKIT END -->

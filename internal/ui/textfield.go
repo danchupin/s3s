@@ -3,7 +3,7 @@ package ui
 import "strings"
 
 // textField is the shared single-line, rune-aware text editor used by the add-connection
-// form fields and the typed-confirm input (008 US3). The caret is a RUNE index (never a
+// form fields and the typed-confirm input. The caret is a RUNE index (never a
 // byte offset), so multi-byte input is never split. Render windows the value horizontally
 // so the caret stays on screen, and masks to bullets for the secret field — without ever
 // emitting a byte of the underlying value.

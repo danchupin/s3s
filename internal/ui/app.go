@@ -35,7 +35,7 @@ const (
 )
 
 // zone names which interactive column owns keyboard input in the multi-pane browse
-// (011 US2): the bucket list or the objects zone. It is a focus selector layered on the
+// : the bucket list or the objects zone. It is a focus selector layered on the
 // existing mode machine — meaningful only while m.mode == modeBuckets at the Dual/Full
 // tiers; in the Single tier the mode stack (modeBuckets/modeTree) disambiguates and the
 // focus is implicitly the single visible column.
@@ -55,10 +55,18 @@ const (
 	selFolder
 )
 
-// selKind reports the kind of the current tree selection (selNone outside the tree
-// or when nothing is selected). Used by the hint bar and direct-action dispatch.
+// inLevel reports whether the current view operates on a loaded object level — the
+// full-screen tree (modeTree) OR the objects zone of the two-pane browse (modeBuckets with
+// focus crossed in). Both reuse m.level/treeSel, so selection + per-item actions apply to
+// both.
+func (m App) inLevel() bool {
+	return m.mode == modeTree || (m.mode == modeBuckets && m.focusZone == zoneObjects)
+}
+
+// selKind reports the kind of the current level selection (selNone outside a level or when
+// nothing is selected). Used by the hint bar and direct-action dispatch.
 func (m App) selKind() selKind {
-	if m.mode != modeTree {
+	if !m.inLevel() {
 		return selNone
 	}
 	e := m.selected()
@@ -85,7 +93,7 @@ func (l *levelState) count() int { return len(l.dirs) + len(l.objects) }
 // Backend describes the storage client plus the display metadata for the active
 // context (shown in the header). The UI never builds clients itself. Store is the
 // RAW (unguarded) client — the UI guards it dynamically per the runtime write-arm
-// state (005 US5). Writable is the *initial* arm intent (the --write flag); ReadOnly
+// state. Writable is the *initial* arm intent (the --write flag); ReadOnly
 // is the context's absolute readonly:true lock.
 type Backend struct {
 	Store       storage.Storage
@@ -94,8 +102,8 @@ type Backend struct {
 	Endpoint    string
 	Region      string
 	Writable    bool   // initial write-arm intent (--write)
-	ReadOnly    bool   // context is readonly:true — never armable (FR-028)
-	DownloadDir string // default local download dir from config (005 FR-007)
+	ReadOnly    bool   // context is readonly:true — never armable
+	DownloadDir string // default local download dir from config
 	// PinnedBuckets are the connection's declared bucket names (010). Non-empty ⇒ the
 	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
 	PinnedBuckets []string
@@ -127,9 +135,9 @@ type App struct {
 	buckets      []storage.Bucket
 	bucketSel    int
 	bucketFilter string // client-side name filter at the bucket list
-	// bucketLoadGen debounces the objects-zone reload as the bucket cursor moves (011 US1):
+	// bucketLoadGen debounces the objects-zone reload as the bucket cursor moves:
 	// each move bumps it + schedules a bucketTickMsg; only the settled tick fires the load,
-	// so fast scrolling never issues a ListLevel per intermediate bucket (FR-003).
+	// so fast scrolling never issues a ListLevel per intermediate bucket.
 	bucketLoadGen int
 
 	// tree navigation
@@ -139,12 +147,12 @@ type App struct {
 	level   *levelState
 	treeSel int
 
-	// multi-pane focus (011 US2): which zone owns input while modeBuckets at Dual/Full.
+	// multi-pane focus: which zone owns input while modeBuckets at Dual/Full.
 	// The objects zone reuses m.level (content) + m.treeSel (cursor); focusZone only
 	// selects which cursor the nav keys move and which box renders active.
 	focusZone zone
 	// objReturn is the browse mode to restore when leaving the full-screen object view
-	// (011 US2): modeBuckets when opened from the objects zone, modeTree from the Single
+	//: modeBuckets when opened from the objects zone, modeTree from the Single
 	// tier. Defaults to modeBuckets (the zero value) — set in openObject.
 	objReturn mode
 
@@ -156,30 +164,31 @@ type App struct {
 	// context switcher
 	ctxSel int
 
-	// details/preview pane (006 US2) — debounced per-selection load; NEVER flips modeObject
+	// details/preview pane — debounced per-selection load; NEVER flips modeObject
 	paneGen     int
 	paneSelKey  string                  // key the in-flight/loaded pane data belongs to
 	paneMeta    *storage.ObjectMetadata // debounced HeadObject result
 	panePrev    *preview.Payload        // debounced ranged-GET preview
 	paneVisible bool                    // false collapses the pane on narrow terminals
 
-	// command bar (006 US3 / modeCommand)
+	// command bar
 	cmdInput string
 
-	// connection manager (006 US4)
+	// connection manager
 	connect Connector      // nil disables in-app connection add
 	connSel int            // selection in modeConnections list
 	form    *connForm      // active add-connection form (modeConnForm)
 	addForm *bucketAddForm // active "+ add bucket" input (modeAddBucket) — 010 US2
 
 	// bucketsScoped marks the current bucket list as scoped (pins present, or list-all
-	// failed/denied/empty): the "+ add bucket" row is shown only then (010 FR-013a).
+	// failed/denied/empty): the "+ add bucket" row is shown only then.
 	bucketsScoped bool
 
 	// search/filter input
-	searching   bool
-	searchInput string
-	searchGen   int
+	searching    bool
+	searchInput  string
+	searchGen    int
+	filterBefore string // committed filter term captured when the input opened
 
 	// async state
 	gen        int
@@ -194,22 +203,25 @@ type App struct {
 	opCh   chan progressEvent // streaming progress channel (upload / recursive delete)
 	notice string             // transient non-error outcome line (e.g. partial counts)
 
-	// write-mode arm confirmation pending (005 US5): true while awaiting y/N to arm write
+	// write-mode arm confirmation pending: true while awaiting y/N to arm write
 	armConfirm bool
 
-	// multi-select (005 US3): marked OBJECT keys in the current level, cleared on nav
+	// reveal/inspect popup: non-nil while showing the full identifier of a selection
+	reveal *revealState
+
+	// multi-select: marked OBJECT keys in the current level, cleared on nav
 	sel map[string]bool
 
-	// sort order (005 US4): session-persistent across navigation
+	// sort order: session-persistent across navigation
 	sortBy  sortCol
 	sortAsc bool
 
-	// du analytics (005 US2 / modeUsage)
+	// du analytics
 	usage       *storage.UsageReport // completed report (nil while scanning)
 	usageSel    int                  // selected child row (for drill-down)
 	usageBucket string
 	usagePrefix string
-	usageReturn mode                  // mode to restore when leaving the analytics view (005 US2)
+	usageReturn mode                  // mode to restore when leaving the analytics view
 	usageProg   storage.UsageProgress // running totals during a scan
 	usageCh     chan usageEvent       // scan progress channel
 
@@ -236,7 +248,7 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		armed:       initial.Writable,
 		ctxReadOnly: initial.ReadOnly,
 		sortAsc:     true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
-		paneVisible: true, // details pane on by default; collapses on narrow terminals (006 US2)
+		paneVisible: true, // details pane on by default; collapses on narrow terminals
 		keys:        defaultKeys(),
 		cache:       cache.New[*levelState](),
 		mode:        modeBuckets,
@@ -265,14 +277,14 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 }
 
 // writable reports whether mutations are currently permitted: the session is armed
-// AND the active context is not hard-locked readonly (005 FR-024/FR-028). This
+// AND the active context is not hard-locked readonly. This
 // derived value replaces the old static field, recomputed on every toggle/switch.
 func (m App) writable() bool { return m.armed && !m.ctxReadOnly }
 
 // activeStore returns the backend guarded for the current arm state: the raw client
 // when writable, else a read-only wrapper that refuses mutations without a network
 // call. This is the single runtime enforcement point — every operation uses it, so a
-// mutating call is impossible while disarmed (005 US5, write-toggle-contract C1).
+// mutating call is impossible while disarmed.
 func (m App) activeStore() storage.Storage { return storage.Guard(m.raw, m.writable()) }
 
 // Init kicks off the initial bucket load armed by New. On first run (no backend yet —
@@ -310,7 +322,7 @@ func (m *App) cancelLoad() {
 }
 
 // afterSelectionMove rearms the debounced details-pane load for the new tree selection
-// (006 US2). It bumps the pane generation (superseding any in-flight pane load for the
+// It bumps the pane generation (superseding any in-flight pane load for the
 // previous row), clears the stale pane data, and — for an object selection — schedules a
 // paneTick. Folders/levels need no fetch (instant summary), so no tick is scheduled.
 func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
@@ -327,7 +339,7 @@ func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
 
 // onPaneTick fires the debounced pane fetch if the selection is unchanged (gen+key match)
 // and still on an object; otherwise the tick is for a scrolled-past row and is dropped
-// (006 US2, FR-009/FR-012). Pane loads use a background context — they are cheap, bounded,
+// Pane loads use a background context — they are cheap, bounded,
 // and superseded by the generation check, so they never disturb the main load.
 func (m App) onPaneTick(msg paneTickMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.paneGen || msg.key != m.paneSelKey || m.paneSelKey == "" {
@@ -355,7 +367,7 @@ func (m App) highlightedBucketName() string {
 }
 
 // afterBucketMove re-arms the debounced objects-zone load for the newly-highlighted bucket
-// (011 US1, FR-003). It bumps bucketLoadGen (superseding any pending tick) and schedules a
+// It bumps bucketLoadGen (superseding any pending tick) and schedules a
 // fresh bucketTick. No load is issued in the Single tier (no objects zone there → the narrow
 // flow is unchanged and issues zero object listings, SC-007/SC-010) or when the cursor is on
 // the "+ add bucket" row.
@@ -372,11 +384,11 @@ func (m App) afterBucketMove() (tea.Model, tea.Cmd) {
 }
 
 // onBucketTick fires the debounced objects-zone load once the bucket selection settles
-// (011 US1). A tick for a scrolled-past bucket (gen/name mismatch) is dropped (FR-003/FR-004).
-// On a cache hit the level is served with no backend call (FR-006); on a miss the existing
+// A tick for a scrolled-past bucket (gen/name mismatch) is dropped.
+// On a cache hit the level is served with no backend call; on a miss the existing
 // loadLevel/onLevel path fills m.level. An in-flight load for the same bucket is not duplicated
-// (FR-006d). The level is loaded into m.level (the shared level state, Design B) so crossing
-// into it (US2) and the full-screen tree view share the same cache entry.
+// The level is loaded into m.level (the shared level state, Design B) so crossing
+// into it and the full-screen tree view share the same cache entry.
 func (m App) onBucketTick(msg bucketTickMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.bucketLoadGen || m.highlightedBucketName() != msg.bucket {
 		return m, nil // scrolled past — drop
@@ -388,7 +400,7 @@ func (m App) onBucketTick(msg bucketTickMsg) (tea.Model, tea.Cmd) {
 }
 
 // loadObjectsLevel points the objects zone at (bucket, prefix, search): a cache hit serves
-// instantly with no backend call (FR-006), a miss kicks off the shared loadLevel under a
+// instantly with no backend call, a miss kicks off the shared loadLevel under a
 // fresh gen. treeSel resets (a new level). It stays in modeBuckets (multi-pane). The result
 // lands in m.level via the existing onLevel, shared with the full-screen tree view (Design B).
 func (m App) loadObjectsLevel(bucket, prefix, search string) (tea.Model, tea.Cmd) {
@@ -396,6 +408,7 @@ func (m App) loadObjectsLevel(bucket, prefix, search string) (tea.Model, tea.Cmd
 	m.prefix = prefix
 	m.search = search
 	m.treeSel = 0
+	m.sel = nil // marks are per-level — cleared on bucket/level change
 	key := m.levelKey()
 	if cached, ok := m.cache.Get(key); ok {
 		m.level = cached
@@ -407,7 +420,7 @@ func (m App) loadObjectsLevel(bucket, prefix, search string) (tea.Model, tea.Cmd
 	return m, tea.Batch(loadLevel(ctx, m.activeStore(), key, q, m.gen), spinnerTick())
 }
 
-// crossIntoObjects moves focus from the bucket list into the objects zone (011 US2, FR-007).
+// crossIntoObjects moves focus from the bucket list into the objects zone.
 // The objects level is already lazily previewed; crossing only sets the focus — it loads the
 // level only if it does not yet match the highlighted bucket's root (e.g. the cross preceded
 // the settle). No-op on the "+ add bucket" row.
@@ -418,14 +431,14 @@ func (m App) crossIntoObjects() (tea.Model, tea.Cmd) {
 	}
 	m.focusZone = zoneObjects
 	// Already showing this bucket's level — preserve the objects-zone position (incl. a drilled
-	// prefix) so Tab/→ back into objects resumes where the cursor was (FR-007 "preserve cursor").
+	// prefix) so Tab/→ back into objects resumes where the cursor was.
 	if m.bucket == b && m.level != nil {
 		return m, nil
 	}
 	return m.loadObjectsLevel(b, "", "")
 }
 
-// toggleFocus flips focus between the bucket list and the objects zone (011 US2, FR-007):
+// toggleFocus flips focus between the bucket list and the objects zone:
 // the symmetric Tab toggle. No objects zone exists in the Single tier, so it is inert there.
 func (m App) toggleFocus() (tea.Model, tea.Cmd) {
 	if layoutTier(m.width) == tierSingle {
@@ -470,6 +483,17 @@ func (m App) onObjectsKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case matches(key, m.keys.Search):
 		return m.startSearch()
+	case matches(key, m.keys.Mark):
+		return m.toggleMark()
+	case matches(key, m.keys.Sort):
+		return m.cycleSort()
+	case matches(key, m.keys.SortDir):
+		return m.toggleSortDir()
+	case matches(key, m.keys.Context):
+		// A context switch is a global mode change — return focus to the bucket list so the
+		// restore lands there, not in a now-stale objects zone.
+		m.focusZone = zoneBuckets
+		return m.openContexts()
 	case matches(key, m.keys.Enter):
 		e := m.selected()
 		if e == nil {
@@ -481,12 +505,22 @@ func (m App) onObjectsKey(key string) (tea.Model, tea.Cmd) {
 		return m.openObject(e.obj) // → modeObject (full screen)
 	case matches(key, m.keys.Back):
 		return m.objectsBack()
+	default:
+		// Full per-item parity with the tree view: dangerous chords first
+		// (ctrl+x delete / ctrl+o move), then the direct single-key actions — routed through the
+		// SAME dispatch + object catalog the full-screen level uses.
+		if mm, cmd, ok := m.dispatchChord(key); ok {
+			return mm, cmd
+		}
+		if mm, cmd, ok := m.dispatchActionKey(key); ok {
+			return mm, cmd
+		}
 	}
 	return m, nil
 }
 
 // objectsBack implements the FR-009 precedence for the objects zone: clear an active search,
-// else ascend one prefix, else (at the root) return focus to the bucket list (011 US2).
+// else ascend one prefix, else (at the root) return focus to the bucket list.
 func (m App) objectsBack() (tea.Model, tea.Cmd) {
 	if m.search != "" {
 		return m.loadObjectsLevel(m.bucket, m.prefix, "")
@@ -498,14 +532,14 @@ func (m App) objectsBack() (tea.Model, tea.Cmd) {
 	return m.loadObjectsLevel(m.bucket, parentPrefix(m.prefix), "")
 }
 
-// objectsView renders the objects zone (011 US1): the highlighted bucket's first level,
-// reusing the tree table render of m.level, with explicit loading/empty/error states (FR-005).
+// objectsView renders the objects zone: the highlighted bucket's first level,
+// reusing the tree table render of m.level, with explicit loading/empty/error states.
 func (m App) objectsView(w, rows int) string {
 	if m.highlightedBucketName() == "" {
 		return dimCellStyle.Render("(no bucket selected)")
 	}
 	// A denied/failed objects listing surfaces an in-pane error without disturbing the
-	// bucket list (FR-005/FR-018). The error is not cached, so a revisit re-attempts (FR-006c).
+	// bucket list. The error is not cached, so a revisit re-attempts.
 	if m.err != nil && m.level == nil {
 		return errStyle.Render("error: " + truncate(m.errorText(), max(1, w-7)))
 	}
@@ -525,13 +559,13 @@ func (m *App) levelKey() cache.Key {
 
 // levelKeyFor is the cache coordinate for an arbitrary (bucket, prefix) in the active
 // context, with an empty search — used to invalidate a level other than the current view
-// after a cross-prefix mutation (008 US6).
+// after a cross-prefix mutation.
 func (m App) levelKeyFor(bucket, prefix string) cache.Key {
 	return cache.Key{Context: m.ctxName, Bucket: bucket, Prefix: prefix, Search: ""}
 }
 
 // invalidateLevel drops a single cached level so the next navigation to it re-fetches
-// (008 US6 / FR-016). Precise — never a whole-cache clear.
+// Precise — never a whole-cache clear.
 func (m App) invalidateLevel(key cache.Key) { m.cache.Invalidate(key) }
 
 // Update is the single message dispatcher.
@@ -546,7 +580,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loading {
 			m.spin = (m.spin + 1) % len(spinnerFrames)
 			// Count ticks during a running op so the progress bar appears only after a
-			// brief threshold (007 US6 / FR-035) — fast ops finish first and never flash.
+			// brief threshold — fast ops finish first and never flash.
 			if m.op != nil && m.op.phase == phaseRunning {
 				m.op.ticks++
 			}
@@ -561,10 +595,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.buckets = msg.buckets
 		m.bucketSel = 0
-		// Scoped (010 FR-013a): the "+ add bucket" row shows when this connection has pinned
+		// Scoped: the "+ add bucket" row shows when this connection has pinned
 		// buckets OR list-all returned nothing — never on a working list-all with results.
 		m.bucketsScoped = len(m.info.PinnedBuckets) > 0 || len(msg.buckets) == 0
-		// Arm the objects-zone preview for the first bucket (011 US1); no-op on a narrow tier.
+		// Arm the objects-zone preview for the first bucket; no-op on a narrow tier.
 		return m.afterBucketMove()
 
 	case levelMsg:
@@ -597,7 +631,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.err = msg.err
 		// A failed/denied list-all on the bucket list is the scoped-credentials case: offer
-		// the "+ add bucket" row so the user can reach a known bucket directly (010 FR-013a).
+		// the "+ add bucket" row so the user can reach a known bucket directly.
 		// Gate on m.bucket=="" so an objects-zone listing error (011 US1, which has a bucket
 		// highlighted) is NOT mistaken for a list-all failure and does not flip bucketsScoped.
 		if m.mode == modeBuckets && m.bucket == "" {
@@ -666,7 +700,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// sanitizePaste collapses a clipboard payload to a single line (008 US3): trailing
+// sanitizePaste collapses a clipboard payload to a single line: trailing
 // newlines are dropped (clipboards often append one) and any interior newline becomes a
 // space, so a paste never breaks a single-line field or submits a form prematurely.
 func sanitizePaste(s string) string {
@@ -677,7 +711,7 @@ func sanitizePaste(s string) string {
 	return s
 }
 
-// onPaste routes a bracketed-paste payload to the active text surface (008 US3, FR-005):
+// onPaste routes a bracketed-paste payload to the active text surface:
 // the search/command input, the add-connection form's focused field, the typed-confirm input,
 // or an operation's destination-key / new-folder name entry. No-op when no text surface is
 // focused. The caret-aware surfaces (connForm, typed-confirm) insert at the caret; the plain
@@ -735,7 +769,7 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// A running mutation is modal in EVERY mode: only cancel (Esc/Back) and quit work.
 	// Checked before the mode-specific handlers so a running op (incl. a connection delete
-	// in modeConnections) never traps quit/cancel behind a mode handler (review #7).
+	// in modeConnections) never traps quit/cancel behind a mode handler.
 	if m.op != nil && m.op.phase == phaseRunning {
 		switch {
 		case matches(key, m.keys.Quit):
@@ -749,7 +783,7 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// The command bar / connection form own all keys while open (text input) — modal,
-	// before the global bindings so typing "q"/":" is not intercepted (006 US3/US4).
+	// before the global bindings so typing "q"/":" is not intercepted.
 	if m.mode == modeCommand {
 		return m.onCommandKey(key, msg)
 	}
@@ -760,7 +794,7 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onAddBucketKey(key, msg)
 	}
 	if m.mode == modeConnections {
-		// A connection-delete confirmation (007 US5) is an active op: it owns keys (typed
+		// A connection-delete confirmation is an active op: it owns keys (typed
 		// name entry) before the list navigation, so typing the name isn't intercepted.
 		if m.op != nil {
 			return m.onOpKey(key, msg)
@@ -768,7 +802,7 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onConnectionsKey(key)
 	}
 
-	// A pending write-arm confirmation is modal: y/N resolves it (005 US5).
+	// A pending write-arm confirmation is modal: y/N resolves it.
 	if m.armConfirm {
 		return m.onArmConfirmKey(key)
 	}
@@ -778,6 +812,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// intercepted.
 	if m.op != nil {
 		return m.onOpKey(key, msg)
+	}
+
+	// The reveal popup is a transient read-only overlay: any key closes it.
+	if m.reveal != nil {
+		m.reveal = nil
+		return m, nil
 	}
 
 	// Global quit.
@@ -798,16 +838,22 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// `:` opens the command bar (006 US3). Search/op/form already own keys above, so it
-	// never interferes with in-progress text entry (FR-019).
+	// `:` opens the command bar. Search/op/form already own keys above, so it
+	// never interferes with in-progress text entry.
 	if matches(key, m.keys.Command) && m.canOpenCommand() {
 		return m.startCommand()
 	}
 
-	// Write-arm toggle: a global safety primitive (005 US5). Arming prompts to
+	// Write-arm toggle: a global safety primitive. Arming prompts to
 	// confirm; disarming is instant. Refused on a readonly:true context.
 	if matches(key, m.keys.WriteToggle) {
 		return m.toggleWrite()
+	}
+
+	// Reveal/inspect the full identifier of the current selection — read-only,
+	// globally available in the browse modes.
+	if matches(key, m.keys.Reveal) {
+		return m.openReveal()
 	}
 
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
@@ -818,8 +864,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	switch m.mode {
 	case modeBuckets:
-		// Multi-pane focus (011 US2): Tab toggles focus; otherwise the focused zone owns input.
-		if key == "tab" {
+		// Multi-pane focus: Tab toggles focus; otherwise the focused zone owns input.
+		if matches(key, m.keys.Tab) {
 			return m.toggleFocus()
 		}
 		if m.focusZone == zoneObjects {
@@ -842,13 +888,13 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 	n := len(m.filteredBuckets())
 	if m.bucketAddRowVisible() {
-		n++ // the "+ add bucket" row is selectable past the last real bucket (010 US2)
+		n++ // the "+ add bucket" row is selectable past the last real bucket
 	}
 	switch {
 	case matches(key, m.keys.Up):
 		if m.bucketSel > 0 {
 			m.bucketSel--
-			return m.afterBucketMove() // re-arm the debounced objects-zone preview (011 US1)
+			return m.afterBucketMove() // re-arm the debounced objects-zone preview
 		}
 	case matches(key, m.keys.Down):
 		if m.bucketSel < n-1 {
@@ -876,7 +922,7 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case matches(key, m.keys.Enter):
 		fb := m.filteredBuckets()
-		// The "+ add bucket" row (one past the last bucket) opens the name input (010 US2).
+		// The "+ add bucket" row (one past the last bucket) opens the name input.
 		if m.bucketAddRowVisible() && m.bucketSel == len(fb) {
 			return m.openAddBucket()
 		}
@@ -884,7 +930,7 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		// Multi-pane (Dual/Full): Enter/→/l crosses focus into the objects zone — the level is
-		// already previewed (011 US2, FR-007). Single tier: drill full-screen as today (FR-016).
+		// already previewed. Single tier: drill full-screen as today.
 		if layoutTier(m.width) != tierSingle {
 			return m.crossIntoObjects()
 		}
@@ -893,11 +939,11 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		m.search = ""
 		return m.enterLevel()
 	default:
-		// Dangerous-action chord (007 US4): ctrl+x → delete the selected bucket.
+		// Dangerous-action chord: ctrl+x → delete the selected bucket.
 		if mm, cmd, ok := m.dispatchChord(key); ok {
 			return mm, cmd
 		}
-		// Direct single-key actions (006 US1): analyze / refresh on the bucket list.
+		// Direct single-key actions: analyze / refresh on the bucket list.
 		if mm, cmd, ok := m.dispatchActionKey(key); ok {
 			return mm, cmd
 		}
@@ -921,7 +967,7 @@ func (m App) filteredBuckets() []storage.Bucket {
 	return out
 }
 
-// openContexts is the `c` entry point (011 US4): it opens the in-app connection manager
+// openContexts is the `c` entry point: it opens the in-app connection manager
 // (switch / add via the "+ add connection" row / delete) when a config writer is wired, else
 // the read-only context switcher. This replaces the removed standalone `n` add-connection key.
 func (m App) openContexts() (tea.Model, tea.Cmd) {
@@ -1007,7 +1053,7 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.info = be
 	// Preserve the arm intent across the switch; re-derive the context lock. Switching
 	// to a writable context keeps write armed; switching to a readonly:true context
-	// forces read-only via writable() (FR-029).
+	// forces read-only via writable().
 	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
 	m.ctxName = msg.target
@@ -1047,7 +1093,7 @@ func (m App) spinnerView() string {
 	return spinnerFrames[m.spin%len(spinnerFrames)]
 }
 
-// errorText returns a human, secret-free message for the current error (FR-020).
+// errorText returns a human, secret-free message for the current error.
 func (m App) errorText() string {
 	switch {
 	case m.err == nil:
@@ -1112,7 +1158,7 @@ func (m App) View() tea.View {
 		return v
 	}
 
-	// The command bar overlays the footer; its body is the underlying (prev) view (006 US3).
+	// The command bar overlays the footer; its body is the underlying (prev) view.
 	bodyMode := m.mode
 	if m.mode == modeCommand {
 		bodyMode = m.prevMode
@@ -1140,12 +1186,24 @@ func (m App) View() tea.View {
 		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
 	}
 
-	// Binary-tier confirmation (007 US4): a centered popup over the body (the typed tier
+	// Binary-tier confirmation: a centered popup over the body (the typed tier
 	// uses the prominent inline form in the footer instead). Replaces the body so the
-	// dialog is centered and never clipped (SC-009).
+	// dialog is centered and never clipped.
 	if m.op != nil && m.op.phase == phaseConfirm && m.op.tier != confirmTyped {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.confirmPopupView(w, bodyH)
+	}
+
+	// The write-arm confirmation overlays the body as a prominent centered popup.
+	if m.armConfirm {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.armConfirmPopupView(w, bodyH)
+	}
+
+	// The reveal/inspect popup overlays the body, centered.
+	if m.reveal != nil {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.revealView(w, bodyH)
 	}
 
 	v := tea.NewView(body + "\n" + footer)
@@ -1154,11 +1212,11 @@ func (m App) View() tea.View {
 }
 
 // paneSplitMin is the minimum terminal width at which the details pane is shown beside
-// the list; below it the list spans full width and the pane collapses (006 US2, FR-013).
+// the list; below it the list spans full width and the pane collapses.
 const paneSplitMin = 100
 
 // fullTierMin is the width at which the third (details) zone joins the split — the Full
-// tier of the three-zone master-detail browse (011 FR-013).
+// tier of the three-zone master-detail browse.
 const fullTierMin = 130
 
 // tier classifies the browse layout by terminal width into the three normative tiers
@@ -1173,7 +1231,7 @@ const (
 	tierFull               // w ≥ fullTierMin (≥ 130)
 )
 
-// layoutTier classifies terminal width w into the browse layout tier (011 FR-013). The
+// layoutTier classifies terminal width w into the browse layout tier. The
 // boundaries are inclusive as documented: 130 ⇒ Full, 129/100 ⇒ Dual, 99 ⇒ Single.
 func layoutTier(w int) tier {
 	switch {
@@ -1188,14 +1246,14 @@ func layoutTier(w int) tier {
 
 // listWithPane composes the browse body: on a wide terminal it joins the list (bounded
 // width) and the persistent details pane side by side; on a narrow terminal it returns
-// the full-width list and the pane collapses (FR-008/FR-013). renderList draws the list
+// the full-width list and the pane collapses. renderList draws the list
 // table at the width it is given.
 func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList func(lw, dr int) string) string {
 	// Single tier (or a user-collapsed pane) renders the full-width list; the Dual/Full
-	// tiers add the side pane (011 FR-013). US1/US3 differentiate the Dual objects zone
+	// tiers add the side pane. US1/US3 differentiate the Dual objects zone
 	// from the Full details zone; today both render the existing details pane.
 	if layoutTier(w) == tierSingle || !m.paneVisible {
-		return boxView(title, sel, renderList(w-2, dataRows), w, rows)
+		return boxViewChip(title, sel, m.modeChip(), renderList(w-2, dataRows), w, rows)
 	}
 	paneW := w / 3
 	if paneW > 40 {
@@ -1204,43 +1262,99 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 	if paneW < 24 {
 		paneW = 24
 	}
-	// Miller-columns proportion for the bucket list (011 US1): the buckets column is the
+	// Miller-columns proportion for the bucket list: the buckets column is the
 	// NARROW one and the OBJECTS zone (the highlighted bucket's first level) takes the rest,
 	// so object names have room. The tree view keeps the wide list + thin details pane (006).
 	if m.mode == modeBuckets {
-		bucketW := paneW
-		bucketsBox := boxViewFocus(title, sel, renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
+		bucketW := m.bucketsColWidth(w, paneW)
+		bucketsBox := boxViewFocusChip(title, sel, m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
 		// Full tier (≥130): a third, non-focusable details zone (006 pane, preserved per 011 US3)
 		// joins buckets│objects; it adapts to focus (bucket meta vs object meta+preview). Dual:
-		// the details zone collapses and the objects zone takes the rest (FR-013/FR-015).
+		// the details zone collapses and the objects zone takes the rest.
 		if layoutTier(w) == tierFull && m.paneVisible {
 			detW := paneW
 			objW := w - bucketW - detW
-			objBox := boxViewFocus(m.objectsZoneTitle(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+			objBox := boxViewFocus(m.objectsZoneTitle(objW), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
 			detBox := boxView("details", "", m.browseDetailsView(detW-2, rows-2), detW, rows)
 			return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox, detBox)
 		}
 		objW := w - bucketW
-		objBox := boxViewFocus(m.objectsZoneTitle(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+		objBox := boxViewFocus(m.objectsZoneTitle(objW), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
 		return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox)
 	}
 	listW := w - paneW
-	listBody := boxView(title, sel, renderList(listW-2, dataRows), listW, rows)
+	listBody := boxViewChip(title, sel, m.modeChip(), renderList(listW-2, dataRows), listW, rows)
 	paneBody := boxView("details", "", m.paneView(paneW-2, rows-2), paneW, rows)
 	return lipgloss.JoinHorizontal(lipgloss.Top, listBody, paneBody)
 }
 
-// objectsZoneTitle is the left label on the objects-zone box border (011 US1): the
+// modeChip is the border-mounted read/write mode label: a loud "WRITE" accent
+// when write is armed, a calm neutral "RO" otherwise. Inset into the primary box's top border
+// by the boxViewChip family. NO_COLOR-safe (the text itself carries the state).
+func (m App) modeChip() string {
+	if m.writable() {
+		return writeBadgeStyle.Render("WRITE")
+	}
+	return roStyle.Render("RO")
+}
+
+// bucketsColWidth grows the bucket column to fit the longest bucket name when the objects
+// zone has slack, bounded by a per-tier max so the objects zone stays legible.
+// Never shrinks below the base width; never starves the objects zone below objMinW.
+func (m App) bucketsColWidth(w, base int) int {
+	const objMinW = 30
+	maxW := w - objMinW
+	if layoutTier(w) == tierFull && m.paneVisible {
+		maxW -= base // reserve the details zone (detW == base)
+	}
+	bw := base
+	if want := m.bucketsZoneWantWidth(); want > bw {
+		bw = want
+	}
+	if bw > maxW {
+		bw = maxW
+	}
+	if bw < base {
+		bw = base
+	}
+	return bw
+}
+
+// bucketsZoneWantWidth is the box width that fits the longest visible bucket name plus the
+// created column and table chrome — "▶ " gutter (2) + name + sep (1) + created (19) + border (2).
+func (m App) bucketsZoneWantWidth() int {
+	maxName := len("name")
+	for _, b := range m.filteredBuckets() {
+		if n := lipgloss.Width(sanitizeLabel(b.Name)); n > maxName {
+			maxName = n
+		}
+	}
+	return maxName + 2 + 1 + 19 + 2
+}
+
+// objectsZoneTitle is the left label on the objects-zone box border: the
 // highlighted bucket's name plus its loaded entry count.
-func (m App) objectsZoneTitle() string {
+// objectsZoneTitle is the objects-zone box label: the full location breadcrumb
+// (context → bucket → prefix chain) middle-elided to fit width w, with the loaded entry count
+// and an active-search marker appended after the elision. The full path
+// is revealable via the reveal popup ('i').
+func (m App) objectsZoneTitle(w int) string {
 	b := m.highlightedBucketName()
 	if b == "" {
 		return "objects"
 	}
-	if m.level != nil && m.bucket == b {
-		return fmt.Sprintf("%s[%d]", sanitizeLabel(b), m.level.count())
+	path := sanitizeLabel(m.ctxName) + " → " + sanitizeLabel(b)
+	if m.bucket == b && m.prefix != "" {
+		path += "/" + strings.TrimSuffix(sanitizeLabel(m.prefix), "/")
 	}
-	return sanitizeLabel(b)
+	suffix := ""
+	if m.level != nil && m.bucket == b {
+		suffix = fmt.Sprintf("[%d]", m.level.count())
+	}
+	if m.bucket == b && m.search != "" {
+		suffix += " (" + sanitizeLabel(m.search) + "*)"
+	}
+	return elideMiddle(path, max(8, w-6-lipgloss.Width(suffix))) + suffix
 }
 
 // footerBlock is the Claude Code-style status footer: a thin separator, an info
@@ -1248,11 +1362,11 @@ func (m App) objectsZoneTitle() string {
 // line, and a transient status line. Each line is fit to the width segment-by-
 // segment so nothing wraps (which would otherwise hide a line).
 func (m App) footerBlock(w int) string {
-	// ≤ 3 rows: compact identity, one contextual hint row, optional status (FR-006).
+	// ≤ 3 rows: compact identity, one contextual hint row, optional status.
 	// In the list modes the always-visible hint bar advertises the valid direct actions
-	// for the current selection/capability (006 US1, FR-003); other modes keep the
+	// for the current selection/capability; other modes keep the
 	// legacy contextual hints.
-	// List modes (buckets/tree) render the three-block command bar (007 US1), which
+	// List modes (buckets/tree) render the three-block command bar, which
 	// carries its own identity + loud arm badge in the info block. Other modes keep the
 	// compact identity line + generic contextual hints.
 	var lines []string
@@ -1276,7 +1390,7 @@ func (m App) footerBlock(w int) string {
 // searchActive reports whether a search/filter is applied or being typed (drives the
 // footer's esc-clear vs esc-back disambiguation, FR-009).
 func (m App) searchActive() bool {
-	if m.mode == modeBuckets {
+	if m.filterIsBucketList() {
 		return m.bucketFilter != "" || m.searching
 	}
 	return m.search != "" || m.searching
@@ -1286,14 +1400,12 @@ func (m App) searchActive() bool {
 // error. Plain text is truncated to width so it never wraps (which would push the
 // box up and clip a footer line).
 func (m App) statusLine(w int) string {
-	// The command bar owns the status line while open (006 US3).
+	// The command bar owns the status line while open.
 	if m.mode == modeCommand {
 		return m.commandLine(w)
 	}
-	// A pending write-arm confirmation owns the status line (005 US5).
-	if m.armConfirm {
-		return m.armConfirmLine()
-	}
+	// A pending write-arm confirmation is shown as a prominent centered popup over the body
+	//, not in the status line — so it falls through here.
 	// An interactive operation prompt (name/dest entry, confirmation) takes priority.
 	// A running streaming op shows live progress; other phases fall through.
 	if m.op != nil {
@@ -1307,17 +1419,18 @@ func (m App) statusLine(w int) string {
 		}
 	}
 	if m.searching {
-		// Bucket filter is instant; a tree search is debounced — show it is pending
-		// (FR-016) so the delay reads as intentional.
-		label, suffix := "search", "▏  searching…  (Enter apply · Esc clear)"
-		if m.mode == modeBuckets {
-			label, suffix = "filter", "▏  (Enter apply · Esc clear)"
+		// A prominent filter input: a left accent bar names the pane being filtered;
+		// the objects level previews live (debounced), the bucket list instantly.
+		pane, suffix := "objects", "  (live) · Enter apply · Esc cancel"
+		if m.filterIsBucketList() {
+			pane, suffix = "buckets", "  Enter apply · Esc cancel"
 		}
-		input := truncate(m.searchInput, max(1, w-len(label)-2-len(suffix)))
-		return accentStyle.Render(label+": ") + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
+		head := warnStyle.Render("▌ ") + accentStyle.Render("filter "+pane+": ")
+		input := truncate(m.searchInput, max(1, w-lipgloss.Width(head)-len(suffix)-1))
+		return head + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
 	}
 	if m.loading {
-		// Name what is loading (FR-015); cancel is the back/escape key now (FR-029).
+		// Name what is loading; cancel is the back/escape key now.
 		what := "loading…"
 		switch m.mode {
 		case modeBuckets:
@@ -1330,15 +1443,17 @@ func (m App) statusLine(w int) string {
 		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" "+what+"  (Esc to cancel)")
 	}
 	if m.notice != "" {
-		// Success notices are green (noticeStyle), visually distinct from red errors (FR-018).
+		// Success notices are green (noticeStyle), visually distinct from red errors.
 		return noticeStyle.Render(truncate(m.notice, max(1, w-1)))
 	}
 	if txt := m.errorText(); txt != "" {
 		return errStyle.Render("error: " + truncate(txt, max(1, w-7)))
 	}
-	// Multi-select summary (005 US3): count + combined size of the marked objects.
+	// Multi-select summary: count + combined size of the marked objects.
 	if m.selCount() > 0 {
-		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (d/x/y: bulk download/delete/copy)", m.selCount(), humanSize(m.selSize())))
+		return noticeStyle.Render(fmt.Sprintf("%d selected · %s  (%s/%s/%s: bulk download/delete/copy)",
+			m.selCount(), humanSize(m.selSize()),
+			glyph(firstBind(m.keys.Download)), glyph(firstBind(m.keys.Delete)), glyph(firstBind(m.keys.Copy))))
 	}
 	return ""
 }
@@ -1347,7 +1462,8 @@ func (m App) statusLine(w int) string {
 func (m App) resourceTitle() string {
 	switch m.mode {
 	case modeTree:
-		loc := m.bucket
+		// Full-screen tier breadcrumb: context → bucket → prefix chain.
+		loc := sanitizeLabel(m.ctxName) + " → " + sanitizeLabel(m.bucket)
 		if m.prefix != "" {
 			loc += "/" + strings.TrimSuffix(sanitizeLabel(m.prefix), "/")
 		}
@@ -1362,7 +1478,7 @@ func (m App) resourceTitle() string {
 		if m.search != "" {
 			loc += fmt.Sprintf("/%s*", sanitizeLabel(m.search))
 		}
-		return fmt.Sprintf("%s[%d%s] %s", loc, n, more, m.sortIndicator())
+		return fmt.Sprintf("%s[%d%s]", loc, n, more) // sort now advertised in the command bar
 	case modeContextSwitch:
 		return fmt.Sprintf("contexts[%d]", len(m.contexts))
 	case modeObject:
@@ -1419,7 +1535,7 @@ func (m App) breadcrumb() string {
 	case modeContextSwitch:
 		return "select a context"
 	default:
-		loc := m.bucket
+		loc := sanitizeLabel(m.ctxName) + " → " + sanitizeLabel(m.bucket)
 		if m.prefix != "" {
 			loc += "/" + sanitizeLabel(m.prefix)
 		}
@@ -1432,12 +1548,12 @@ func (m App) breadcrumb() string {
 
 // bucketAddRowVisible reports whether the synthetic "+ add bucket" row is shown: only for a
 // scoped bucket list (pins present, or list-all failed/empty) and only when a Connector is
-// wired to persist the addition (010 US2/FR-013a).
+// wired to persist the addition.
 func (m App) bucketAddRowVisible() bool { return m.bucketsScoped && m.connect != nil }
 
 // bucketsView renders the bucket list table body (filtered) at the given width. For a scoped
 // list it appends a "+ add bucket" row (mirrors the "+ add connection" row) so the user can
-// reach a bucket by name (010 US2).
+// reach a bucket by name.
 func (m App) bucketsView(w, rows int) string {
 	fb := m.filteredBuckets()
 	addRow := m.bucketAddRowVisible()
@@ -1464,11 +1580,11 @@ func (m App) bucketsView(w, rows int) string {
 			data = append(data, []string{fb[i].Name, formatDate(fb[i].CreationDate)})
 		}
 	}
-	return renderTable(w, cols, data, nil, m.bucketSel-off)
+	return renderTableActive(w, cols, data, nil, m.bucketSel-off, rows-(end-off))
 }
 
 // ctxTable renders a context-style two-column table (name + active status) windowed to
-// rows. Shared by the context switcher and the connection manager list (006 US4).
+// rows. Shared by the context switcher and the connection manager list.
 func ctxTable(w, rows, sel int, header string, items []string, activeName string) string {
 	off, end := windowBounds(len(items), sel, rows)
 	data := make([][]string, 0, end-off)

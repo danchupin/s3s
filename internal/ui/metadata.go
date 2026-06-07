@@ -12,7 +12,7 @@ import (
 const metaKeyWidth = 14
 
 // metaRow renders one fixed-width label + truncated value line. Shared by the full-screen
-// object view (metaPane) and the persistent details pane (006 US2), so both render the
+// object view (metaPane) and the persistent details pane, so both render the
 // same field column.
 func metaRow(k, v string, w int) string {
 	valW := w - metaKeyWidth
@@ -36,7 +36,7 @@ func metaFieldRows(md storage.ObjectMetadata, w int) string {
 	return b.String()
 }
 
-// metaPane renders the object metadata block within width w (FR-013). It is the
+// metaPane renders the object metadata block within width w. It is the
 // left column of the combined object view; access-denied and other errors surface
 // in the footer (errorText).
 func (m App) metaPane(w int) string {

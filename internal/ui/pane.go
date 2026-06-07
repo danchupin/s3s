@@ -7,16 +7,16 @@ import (
 	"github.com/danchupin/s3s/internal/preview"
 )
 
-// Persistent details/preview pane (006 US2). Rendered beside the list on wide
+// Persistent details/preview pane. Rendered beside the list on wide
 // terminals so the highlighted item's metadata + a bounded preview are visible
 // without entering the full-screen object view. Instantly-known list fields render
-// immediately; the metadata + preview fill in after a debounced load (FR-009/FR-010).
+// immediately; the metadata + preview fill in after a debounced load.
 
 // paneView renders the details pane for the current selection within w×rows. It NEVER
 // changes m.mode (distinct from the Enter object view). For a folder/level selection it
-// shows a summary (FR-011); for an object it shows list-known fields immediately plus the
-// debounced HeadObject metadata and a short preview (FR-010); loading/empty/error states
-// are explicit (FR-046).
+// shows a summary; for an object it shows list-known fields immediately plus the
+// debounced HeadObject metadata and a short preview; loading/empty/error states
+// are explicit.
 func (m App) paneView(w, rows int) string {
 	if w < 1 {
 		w = 1
@@ -30,7 +30,7 @@ func (m App) paneView(w, rows int) string {
 	return ""
 }
 
-// browseDetailsView renders the adaptive third zone for the bucket browse (011 US3): the
+// browseDetailsView renders the adaptive third zone for the bucket browse: the
 // highlighted bucket's metadata when focus is on the bucket list, or the selected object's
 // metadata + bounded preview when focus is in the objects zone (reusing the 006 pane render).
 // The object metadata is filled in by the existing debounced pane load (afterSelectionMove →
@@ -51,24 +51,24 @@ func (m App) paneBucket(w int) string {
 	var sb strings.Builder
 	sb.WriteString(metaRow("Bucket", sanitizeLabel(b.Name), w))
 	sb.WriteString(metaRow("Created", formatDate(b.CreationDate), w))
-	sb.WriteString("\n" + hintLabelStyle.Render("a analyze · ↵ open"))
+	sb.WriteString("\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+" · "+keyHint(m.keys.Enter, "open")))
 	return sb.String()
 }
 
 func (m App) paneTree(w, rows int) string {
 	e := m.selected()
 	if e == nil {
-		// Level summary (FR-011).
+		// Level summary.
 		n := 0
 		if m.level != nil {
 			n = m.level.count()
 		}
 		return metaRow("Level", fmt.Sprintf("%d items", n), w) +
-			"\n" + hintLabelStyle.Render("a analyze this level")
+			"\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze this level"))
 	}
 	if e.isDir {
 		return metaRow("Folder", sanitizeLabel(e.label), w) +
-			"\n" + hintLabelStyle.Render("a analyze · ^x delete · ↵ open")
+			"\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+" · "+keyHint(m.keys.DeleteChord, "delete")+" · "+keyHint(m.keys.Enter, "open"))
 	}
 
 	// Object: once the debounced metadata arrives for THIS key, render the full shared

@@ -8,11 +8,11 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Menu-less direct actions (006 US1). The modal action menu is gone (FR-001): the
+// Menu-less direct actions. The modal action menu is gone: the
 // SAME selection/capability gating that built the old menu now drives (a) an always-
 // visible hint bar of valid single-key actions and (b) the direct-key dispatch table.
 // Each action's invoke is the EXISTING start*/refresh entry point, so confirmations
-// and operation flows are unchanged (FR-005).
+// and operation flows are unchanged.
 
 // action is one invokable item: its keymap binds (single source of truth — the same
 // fields help renders, so dispatch and help can never drift), a label, a write-gate, a
@@ -22,7 +22,7 @@ type action struct {
 	label     string
 	writeOnly bool
 	bulk      bool // routes to the bulk variant + shows a count when a multi-select is active
-	// dangerous gates the action behind a Ctrl chord (007 US4, FR-021): the bare key is
+	// dangerous gates the action behind a Ctrl chord: the bare key is
 	// inert (nudge only); chordKeys is the keymap binding (e.g. m.keys.DeleteChord) used
 	// both to render the `^x` glyph and to route the chord press — sourced from the keymap
 	// (not a literal) so a rebind follows everywhere (dispatch, glyph, help).
@@ -40,11 +40,14 @@ func (m App) hasMarks() bool { return m.selCount() > 0 }
 // actionCatalog returns the ordered actions for the current list mode. Keys come from
 // m.keys.* (the same source help uses), so a rebind updates dispatch, the hint bar, and
 // help together. Bulk variants take over download/delete/copy when a multi-select is
-// active (FR-006); their invoke picks the bulk vs single entry point at dispatch time.
+// active; their invoke picks the bulk vs single entry point at dispatch time.
 func (m App) actionCatalog() []action {
 	k := m.keys
 	always := func(App, selKind) bool { return true }
-	if m.mode == modeBuckets {
+	// The bucket LIST gets the bucket catalog; the objects zone (focus crossed in) gets the
+	// SAME object/level catalog as the full-screen tree — so per-item actions
+	// dispatch identically in both.
+	if m.mode == modeBuckets && m.focusZone == zoneBuckets {
 		return []action{
 			{binds: k.Analyze, label: "analyze", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startAnalyze},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
@@ -55,7 +58,7 @@ func (m App) actionCatalog() []action {
 	objOrMarks := func(a App, kind selKind) bool { return kind == selObject || a.hasMarks() }
 	// deleteTarget gates the single/bulk delete to an OBJECT cursor (with or without marks)
 	// — NOT a folder cursor, so the shared ctrl+x on a highlighted folder routes to the
-	// recursive delete below, never to bulk delete of the marked set (007 review #1).
+	// recursive delete below, never to bulk delete of the marked set.
 	deleteTarget := func(a App, kind selKind) bool { return kind == selObject || (a.hasMarks() && kind != selFolder) }
 	return []action{
 		{binds: k.Download, label: "download", bulk: true, avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
@@ -87,7 +90,7 @@ func (m App) actionCatalog() []action {
 
 // availableActions filters the catalog to the actions valid for the current selection
 // and capability: an unavailable action is dropped; a write action is dropped when the
-// context is not writable (FR-003/FR-004).
+// context is not writable.
 func (m App) availableActions() []action {
 	kind := m.selKind() // once — predicates take it instead of re-deriving (re-sorting the level)
 	var out []action
@@ -105,9 +108,9 @@ func (m App) availableActions() []action {
 
 // dispatchActionKey runs the action bound to key if it is currently available. Reports
 // whether the key matched an action (so the caller can fall through otherwise). A
-// write key pressed in a read-only context matches but is a safe no-op + hint (FR-004).
+// write key pressed in a read-only context matches but is a safe no-op + hint.
 // A DANGEROUS action's bare key is inert: it never mutates and nudges the operator to
-// use the Ctrl chord instead (007 FR-021). The chord itself is routed by dispatchChord.
+// use the Ctrl chord instead. The chord itself is routed by dispatchChord.
 func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 	kind := m.selKind()
 	for _, a := range m.actionCatalog() {
@@ -118,7 +121,7 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 			return m, nil, true // matched but not applicable to this selection — inert
 		}
 		if a.dangerous {
-			// Bare dangerous key never triggers; require the chord (FR-021). Nudge only.
+			// Bare dangerous key never triggers; require the chord. Nudge only.
 			if m.writable() {
 				m.notice = "press " + glyph(firstBind(a.chordKeys)) + " to " + a.label
 			} else {
@@ -139,7 +142,7 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 // dispatchChord runs a dangerous action when its Ctrl chord is pressed (007 US4,
 // FR-021). It scans the catalog for a dangerous action whose chord matches and whose
 // availability holds for the current selection; in a read-only context it falls through
-// to the read-only nudge and opens NO surface (FR-028). Reports whether the chord
+// to the read-only nudge and opens NO surface. Reports whether the chord
 // matched a dangerous action.
 func (m App) dispatchChord(key string) (tea.Model, tea.Cmd, bool) {
 	kind := m.selKind()

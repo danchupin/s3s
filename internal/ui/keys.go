@@ -18,21 +18,23 @@ type keyMap struct {
 	Search      []string
 	Refresh     []string
 	Context     []string
-	Analyze     []string // du analytics on folder/level/bucket (006 US1) — read
-	Download    []string // download the selected object / marked set (006 US1) — read
+	Analyze     []string // du analytics on folder/level/bucket — read
+	Download    []string // download the selected object / marked set — read
 	NewFolder   []string // create an empty folder (write mode)
 	Delete      []string // delete the selected object (write mode)
 	Upload      []string // upload a local file into the current level (write mode)
 	Copy        []string // copy the selected object to a new key (write mode)
 	Move        []string // move/rename the selected object (write mode)
 	DeleteAll   []string // recursively delete the selected folder/prefix (write mode)
-	DeleteChord []string // dangerous-action chord: object/group/recursive/bucket/connection delete (007 US4)
-	MoveChord   []string // dangerous-action chord: move/rename (ctrl+m is Enter, so ctrl+o) (007 US4)
-	WriteToggle []string // arm/disarm write at runtime (005 US5)
-	Mark        []string // mark/unmark an object for multi-select (005 US3)
-	Sort        []string // cycle the sort column (005 US4)
-	SortDir     []string // toggle the sort direction (005 US4)
-	Command     []string // open the `:` command bar (006 US3)
+	DeleteChord []string // dangerous-action chord: object/group/recursive/bucket/connection delete
+	MoveChord   []string // dangerous-action chord: move/rename (ctrl+m is Enter, so ctrl+o)
+	WriteToggle []string // arm/disarm write at runtime
+	Mark        []string // mark/unmark an object for multi-select
+	Sort        []string // cycle the sort column
+	SortDir     []string // toggle the sort direction
+	Command     []string // open the `:` command bar
+	Reveal      []string // reveal/inspect the full identifier of the selection
+	Tab         []string // toggle focus between zones in the two-pane browse
 	Quit        []string
 	Help        []string
 }
@@ -49,21 +51,23 @@ func defaultKeys() keyMap {
 		Search:      []string{"/"},
 		Refresh:     []string{"r"},
 		Context:     []string{"c"},
-		Analyze:     []string{"a"}, // analyze (du) — frees the old menu key (006 US1)
-		Download:    []string{"d"}, // download — read, works read-only (006 US1)
+		Analyze:     []string{"a"}, // analyze (du) — frees the old menu key
+		Download:    []string{"d"}, // download — read, works read-only
 		NewFolder:   []string{"+"},
-		Delete:      []string{"x"}, // k9s-style delete; frees "d" for download (006 US1)
+		Delete:      []string{"x"}, // k9s-style delete; frees "d" for download
 		Upload:      []string{"u"},
 		Copy:        []string{"y"}, // "yank"; "c" is taken by context switch
 		Move:        []string{"m"},
-		DeleteAll:   []string{"X"},          // recursive delete — matches the "x" family (006 US1)
-		DeleteChord: []string{"ctrl+x"},     // dangerous delete chord (007 US4, FR-021)
-		MoveChord:   []string{"ctrl+o"},     // move chord — ctrl+m is Enter (reserved), so ctrl+o (007 US4)
-		WriteToggle: []string{"w"},          // arm/disarm write at runtime (005 US5)
-		Mark:        []string{" ", "space"}, // multi-select (005 US3)
-		Sort:        []string{"s"},          // cycle sort column (005 US4)
-		SortDir:     []string{"S"},          // toggle sort direction (005 US4)
-		Command:     []string{":"},          // open the `:` command bar (006 US3)
+		DeleteAll:   []string{"X"},          // recursive delete — matches the "x" family
+		DeleteChord: []string{"ctrl+x"},     // dangerous delete chord
+		MoveChord:   []string{"ctrl+o"},     // move chord — ctrl+m is Enter (reserved), so ctrl+o
+		WriteToggle: []string{"w"},          // arm/disarm write at runtime
+		Mark:        []string{" ", "space"}, // multi-select
+		Sort:        []string{"s"},          // cycle sort column
+		SortDir:     []string{"S"},          // toggle sort direction
+		Command:     []string{":"},          // open the `:` command bar
+		Reveal:      []string{"i"},          // inspect/reveal full identifier
+		Tab:         []string{"tab"},        // focus toggle between zones
 		Quit:        []string{"ctrl+c", "q"},
 		Help:        []string{"?"},
 	}
@@ -84,7 +88,7 @@ func matches(key string, binds []string) bool {
 var keyGlyph = map[string]string{
 	"up": "↑", "down": "↓", "left": "←", "right": "→",
 	"enter": "Enter", "esc": "Esc", "home": "Home", "end": "End", "ctrl+c": "Ctrl+C",
-	"ctrl+x": "Ctrl+X", "ctrl+o": "Ctrl+O",
+	"ctrl+x": "Ctrl+X", "ctrl+o": "Ctrl+O", "tab": "Tab", " ": "Space",
 }
 
 func glyph(k string) string {
@@ -102,7 +106,13 @@ func firstBind(binds []string) string {
 	return binds[0]
 }
 
-// formatKeys renders all aliases of an action as "↑/k", "→/l/Enter", etc. (FR-014).
+// keyHint renders "glyph label" for a single-key action hint sourced from the keymap, so a
+// rebind propagates to every on-screen hint — no hardcoded key literals.
+func keyHint(binds []string, label string) string {
+	return glyph(firstBind(binds)) + " " + label
+}
+
+// formatKeys renders all aliases of an action as "↑/k", "→/l/Enter", etc..
 func formatKeys(binds []string) string {
 	parts := make([]string, len(binds))
 	for i, b := range binds {
@@ -116,7 +126,7 @@ func (m App) helpView() string {
 	return strings.Join(m.helpLines(), "\n")
 }
 
-// helpLines is the content of the categorized help surface (FR-010..FR-014c). Sections:
+// helpLines is the content of the categorized help surface. Sections:
 // Navigation / Search & View / Actions (single-key, no menu) / Context / Global /
 // Connection. The key column is derived from defaultKeys() so help can never drift.
 func (m App) helpLines() []string {
@@ -132,7 +142,7 @@ func (m App) helpLines() []string {
 		return "  " + dimCellStyle.Render(pad(label, 14)) + st.Render(val)
 	}
 
-	// Write-capability tag for the write actions (FR-013/H4).
+	// Write-capability tag for the write actions.
 	wtag := dimCellStyle.Render("  (write)")
 	if !m.writable() {
 		wtag = warnStyle.Render("  (needs --write)")
@@ -149,7 +159,7 @@ func (m App) helpLines() []string {
 		"",
 		sec("Search & View"),
 		row(formatKeys(k.Search), "filter buckets / search a level (prefix)"),
-		row(formatKeys(k.Mark), "mark/unmark an object (multi-select → d/x/y act on the set)"),
+		row(formatKeys(k.Mark), "mark/unmark an object (multi-select → "+glyph(firstBind(k.Download))+"/"+glyph(firstBind(k.Delete))+"/"+glyph(firstBind(k.Copy))+" act on the set)"),
 		row(formatKeys(k.Sort)+", "+formatKeys(k.SortDir), "cycle sort column · toggle direction"),
 		"",
 		sec("Actions") + dimCellStyle.Render("  (single key on the selection — no menu)"),
