@@ -218,11 +218,16 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		width:       80,
 		height:      24,
 	}
-	// First run: no connection yet (nil store) — open the add-connection form straight
-	// away instead of trying to load buckets from a backend that does not exist (009).
-	// Reuses the entire connForm/Connector flow; on save the app enters the new connection
-	// (onConnSaved). beginLoad is skipped — there is nothing to load until then.
+	// No active backend (nil store) — don't try to load buckets from a backend that does not
+	// exist. If connections already exist but none is active (no current-context/flag/env),
+	// open the connection manager so the user PICKS one in the UI. Otherwise (true first run,
+	// no connections yet) open the add-connection form (009). beginLoad is skipped — there is
+	// nothing to load until a context is chosen.
 	if m.raw == nil && connect != nil {
+		if len(contexts) > 0 {
+			m.mode = modeConnections
+			return m
+		}
 		m.mode = modeConnForm
 		m.form = &connForm{pathStyle: true} // path-style default (Ceph RGW / MinIO)
 		return m

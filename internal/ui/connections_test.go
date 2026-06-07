@@ -214,6 +214,22 @@ func TestFirstRunOpensAddForm(t *testing.T) {
 	}
 }
 
+func TestNoActiveContextOpensManager(t *testing.T) {
+	// Connections exist but none is active (no current-context / flag / env): instead of a
+	// pre-TUI error, the app opens the connection manager so the user picks one in the UI.
+	m := New(Backend{}, "", []string{"a", "b"}, nil, &fakeConnector{}, preview.ProtoNone)
+	if m.mode != modeConnections {
+		t.Fatalf("contexts present but none active should open the manager; mode=%v", m.mode)
+	}
+	if cmd := m.Init(); cmd != nil {
+		t.Error("no active backend → Init must not load buckets from a nil store")
+	}
+	// The manager lists the existing contexts to choose from.
+	if v := viewOf(m); !strings.Contains(v, "a") || !strings.Contains(v, "b") {
+		t.Errorf("manager should list the contexts; got:\n%s", v)
+	}
+}
+
 func TestFirstRunSaveEntersConnection(t *testing.T) {
 	f := storage.NewFake()
 	resolve := func(string) (Backend, error) {
