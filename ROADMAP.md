@@ -41,6 +41,13 @@ known bug — these are enhancements. Ordered roughly by value.
   but the numbered list was removed from the UI; surface the numbers somewhere
   (e.g. in the context switcher rows or a compact footer hint).
 - [ ] **Copy-to-clipboard.** Yank the selected key / full s3 URI / ETag.
+- [ ] **Edit any connection.** The connections manager can switch / add / delete
+  (006), but a saved connection cannot be edited — a wrong endpoint, region, or
+  credential forces delete-and-re-add. Add an edit action (e.g. `e` on a row in the
+  connections manager) that reopens the add-connection form pre-filled with the
+  existing cluster/user/context, re-running the same reachability test + save-anyway
+  override, and persisting back to the same config entry (secret left untouched unless
+  re-entered). Reuse the existing form (`modeConnForm`) rather than a parallel surface.
 
 ## Core
 

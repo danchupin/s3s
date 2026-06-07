@@ -1,31 +1,28 @@
 <!--
 Sync Impact Report
 ==================
-Version change: TEMPLATE (unversioned) → 1.0.0
-Bump rationale: Initial ratification. All placeholder tokens replaced with concrete
-  principles for the s3s interactive S3 TUI. First adopted version → MAJOR baseline 1.0.0.
+Version change: 1.0.0 → 1.1.0
+Bump rationale: MINOR. Two new principles added (VI. UI Legibility, VII. UI Consistency &
+  Design System) sourced from feature 012 (specs/012-ui-visibility-write-clarity, FR-023/FR-024,
+  SC-010). No existing principle removed or redefined → not MAJOR; more than wording → not PATCH.
 
 Modified principles:
-  [PRINCIPLE_1_NAME] → I. Core/UI Separation
-  [PRINCIPLE_2_NAME] → II. Non-Blocking TUI
-  [PRINCIPLE_3_NAME] → III. Test-First (NON-NEGOTIABLE)
-  [PRINCIPLE_4_NAME] → IV. Integration Testing
-  [PRINCIPLE_5_NAME] → V. Observability & Safe Operations
+  (none renamed) I–V retained verbatim.
 
 Added sections:
-  - Technology & Security Constraints (was [SECTION_2_NAME])
-  - Development Workflow (was [SECTION_3_NAME])
+  - VI. UI Legibility
+  - VII. UI Consistency & Design System
 
 Removed sections: none
 
 Templates requiring updates:
-  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic ("[Gates
-     determined based on constitution file]"); no hardcoded principle conflicts. No edit needed.
-  ✅ .specify/templates/spec-template.md  — no constitution-specific mandatory sections; aligned.
-  ✅ .specify/templates/tasks-template.md — task categories cover tests/integration/observability;
-     aligned with TDD and Integration Testing principles.
+  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic; new UI principles
+     add no structural gate. No edit needed.
+  ✅ .specify/templates/spec-template.md  — no constitution-specific mandatory section added. Aligned.
+  ✅ .specify/templates/tasks-template.md — task categories already cover UI/test work. Aligned.
+  ✅ CLAUDE.md — principle count (five → seven) and constitution version (v1.0.0 → v1.1.0) updated.
 
-Follow-up TODOs: none. RATIFICATION_DATE set to first-adoption date 2026-06-04.
+Follow-up TODOs: none. RATIFICATION_DATE unchanged (2026-06-04). LAST_AMENDED_DATE = 2026-06-07.
 -->
 
 # s3s Constitution
@@ -66,6 +63,28 @@ MUST require explicit user confirmation and MUST be logged before execution. Sec
 logged. Rationale: a TUI hides its own stdout, so debuggability depends on side-channel logs, and
 a single keystroke must never silently destroy data.
 
+### VI. UI Legibility
+Every interface attribute that identifies a resource — bucket name, object key, folder/prefix,
+breadcrumb path — MUST be either fully visible OR revealable in full via a single, consistent
+action, so it can be read and copied. No identifying value may be permanently hidden by
+truncation: where rendering it in full would harm the layout, an explicit expand/reveal
+affordance MUST exist. Layout invariants MUST be preserved — the footer and command/hint bar
+MUST remain fully visible at every supported terminal width and layout tier; legibility changes
+MUST NOT scroll them off. State cues MUST stay distinguishable without color (e.g. under
+`NO_COLOR`), relying on text in addition to color. Rationale: a browser whose identifiers you
+cannot read or copy is broken; truncation that drops the only on-screen copy of a name defeats
+the tool's purpose.
+
+### VII. UI Consistency & Design System
+All interface elements MUST conform to a shared design language. Confirmation prompts MUST share
+one pattern and wording structure (action → consequence → confirm/cancel keys, with cancel as the
+default); action and hint labels MUST share one vocabulary and formatting (key glyph + verb).
+Color MUST be used as a consistent distinguishing accent layered on that shared base — mapped
+through the established palette roles — never as ad-hoc, per-surface styling. New surfaces MUST
+reuse existing shared components and palette roles rather than introduce parallel styling.
+Rationale: a predictable, consistent surface is learnable and reviewable; one-off prompts and
+labels erode trust and let visual drift accumulate unnoticed.
+
 ## Technology & Security Constraints
 
 - Language: Go. Code MUST pass `gofmt`/`go vet` and the project linter before merge.
@@ -82,8 +101,10 @@ a single keystroke must never silently destroy data.
 - Branch per feature; no direct commits to `main` for feature work.
 - Every PR MUST: include tests written test-first, pass the full `go test` suite plus
   integration tests, and pass fmt/vet/lint gates.
-- Code review MUST verify compliance with the five Core Principles before approval; a reviewer
-  rejects any change that puts logic in the TUI layer or lacks a preceding test.
+- Code review MUST verify compliance with the seven Core Principles before approval; a reviewer
+  rejects any change that puts logic in the TUI layer, lacks a preceding test, hides a resource
+  identifier with no way to reveal it (VI), or introduces one-off prompt/label styling outside
+  the shared design system (VII).
 - Complexity that violates a principle MUST be justified in the PR description or removed.
 
 ## Governance
@@ -95,4 +116,4 @@ principle or materially expanded section, PATCH for clarifications and wording. 
 reviews MUST verify compliance; unjustified complexity is grounds for rejection. Use the project
 plan and `CLAUDE.md` for runtime development guidance.
 
-**Version**: 1.0.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-04
+**Version**: 1.1.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-07
