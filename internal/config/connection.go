@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/danchupin/s3s/internal/secret"
 )
@@ -99,11 +100,12 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 // CurrentContext to mean "the live active context" was wrong — it is not updated on an
 // in-session switch, so the two notions could disagree; review #2.)
 func (c *Config) RemoveConnection(name string) ([]string, error) {
-	// Build a trial copy with every triple member named `name` dropped.
+	// Build a trial copy with every triple member named `name` dropped (slices.DeleteFunc
+	// on clones — never mutates the live config's backing arrays).
 	trial := *c
-	trial.Clusters = filterNamed(c.Clusters, func(x Cluster) string { return x.Name }, name)
-	trial.Users = filterNamed(c.Users, func(x User) string { return x.Name }, name)
-	trial.Contexts = filterNamed(c.Contexts, func(x Context) string { return x.Name }, name)
+	trial.Clusters = slices.DeleteFunc(slices.Clone(c.Clusters), func(x Cluster) bool { return x.Name == name })
+	trial.Users = slices.DeleteFunc(slices.Clone(c.Users), func(x User) bool { return x.Name == name })
+	trial.Contexts = slices.DeleteFunc(slices.Clone(c.Contexts), func(x Context) bool { return x.Name == name })
 	if len(trial.Contexts) == len(c.Contexts) {
 		return nil, fmt.Errorf("%w: no context named %q", ErrNotFound, name)
 	}
@@ -137,15 +139,4 @@ func (c *Config) RemoveConnection(name string) ([]string, error) {
 
 	slog.Info("connection.delete", "name", name, "outcome", "ok")
 	return c.ContextNames(), nil
-}
-
-// filterNamed returns a new slice with every element whose name == drop removed.
-func filterNamed[T any](in []T, nameOf func(T) string, drop string) []T {
-	out := make([]T, 0, len(in))
-	for _, x := range in {
-		if nameOf(x) != drop {
-			out = append(out, x)
-		}
-	}
-	return out
 }

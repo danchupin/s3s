@@ -17,20 +17,10 @@ import (
 // cancel on Esc with no mutation (FR-025). The byte-exact match + y/N logic lives in
 // onConfirmKey (unchanged); this file only renders.
 
-type confirmSurfaceKind int
-
-const (
-	surfacePopupBinary confirmSurfaceKind = iota
-	surfaceInlineTyped
-)
-
-// confirmSurface picks the surface for the active confirm phase from the op's tier.
-func confirmSurface(op *operation) confirmSurfaceKind {
-	if op != nil && op.tier == confirmTyped {
-		return surfaceInlineTyped
-	}
-	return surfacePopupBinary
-}
+// The surface is a pure function of the tier: the typed-identifier tier (confirmTyped)
+// renders the prominent inline form (typedConfirmForm, in the footer); every other tier
+// renders the centered binary popup (confirmPopupView, by View()). Call sites compare
+// op.tier directly — there is no separate surface enum.
 
 // popupBoxStyle is the centered binary-confirm dialog box: a rounded border in the
 // caution palette, padded, width-capped — reuses existing tokens (FR-013/FR-027a).

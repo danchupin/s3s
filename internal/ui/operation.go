@@ -548,7 +548,7 @@ func (m App) opPromptLine(w int) string {
 		// Typed-identifier tier → the prominent inline form (007 FR-023a). Binary tier is
 		// rendered as a centered popup by View() (confirmPopupView), so the footer line is
 		// empty for it.
-		if confirmSurface(op) == surfaceInlineTyped {
+		if op.tier == confirmTyped {
 			return m.typedConfirmForm(w)
 		}
 		return ""
@@ -594,28 +594,24 @@ func (m App) simpleConfirmText() string {
 // indeterminate spinner (no fabricated percent, FR-037). The cancel hint is always shown.
 func (m App) opProgressLine() string {
 	op := m.op
-	label := opProgressLabel(op)
+	var label string
+	switch op.kind {
+	case "upload":
+		label = fmt.Sprintf("uploading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
+	case "download":
+		label = fmt.Sprintf("downloading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
+	case "bulk_download", "bulk_delete", "bulk_copy":
+		label = fmt.Sprintf("%s… %d/%d done, %d failed", strings.TrimPrefix(op.kind, "bulk_"), op.progress.deleted, op.progress.total, op.progress.failed)
+	case "delete_recursive":
+		label = fmt.Sprintf("deleting… %d removed, %d failed", op.progress.deleted, op.progress.failed)
+	default:
+		label = "working…"
+	}
 	cancel := dimCellStyle.Render("  (x to cancel)")
 	if frac, ok := op.progress.determinate(); ok && op.ticks >= progressThreshold {
 		return progressBar(frac, 24) + dimCellStyle.Render(" "+label) + cancel
 	}
 	return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" "+label) + cancel
-}
-
-// opProgressLabel is the human, secret-free description of a running operation.
-func opProgressLabel(op *operation) string {
-	switch op.kind {
-	case "upload":
-		return fmt.Sprintf("uploading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
-	case "download":
-		return fmt.Sprintf("downloading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
-	case "bulk_download", "bulk_delete", "bulk_copy":
-		return fmt.Sprintf("%s… %d/%d done, %d failed", strings.TrimPrefix(op.kind, "bulk_"), op.progress.deleted, op.progress.total, op.progress.failed)
-	case "delete_recursive":
-		return fmt.Sprintf("deleting… %d removed, %d failed", op.progress.deleted, op.progress.failed)
-	default:
-		return "working…"
-	}
 }
 
 func max64(a, b int64) int64 {

@@ -799,7 +799,7 @@ func (m App) View() tea.View {
 	// Binary-tier confirmation (007 US4): a centered popup over the body (the typed tier
 	// uses the prominent inline form in the footer instead). Replaces the body so the
 	// dialog is centered and never clipped (SC-009).
-	if m.op != nil && m.op.phase == phaseConfirm && confirmSurface(m.op) == surfacePopupBinary {
+	if m.op != nil && m.op.phase == phaseConfirm && m.op.tier != confirmTyped {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.confirmPopupView(w, bodyH)
 	}

@@ -221,12 +221,12 @@ func TestCommandBarBulkLabelWithCount(t *testing.T) {
 func TestWriteEntryStatesDistinct(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "a.txt", "docs/x.txt")
-	// Read-only → every write entry is dimmed.
+	// Read-only → every write entry uses the dimmed role.
 	ro := treeApp(f, false)
 	selectObject(&ro, "a.txt")
-	for _, e := range ro.writeEntries(ro.selKind()) {
-		if e.state != entryDimmed {
-			t.Errorf("read-only write entry %q state=%v, want entryDimmed", e.label, e.state)
+	for _, e := range ro.writeEntries(ro.selKind(), ro.actionCatalog()) {
+		if e.role != roleWriteDimmed {
+			t.Errorf("read-only write entry %q role=%v, want roleWriteDimmed", e.label, e.role)
 		}
 	}
 	// Writable, object selected → recursive delete is inapplicable (needs a folder),
@@ -234,16 +234,16 @@ func TestWriteEntryStatesDistinct(t *testing.T) {
 	rw := treeApp(f, true)
 	selectObject(&rw, "a.txt")
 	var sawInapplicable bool
-	for _, e := range rw.writeEntries(rw.selKind()) {
-		if e.state == entryInapplicable {
+	for _, e := range rw.writeEntries(rw.selKind(), rw.actionCatalog()) {
+		if e.role == roleWriteInapplicable {
 			sawInapplicable = true
-			if e.role == roleWriteDimmed {
-				t.Errorf("inapplicable entry %q must not use the dimmed role", e.label)
-			}
+		}
+		if e.role == roleWriteDimmed {
+			t.Errorf("writable write entry %q must not use the dimmed role", e.label)
 		}
 	}
 	if !sawInapplicable {
-		t.Error("recursive delete on an object selection should be entryInapplicable")
+		t.Error("recursive delete on an object selection should use the inapplicable role")
 	}
 }
 

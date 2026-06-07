@@ -142,24 +142,20 @@ func truncateTail(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
+	// Walk right-to-left to find the first kept index (reserving one cell for the leading
+	// ellipsis), then slice forward — no builder, no reversal.
 	runes := []rune(s)
-	var b strings.Builder
 	width := 0
+	start := len(runes)
 	for i := len(runes) - 1; i >= 0; i-- {
 		cw := lipgloss.Width(string(runes[i]))
-		if width+cw > w-1 { // reserve one cell for the leading ellipsis
+		if width+cw > w-1 {
 			break
 		}
-		b.WriteRune(runes[i])
 		width += cw
+		start = i
 	}
-	// b holds the tail reversed-by-append? No: we appended from the end forward, so the
-	// builder has runes in reverse order — reverse them back.
-	tail := []rune(b.String())
-	for l, r := 0, len(tail)-1; l < r; l, r = l+1, r-1 {
-		tail[l], tail[r] = tail[r], tail[l]
-	}
-	return "…" + string(tail)
+	return "…" + string(runes[start:])
 }
 
 // pad truncates then right-pads s to width w.
