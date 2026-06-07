@@ -255,15 +255,33 @@ func TestFirstRunSaveEntersConnection(t *testing.T) {
 	}
 }
 
-// A subsequent add (an existing active context) still returns to the manager list, not the
-// browser — first-run behaviour must not leak into normal adds.
-func TestSubsequentSaveReturnsToManager(t *testing.T) {
-	m := connApp(&fakeConnector{names: []string{"ctx", "newc"}}, []string{"ctx"})
+// A subsequent add (an existing active context) now ENTERS the just-saved connection so the
+// user lands in its bucket list — "create the connection, then choose buckets" (010). With
+// switching disabled (nil resolver) it falls back to the manager.
+func TestSubsequentSaveEntersConnection(t *testing.T) {
+	f := storage.NewFake()
+	resolve := func(string) (Backend, error) {
+		return Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x"}, nil
+	}
+	m := New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x"}, "ctx", []string{"ctx"},
+		resolve, &fakeConnector{names: []string{"ctx", "newc"}}, preview.ProtoNone)
 	m.mode = modeConnForm
 	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}}
-	mm, _ := m.onConnSaved(connSavedMsg{names: []string{"ctx", "newc"}})
-	if mm.(App).mode != modeConnections {
-		t.Errorf("a normal add (active ctx present) should return to the manager; mode=%v", mm.(App).mode)
+	mm, cmd := m.onConnSaved(connSavedMsg{names: []string{"ctx", "newc"}})
+	if mm.(App).mode != modeBuckets {
+		t.Errorf("a subsequent save (resolver present) should enter the connection; mode=%v", mm.(App).mode)
+	}
+	if cmd == nil {
+		t.Error("entering the connection should dispatch a resolve/load cmd")
+	}
+
+	// Switching disabled (nil resolver, e.g. non-interactive) → fall back to the manager.
+	m2 := connApp(&fakeConnector{names: []string{"ctx", "newc"}}, []string{"ctx"})
+	m2.mode = modeConnForm
+	m2.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}}
+	mm2, _ := m2.onConnSaved(connSavedMsg{names: []string{"ctx", "newc"}})
+	if mm2.(App).mode != modeConnections {
+		t.Errorf("with no resolver, save should fall back to the manager; mode=%v", mm2.(App).mode)
 	}
 }
 
