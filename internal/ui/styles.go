@@ -62,8 +62,7 @@ var (
 	// hue is introduced. The hint bar advertises action keys (accent) + labels (dim);
 	// the pane reuses the metadata key/value styles; the command bar/form reuse accent
 	// for the active cue and dim for the rest, keeping the screen calm (FR-037/FR-038).
-	hintKeyStyle    = accentStyle                               // single-key glyph in the hint bar
-	hintLabelStyle  = dimCellStyle                              // its label
+	hintLabelStyle  = dimCellStyle                              // contextual hint label (pane cues)
 	formActiveStyle = lipgloss.NewStyle().Foreground(colAccent) // focused form field label
 	formErrStyle    = errStyle                                  // form/test error line
 )
@@ -130,6 +129,33 @@ func truncate(s string, w int) string {
 	}
 	b.WriteRune('…')
 	return b.String()
+}
+
+// truncateTail keeps the TAIL of s within display width w (rune/width-aware), prefixing
+// an ellipsis when cut — the mirror of truncate (which keeps the head). Used to keep the
+// end of a long typed identifier visible as the operator types (007 FR-023a). Never cuts
+// mid-rune.
+func truncateTail(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	// Walk right-to-left to find the first kept index (reserving one cell for the leading
+	// ellipsis), then slice forward — no builder, no reversal.
+	runes := []rune(s)
+	width := 0
+	start := len(runes)
+	for i := len(runes) - 1; i >= 0; i-- {
+		cw := lipgloss.Width(string(runes[i]))
+		if width+cw > w-1 {
+			break
+		}
+		width += cw
+		start = i
+	}
+	return "…" + string(runes[start:])
 }
 
 // pad truncates then right-pads s to width w.

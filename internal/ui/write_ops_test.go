@@ -49,13 +49,15 @@ func selectObject(m *App, key string) {
 // the SAME start* entry points.
 func viaMenu(t *testing.T, m App, label string) App {
 	t.Helper()
+	// 007 US4: dangerous actions are triggered by a Ctrl chord, not a bare key. The op
+	// entry points are unchanged; only the trigger key is the chord now.
 	key, ok := map[string]string{
 		"download":         "d",
 		"analyze":          "a",
-		"delete":           "x",
+		"delete":           "ctrl+x",
 		"copy":             "y",
-		"move / rename":    "m",
-		"recursive delete": "X",
+		"move / rename":    "ctrl+o",
+		"recursive delete": "ctrl+x",
 		"upload here":      "u",
 		"new folder":       "+",
 		"refresh":          "r",
@@ -78,31 +80,25 @@ func selectDir(m *App, dir string) {
 
 // --- US1: delete a single object ---
 
-func TestDeleteObjectTypedConfirmFlow(t *testing.T) {
+func TestDeleteObjectBinaryConfirmFlow(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "a.txt", "keep.txt")
 	m := treeApp(f, true)
 	selectObject(&m, "a.txt")
 
+	// 007 US4: single-object delete is the BINARY tier behind the ctrl+x chord.
 	m = viaMenu(t, m, "delete")
-	if m.op == nil || m.op.kind != "delete_object" || m.op.tier != confirmTyped {
-		t.Fatalf("menu delete should start a typed delete op; got %+v", m.op)
+	if m.op == nil || m.op.kind != "delete_object" || m.op.tier != confirmSimple {
+		t.Fatalf("chord delete should start a binary delete op; got %+v", m.op)
 	}
-	if m.op.expect != "a.txt" {
-		t.Errorf("typed expect = %q, want a.txt", m.op.expect)
+	if m.op.phase != phaseConfirm {
+		t.Fatalf("delete should be at the confirm phase; phase=%v", m.op.phase)
 	}
 
-	// Wrong entry aborts with no dispatch.
-	m2 := m
-	for _, r := range "wrong" {
-		m2 = press(m2, string(r))
-	}
-	m2 = press(m2, "enter")
+	// n / Esc aborts with no dispatch and no change.
+	m2 := press(m, "n")
 	if m2.op != nil {
-		t.Error("mismatch must abort the op")
-	}
-	if !errors.Is(m2.err, errConfirmMismatch) {
-		t.Errorf("mismatch err = %v, want errConfirmMismatch", m2.err)
+		t.Error("'n' must abort the binary confirm")
 	}
 }
 
@@ -159,12 +155,13 @@ func TestUploadBrowserOverwriteEscalation(t *testing.T) {
 	mm, _ := (&m).openBrowser(dir)
 	m = mm.(App)
 
-	// Choosing a colliding key escalates to the typed overwrite tier.
+	// Choosing a colliding key flags an overwrite (binary tier, 007 US4) with the loud
+	// OVERWRITE confirmation text.
 	collide := findEntry(t, m, "exists.txt")
 	mc, _ := m.chooseUploadFile(collide)
 	mcApp := mc.(App)
-	if mcApp.op.tier != confirmTyped || mcApp.op.expect != "exists.txt" {
-		t.Errorf("overwrite should be typed with expect=exists.txt; got tier=%v expect=%q", mcApp.op.tier, mcApp.op.expect)
+	if mcApp.op.tier != confirmSimple || !mcApp.op.overwrite {
+		t.Errorf("overwrite should be binary tier with overwrite=true; got tier=%v overwrite=%v", mcApp.op.tier, mcApp.op.overwrite)
 	}
 
 	// A non-colliding key uses the simple tier (the upload op is still in browse).
@@ -245,18 +242,18 @@ func TestCopyDestEntryAndTiers(t *testing.T) {
 		t.Errorf("free dst should be simple tier; got %v", mf.(App).op.tier)
 	}
 
-	// Edit to an existing key → typed overwrite.
+	// Edit to an existing key → binary overwrite (007 US4: overwrite is the binary tier).
 	taken := m
 	taken.op.dstKey = "taken.txt"
 	mt, _ := taken.submitDest()
-	if mt.(App).op.tier != confirmTyped || mt.(App).op.expect != "taken.txt" {
-		t.Errorf("colliding dst should be typed overwrite; got tier=%v expect=%q", mt.(App).op.tier, mt.(App).op.expect)
+	if mt.(App).op.tier != confirmSimple || !mt.(App).op.overwrite {
+		t.Errorf("colliding dst should be a binary overwrite; got tier=%v overwrite=%v", mt.(App).op.tier, mt.(App).op.overwrite)
 	}
 }
 
 // --- US4: move ---
 
-func TestMoveAlwaysTypedAndPartial(t *testing.T) {
+func TestMoveBinaryAndPartial(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "src.txt")
 	m := treeApp(f, true)
@@ -264,13 +261,13 @@ func TestMoveAlwaysTypedAndPartial(t *testing.T) {
 
 	m = viaMenu(t, m, "move / rename")
 	if m.op == nil || m.op.kind != "move" {
-		t.Fatalf("menu move should start a move; got %+v", m.op)
+		t.Fatalf("chord move should start a move; got %+v", m.op)
 	}
-	// Even a free destination is typed (the source is removed).
+	// 007 US4: move is the BINARY tier (chord-gated, centered y/N popup).
 	m.op.dstKey = "dst.txt"
 	mm, _ := m.submitDest()
-	if mm.(App).op.tier != confirmTyped {
-		t.Errorf("move must always be typed; got %v", mm.(App).op.tier)
+	if mm.(App).op.tier != confirmSimple {
+		t.Errorf("move should be binary tier; got %v", mm.(App).op.tier)
 	}
 
 	// A partial move (ErrMovePartial) renders a non-success notice, not a clean done.
@@ -399,7 +396,8 @@ func TestRunningOpIsModal(t *testing.T) {
 }
 
 // TestMoveOntoExistingWarnsOverwrite: a move whose destination already exists is
-// flagged as an overwrite (clobber warning) and stays typed (review #2, US4 AS3).
+// flagged as an overwrite (clobber warning). 007 US4: it is the binary tier, confirmed in
+// the centered popup, whose text warns of the overwrite.
 func TestMoveOntoExistingWarnsOverwrite(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "src.txt", "dst.txt")
@@ -412,11 +410,11 @@ func TestMoveOntoExistingWarnsOverwrite(t *testing.T) {
 	if !app.op.overwrite {
 		t.Error("move onto an existing key must set the overwrite flag")
 	}
-	if app.op.tier != confirmTyped {
-		t.Errorf("move-overwrite tier = %v, want typed", app.op.tier)
+	if app.op.tier != confirmSimple {
+		t.Errorf("move-overwrite tier = %v, want binary", app.op.tier)
 	}
-	if !strings.Contains(app.opPromptLine(120), "OVERWRITES") {
-		t.Errorf("typed prompt should warn of overwrite; got %q", app.opPromptLine(120))
+	if !strings.Contains(app.confirmPopupView(120, 12), "OVERWRITE") {
+		t.Errorf("binary popup should warn of overwrite; got %q", app.confirmPopupView(120, 12))
 	}
 }
 

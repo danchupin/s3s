@@ -34,6 +34,9 @@ type Connector interface {
 	// Save persists the connection (secret→keychain, then config triple) and returns the
 	// updated context-name list. Never writes the secret to config in plaintext.
 	Save(ctx context.Context, d ConnDraft) ([]string, error)
+	// Delete removes the named connection (config triple + keychain secret) and returns
+	// the updated context-name list. Refuses the active context (007 US5 / FR-031/032).
+	Delete(ctx context.Context, name string) ([]string, error)
 }
 
 // connField indexes the editable form fields (the read-only flag and submit are handled
@@ -86,7 +89,8 @@ func (m App) connRows() []string {
 }
 
 // onConnectionsKey handles the connection-list navigation: pick a context to switch, or
-// the last "add" row to open the form. Esc returns to the bucket list.
+// the last "add" row to open the form. ctrl+x deletes the selected (non-active)
+// connection (007 US5). Esc returns to the bucket list.
 func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 	rows := m.connRows()
 	switch {
@@ -98,6 +102,8 @@ func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 		if m.connSel < len(rows)-1 {
 			m.connSel++
 		}
+	case matches(key, m.keys.DeleteChord):
+		return m.startRemoveConnection()
 	case matches(key, m.keys.Back):
 		m.mode = modeBuckets
 	case matches(key, m.keys.Enter):
@@ -110,6 +116,59 @@ func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 			return m.applyContext(m.contexts[m.connSel])
 		}
 	}
+	return m, nil
+}
+
+// startRemoveConnection begins deleting the selected connection (007 US5). It is the
+// highest-tier dangerous action: typed confirmation of the exact connection name (the
+// shared typed surface). The ACTIVE context is refused (FR-032); the "+ add" row and
+// out-of-range selections are no-ops.
+func (m App) startRemoveConnection() (tea.Model, tea.Cmd) {
+	if m.connSel < 0 || m.connSel >= len(m.contexts) {
+		return m, nil // the "+ add connection" row or an empty list
+	}
+	name := m.contexts[m.connSel]
+	if name == m.ctxName {
+		m.notice = "cannot delete the active connection — switch context first"
+		return m, nil
+	}
+	m.err = nil
+	m.op = &operation{
+		kind:   "delete_connection",
+		target: name,
+		tier:   confirmTyped,
+		expect: name,
+		phase:  phaseConfirm,
+	}
+	return m, nil
+}
+
+// connDeleteCmd removes a connection off the event loop via the injected Connector
+// (007 US5). Returns the updated context-name list on success.
+func connDeleteCmd(c Connector, name string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		names, err := c.Delete(context.Background(), name)
+		return connDeletedMsg{gen: gen, name: name, names: names, err: err}
+	}
+}
+
+// onConnDeleted applies the delete outcome: success → refresh the live context list and
+// stay in the manager; failure → surface the error (007 US5 / FR-033).
+func (m App) onConnDeleted(msg connDeletedMsg) (tea.Model, tea.Cmd) {
+	if msg.gen != m.gen {
+		return m, nil // superseded
+	}
+	m.loading = false
+	m.op = nil
+	if msg.err != nil {
+		m.err = msg.err
+		return m, nil
+	}
+	m.contexts = msg.names
+	if m.connSel > len(m.contexts) { // keep selection within the (contexts + add) rows
+		m.connSel = len(m.contexts)
+	}
+	m.notice = "connection deleted: " + msg.name
 	return m, nil
 }
 

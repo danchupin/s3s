@@ -231,9 +231,10 @@ docker run -p 9000:9000 -p 9001:9001 \
 ## Key Bindings
 
 Arrow keys are the primary, advertised navigation; the vim aliases (`h`/`j`/`k`/`l`,
-`g`/`G`) still work and are listed in the help overlay (`?`). The write operations and
-refresh live behind a single contextual **action menu** opened with `a` — the footer
-advertises just `a actions`, not a wall of per-op keys.
+`g`/`G`) still work and are listed in the help overlay (`?`). There is no action menu:
+actions are direct single keys, grouped in an always-visible **command bar** at the bottom
+split into three blocks — **info · read · write**. The write block stays visible even in a
+read-only context (dimmed, `(w to arm)`) so the full capability set is always legible.
 
 | Key | Action |
 |-----|--------|
@@ -242,31 +243,37 @@ advertises just `a actions`, not a wall of per-op keys.
 | `←`/`h`/`Esc` | back to parent (or clear an active filter/search); cancels an in-flight load |
 | `g`/`Home`, `G`/`End` | jump to top / bottom |
 | `/` | filter buckets / search a level by prefix; `Esc` clears |
-| `space` | mark/unmark an object for multi-select (bulk via the action menu) |
+| `space` | mark/unmark an object for multi-select (bulk variants act on the marked set) |
 | `s` / `S` | cycle the sort column (name/size/modified) · toggle direction |
+| `d` | download the selected object / marked set (a read — works read-only) |
+| `a` | analyze (`du`) a bucket / folder / level (a read) |
+| `r` | refresh the current list |
+| `y` · `u` · `+` | copy · upload · new folder (write mode; safe — bare key) |
 | `w` | **arm/disarm write** at runtime (confirm to arm; instant to disarm) |
-| `a` | **action menu** — contextual operations for the selection (see below) |
+| `n` | **add a new connection** (in-app connection manager) |
 | `c` | switch context · `1`–`9` jump to a context by number |
 | `?` | help (full keymap, incl. vim aliases, + connection details) · `q` / `Ctrl+C` quit |
 
-The action menu (`a`) lists only what applies to the current selection and context.
-Download and analyze (`du`) are *reads* — offered even read-only; bulk delete/copy and
-the single-object write ops appear only while write is armed:
+### Dangerous actions (Ctrl chord + confirmation)
 
-| Menu item | Notes |
-|-----------|-------|
-| download | object selected — a read; works read-only |
-| analyze | bucket / folder / current level — `du`, a read; works read-only |
-| download selected (N) | bulk download of the marked objects — a read; mirrors the key hierarchy |
-| delete selected / copy selected | bulk over the marked objects — write mode |
-| refresh | reload the current list (always available, incl. the bucket list) |
-| new folder · upload here | write mode |
-| delete · copy · move / rename | object selected — write mode (delete/move typed confirm) |
-| recursive delete | folder selected — write mode; typed confirm |
+Destructive actions are **not** triggered by a bare key — they require a **Ctrl chord** so a
+stray keystroke can never destroy data, and the confirmation strength scales with blast
+radius:
 
-In a read-only context the menu offers reads only (download, analyze, refresh). The footer stays at most three
-rows — a compact identity line (`● context [RW|RO] · cluster`), one contextual hint row
-(capped at six, with a `? more` cue when narrow), and a status line.
+| Chord | Action | Confirmation |
+|-------|--------|--------------|
+| `Ctrl+x` (object / marked set) | delete object(s) | binary `y/N` in a centered popup |
+| `Ctrl+o` | move / rename | binary `y/N` in a centered popup |
+| (copy/upload onto an existing key) | overwrite | binary `y/N` in a centered popup |
+| `Ctrl+x` (folder) | recursive delete | type the exact **path** in a prominent inline form |
+| `Ctrl+x` (bucket list) | delete bucket (empty-only) | type the exact **bucket name** |
+| `Ctrl+x` (contexts screen) | delete connection | type the exact **connection name** |
+
+Bucket delete requires an **empty** bucket — it never recursively purges. Deleting a
+connection also removes its keychain secret; the **active** context cannot be deleted.
+
+Long operations (download, recursive delete, bulk ops, `du`) show a determinate progress
+bar with a percentage inline in the footer; fast operations show none.
 
 Images render as ANSI half-block by default. Terminal graphics protocols
 (kitty/iTerm2) are available behind `S3S_IMAGE_PROTOCOL=kitty|iterm2|auto` but are

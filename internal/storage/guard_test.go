@@ -40,6 +40,41 @@ func TestGuardRefusesMutation(t *testing.T) {
 	}
 }
 
+// TestGuardRefusesRemoveBucket: the read-only guard refuses bucket delete (007 US4 /
+// FR-024b) without touching the backend.
+func TestGuardRefusesRemoveBucket(t *testing.T) {
+	f := NewFake()
+	f.Seed("b") // empty bucket
+	ro := Guard(f, false).(Mutator)
+	if err := ro.RemoveBucket(context.Background(), "b"); !errors.Is(err, ErrReadOnly) {
+		t.Fatalf("read-only RemoveBucket = %v, want ErrReadOnly", err)
+	}
+	if _, ok := f.Buckets["b"]; !ok {
+		t.Error("read-only guard must not remove the bucket")
+	}
+}
+
+// TestFakeRemoveBucket: empty bucket is removed; a non-empty one returns
+// ErrBucketNotEmpty and is left intact (007 FR-024b / SC-015).
+func TestFakeRemoveBucket(t *testing.T) {
+	f := NewFake()
+	f.Seed("empty")
+	f.SeedObject("full", "a.txt", FakeObject{Data: []byte("x")})
+
+	if err := f.RemoveBucket(context.Background(), "empty"); err != nil {
+		t.Fatalf("RemoveBucket(empty) = %v, want nil", err)
+	}
+	if _, ok := f.Buckets["empty"]; ok {
+		t.Error("empty bucket should be removed")
+	}
+	if err := f.RemoveBucket(context.Background(), "full"); !errors.Is(err, ErrBucketNotEmpty) {
+		t.Fatalf("RemoveBucket(full) = %v, want ErrBucketNotEmpty", err)
+	}
+	if _, ok := f.Buckets["full"]; !ok {
+		t.Error("non-empty bucket must be left intact")
+	}
+}
+
 // TestGuardDelegatesNewReads: the 005 read methods (GetObject, UsageOf) pass through
 // the read-only guard unchanged — no ErrReadOnly (storage-read-ops-contract C3).
 func TestGuardDelegatesNewReads(t *testing.T) {

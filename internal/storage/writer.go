@@ -11,6 +11,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	smithy "github.com/aws/smithy-go"
 )
 
 // progressEvery is how often (in objects processed) the fake reports recursive-delete
@@ -140,6 +141,35 @@ func (c *s3Client) MoveObject(ctx context.Context, bucket, srcKey, dstKey string
 	}
 	if err := c.RemoveObject(ctx, bucket, srcKey); err != nil {
 		return ErrMovePartial // copied OK; source delete failed — no data loss
+	}
+	return nil
+}
+
+// RemoveBucket deletes an EMPTY bucket. It first probes for any content via
+// ListObjectsV2 (MaxKeys=1); if anything is present it returns ErrBucketNotEmpty
+// WITHOUT calling DeleteBucket — bucket delete never recursively purges (007 FR-024b).
+// Only on an empty bucket does it issue DeleteBucket. The current-version probe cannot
+// see noncurrent versions / delete-markers on a versioned bucket, so DeleteBucket may
+// still fail with BucketNotEmpty; that code is mapped to ErrBucketNotEmpty too so the UI
+// shows the same "empty it first" guidance regardless of how the non-emptiness surfaces
+// (review #6).
+func (c *s3Client) RemoveBucket(ctx context.Context, bucket string) error {
+	out, err := c.api.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(bucket),
+		MaxKeys: aws.Int32(1),
+	})
+	if err != nil {
+		return classify(err)
+	}
+	if aws.ToInt32(out.KeyCount) > 0 || len(out.Contents) > 0 {
+		return ErrBucketNotEmpty
+	}
+	if _, err := c.api.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
+		var apiErr smithy.APIError
+		if errors.As(err, &apiErr) && apiErr.ErrorCode() == "BucketNotEmpty" {
+			return ErrBucketNotEmpty
+		}
+		return classify(err)
 	}
 	return nil
 }

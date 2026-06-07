@@ -85,9 +85,11 @@ func footerLineCount(m App, w int) int {
 }
 
 // assertWidthSweep checks that, across widths [lo,hi], no FOOTER line exceeds the width
-// and the footer never exceeds 3 rows (FR-006/FR-019, SC-002). FR-019 scopes the
-// no-overflow guarantee to footer/menu/help/status — not the table body.
-func assertWidthSweep(t *testing.T, build func(w int) App, lo, hi int) {
+// and the footer never exceeds maxRows (FR-006/FR-019, SC-002/SC-005). FR-019 scopes the
+// no-overflow guarantee to footer/menu/help/status — not the table body. 007 US1: the
+// list-mode command bar is a multi-row block (columns when wide, ≤3 stacked rows + status
+// when narrow), so the row budget is larger than the old single-strip footer.
+func assertWidthSweep(t *testing.T, build func(w int) App, lo, hi, maxRows int) {
 	t.Helper()
 	for w := lo; w <= hi; w++ {
 		m := build(w)
@@ -97,8 +99,8 @@ func assertWidthSweep(t *testing.T, build func(w int) App, lo, hi int) {
 				t.Fatalf("w=%d: footer line exceeds width (%d): %q", w, lipgloss.Width(ln), ln)
 			}
 		}
-		if fr := footerLineCount(m, w); fr > 3 {
-			t.Fatalf("w=%d: footer rows=%d, want ≤3", w, fr)
+		if fr := footerLineCount(m, w); fr > maxRows {
+			t.Fatalf("w=%d: footer rows=%d, want ≤%d", w, fr, maxRows)
 		}
 	}
 }
@@ -148,11 +150,14 @@ func TestFooterHintsSingleContextHidesSwitch(t *testing.T) { // obligation 3 (FR
 func TestFooterWidthSweepNoOverflow(t *testing.T) { // obligation 4
 	f := storage.NewFake()
 	f.Seed("b", "a.txt", "docs/x.txt")
+	// Wide widths render the three-block columns (~8 rows); narrow widths collapse to
+	// identity + read + write rows (+ optional status). The hard guarantee is no line
+	// exceeds the width (SC-005); the row budget is generous for the grouped bar.
 	assertWidthSweep(t, func(int) App {
 		m := treeApp(f, true)
 		selectObject(&m, "a.txt")
 		return m
-	}, 40, 200)
+	}, 40, 200, 9)
 }
 
 func TestFooterHintsNarrowDropsWithMoreCue(t *testing.T) { // obligation 5

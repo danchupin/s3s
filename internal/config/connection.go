@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"github.com/danchupin/s3s/internal/secret"
 )
@@ -82,5 +83,60 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 	slog.Info("connection.add", "name", nc.Name, "endpoint", nc.Endpoint,
 		"region", nc.Region, "readonly", nc.ReadOnly, "outcome", "ok")
 
+	return c.ContextNames(), nil
+}
+
+// RemoveConnection deletes the connection named name — the cluster + user + context
+// triple — and its keychain secret (007 US5 / FR-031). It is the symmetric inverse of
+// AddConnection: it validates a TRIAL copy with the triple removed before mutating the
+// live config, deletes the keychain secret best-effort (a missing secret never blocks
+// removal), persists, then commits to the live config (FR-033). Returns the updated
+// context-name list.
+//
+// The SESSION's active context is guarded by the UI (it refuses deleting the live
+// m.ctxName); this config layer guards CONFIG integrity instead: if the deleted context
+// is the persisted current-context, current-context is re-pointed to a remaining context
+// (or cleared when none remain) so the on-disk config never dangles. (Using
+// CurrentContext to mean "the live active context" was wrong — it is not updated on an
+// in-session switch, so the two notions could disagree; review #2.)
+func (c *Config) RemoveConnection(name string) ([]string, error) {
+	// Build a trial copy with every triple member named `name` dropped (slices.DeleteFunc
+	// on clones — never mutates the live config's backing arrays).
+	trial := *c
+	trial.Clusters = slices.DeleteFunc(slices.Clone(c.Clusters), func(x Cluster) bool { return x.Name == name })
+	trial.Users = slices.DeleteFunc(slices.Clone(c.Users), func(x User) bool { return x.Name == name })
+	trial.Contexts = slices.DeleteFunc(slices.Clone(c.Contexts), func(x Context) bool { return x.Name == name })
+	if len(trial.Contexts) == len(c.Contexts) {
+		return nil, fmt.Errorf("%w: no context named %q", ErrNotFound, name)
+	}
+	// Re-point current-context if we just removed it, so the config never dangles.
+	if trial.CurrentContext == name {
+		if len(trial.Contexts) > 0 {
+			trial.CurrentContext = trial.Contexts[0].Name
+		} else {
+			trial.CurrentContext = ""
+		}
+	}
+	// A config with zero contexts is valid (the app falls back to the no-connection
+	// state, 007 US5 last-connection edge case); Validate tolerates an empty set.
+	if err := trial.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Persist first, then commit live — a failure leaves cfg/UI untouched.
+	data, err := Marshal(&trial)
+	if err != nil {
+		return nil, fmt.Errorf("config: marshal: %w", err)
+	}
+	if err := Save(c.Path(), data); err != nil {
+		return nil, err
+	}
+	// Best-effort keychain cleanup: a missing secret MUST NOT fail the removal (FR-031).
+	if rmErr := secret.RemoveKeychain(name); rmErr != nil {
+		slog.Warn("connection.delete", "name", name, "keychain", "not-removed", "err", rmErr)
+	}
+	c.Clusters, c.Users, c.Contexts, c.CurrentContext = trial.Clusters, trial.Users, trial.Contexts, trial.CurrentContext
+
+	slog.Info("connection.delete", "name", name, "outcome", "ok")
 	return c.ContextNames(), nil
 }

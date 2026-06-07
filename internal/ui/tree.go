@@ -89,8 +89,12 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Back):
 		return m.goBack()
 	default:
-		// Direct single-key actions (006 US1): download/analyze/delete/copy/move/upload/
-		// mkdir/recursive-delete/refresh — straight into the existing flow, no menu.
+		// Dangerous-action chords first (007 US4): ctrl+x → delete/recursive, ctrl+o → move.
+		if mm, cmd, ok := m.dispatchChord(key); ok {
+			return mm, cmd
+		}
+		// Direct single-key actions (006 US1): download/analyze/copy/upload/mkdir/refresh —
+		// straight into the existing flow, no menu. Bare dangerous keys are inert (nudge).
 		if mm, cmd, ok := m.dispatchActionKey(key); ok {
 			return mm, cmd
 		}

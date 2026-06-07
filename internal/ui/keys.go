@@ -26,6 +26,9 @@ type keyMap struct {
 	Copy        []string // copy the selected object to a new key (write mode)
 	Move        []string // move/rename the selected object (write mode)
 	DeleteAll   []string // recursively delete the selected folder/prefix (write mode)
+	DeleteChord []string // dangerous-action chord: object/group/recursive/bucket/connection delete (007 US4)
+	MoveChord   []string // dangerous-action chord: move/rename (ctrl+m is Enter, so ctrl+o) (007 US4)
+	AddConn     []string // visible add-connection affordance (007 US2)
 	WriteToggle []string // arm/disarm write at runtime (005 US5)
 	Mark        []string // mark/unmark an object for multi-select (005 US3)
 	Sort        []string // cycle the sort column (005 US4)
@@ -55,6 +58,9 @@ func defaultKeys() keyMap {
 		Copy:        []string{"y"}, // "yank"; "c" is taken by context switch
 		Move:        []string{"m"},
 		DeleteAll:   []string{"X"},          // recursive delete — matches the "x" family (006 US1)
+		DeleteChord: []string{"ctrl+x"},     // dangerous delete chord (007 US4, FR-021)
+		MoveChord:   []string{"ctrl+o"},     // move chord — ctrl+m is Enter (reserved), so ctrl+o (007 US4)
+		AddConn:     []string{"n"},          // add a new connection (007 US2, FR-011)
 		WriteToggle: []string{"w"},          // arm/disarm write at runtime (005 US5)
 		Mark:        []string{" ", "space"}, // multi-select (005 US3)
 		Sort:        []string{"s"},          // cycle sort column (005 US4)
@@ -80,6 +86,7 @@ func matches(key string, binds []string) bool {
 var keyGlyph = map[string]string{
 	"up": "↑", "down": "↓", "left": "←", "right": "→",
 	"enter": "Enter", "esc": "Esc", "home": "Home", "end": "End", "ctrl+c": "Ctrl+C",
+	"ctrl+x": "^x", "ctrl+o": "^o",
 }
 
 func glyph(k string) string {
@@ -87,6 +94,14 @@ func glyph(k string) string {
 		return g
 	}
 	return k
+}
+
+// firstBind returns the first binding of an action, or "" when none is set.
+func firstBind(binds []string) string {
+	if len(binds) == 0 {
+		return ""
+	}
+	return binds[0]
 }
 
 // formatKeys renders all aliases of an action as "↑/k", "→/l/Enter", etc. (FR-014).
@@ -144,15 +159,19 @@ func (m App) helpLines() []string {
 		row(formatKeys(k.Analyze), "analyze (du) a bucket / folder / level"),
 		row(formatKeys(k.Refresh), "reload the current list"),
 		row(formatKeys(k.NewFolder), "create a folder") + wtag,
-		row(formatKeys(k.Delete), "delete the selected object / marked set") + wtag,
 		row(formatKeys(k.Upload), "upload a local file") + wtag,
 		row(formatKeys(k.Copy), "copy the selected object / marked set") + wtag,
-		row(formatKeys(k.Move), "move/rename the selected object") + wtag,
-		row(formatKeys(k.DeleteAll), "recursively delete the selected folder") + wtag,
+		"",
+		sec("Dangerous") + dimCellStyle.Render("  (Ctrl chord required — a bare key won't fire)"),
+		row(glyph(firstBind(k.DeleteChord)), "delete the selected object / marked set") + wtag,
+		row(glyph(firstBind(k.DeleteChord)), "recursively delete a folder · delete a bucket") + wtag,
+		row(glyph(firstBind(k.MoveChord)), "move/rename the selected object") + wtag,
 		"",
 		sec("Context"),
 		row(formatKeys(k.Context), "switch context"),
 		row("1-9", "switch to context by number"),
+		row(formatKeys(k.AddConn), "add a new connection"),
+		row(glyph(firstBind(k.DeleteChord))+" (on contexts)", "delete the selected connection"),
 		"",
 		sec("Global"),
 		row(formatKeys(k.WriteToggle), "arm/disarm write (confirm to arm; instant to disarm)"),

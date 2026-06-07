@@ -47,6 +47,10 @@ func keyMsgFor(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "backspace":
 		return tea.KeyPressMsg{Code: tea.KeyBackspace}
+	case "ctrl+x":
+		return tea.KeyPressMsg{Code: 'x', Mod: tea.ModCtrl}
+	case "ctrl+o":
+		return tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl}
 	default:
 		return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 	}
@@ -323,8 +327,8 @@ func TestTypedConfirmShowsTarget(t *testing.T) { // S3 / FR-017
 	f.Seed("b", "secret.txt")
 	m := treeApp(f, true)
 	selectObject(&m, "secret.txt")
-	m = viaMenu(t, m, "delete")
-	if !strings.Contains(m.opPromptLine(120), "secret.txt") {
-		t.Errorf("typed-confirm prompt must keep the required target visible; got %q", m.opPromptLine(120))
+	m = viaMenu(t, m, "delete") // 007 US4: binary tier → centered popup
+	if !strings.Contains(m.confirmPopupView(120, 12), "secret.txt") {
+		t.Errorf("binary confirm popup must keep the target visible; got %q", m.confirmPopupView(120, 12))
 	}
 }
