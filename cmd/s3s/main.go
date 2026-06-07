@@ -123,7 +123,8 @@ func run() error {
 			Store: st, Cluster: cl.Name, User: userLabel,
 			Endpoint: cl.Endpoint, Region: cl.Region,
 			Writable: writeEnabled, ReadOnly: policy.ReadOnly,
-			DownloadDir: cfg.DownloadDir,
+			DownloadDir:   cfg.DownloadDir,
+			PinnedBuckets: cl.Buckets,
 		}, nil
 	}
 

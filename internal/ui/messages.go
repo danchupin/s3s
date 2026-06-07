@@ -110,6 +110,14 @@ type connSavedMsg struct {
 	err   error
 }
 
+// addBucketMsg delivers the off-loop "+ add bucket" persist result (010 US2). Like
+// connSavedMsg it carries no gen (a config mutation, not a load): the subsequent bucket-list
+// reload it triggers carries the fresh gen. buckets is the connection's updated pinned list.
+type addBucketMsg struct {
+	buckets []string
+	err     error
+}
+
 // connDeletedMsg delivers the off-loop connection-delete result (007 US5). Carries the
 // updated context-name list on success and the gen it was dispatched under.
 type connDeletedMsg struct {

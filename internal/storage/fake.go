@@ -20,6 +20,15 @@ type Fake struct {
 	// for exercising best-effort recursive-delete partials and move's no-data-loss
 	// branch. Key format: "<bucket>/<key>".
 	FailDelete map[string]bool
+	// FailListBuckets makes ListBuckets return ErrAccessDenied — simulates bucket-scoped
+	// credentials that lack s3:ListAllMyBuckets (010 pinned buckets, R9).
+	FailListBuckets bool
+	// AccessDeniedBuckets[bucket]=true makes ListLevel on that bucket return ErrAccessDenied
+	// — simulates a bucket the creds cannot reach (010, distinct from ErrNotFound).
+	AccessDeniedBuckets map[string]bool
+	// Call counters (test assertions, e.g. "0 ListBuckets calls for a pinned connection").
+	ListBucketsCalls int
+	ListLevelCalls   int
 }
 
 // FakeBucket is one seeded bucket.
@@ -68,8 +77,12 @@ var _ Storage = (*Fake)(nil)
 
 // ListBuckets returns seeded buckets sorted by name.
 func (f *Fake) ListBuckets(ctx context.Context) ([]Bucket, error) {
+	f.ListBucketsCalls++
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	if f.FailListBuckets {
+		return nil, fmt.Errorf("list buckets: %w", ErrAccessDenied)
 	}
 	out := make([]Bucket, 0, len(f.Buckets))
 	for name, b := range f.Buckets {
@@ -81,8 +94,12 @@ func (f *Fake) ListBuckets(ctx context.Context) ([]Bucket, error) {
 
 // ListLevel pages one tree node using "/" as delimiter.
 func (f *Fake) ListLevel(ctx context.Context, q LevelQuery) (Page, error) {
+	f.ListLevelCalls++
 	if err := ctx.Err(); err != nil {
 		return Page{}, err
+	}
+	if f.AccessDeniedBuckets[q.Bucket] {
+		return Page{}, fmt.Errorf("list %q: %w", q.Bucket, ErrAccessDenied)
 	}
 	b, ok := f.Buckets[q.Bucket]
 	if !ok {

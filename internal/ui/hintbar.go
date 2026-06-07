@@ -171,5 +171,5 @@ func (m App) actionLabel(a action) string {
 // refreshBuckets reloads the bucket list (the `r` action in the bucket list).
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
 }

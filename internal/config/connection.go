@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"strings"
 
 	"github.com/danchupin/s3s/internal/secret"
 )
@@ -17,6 +18,7 @@ type NewConnection struct {
 	AccessKeyID string
 	PathStyle   bool
 	ReadOnly    bool
+	Buckets     []string // pinned bucket names (010 US3) — stored on the cluster
 }
 
 // AddConnection persists a new connection by mapping one draft onto the existing config
@@ -47,7 +49,7 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 		}
 	}
 
-	cl := Cluster{Name: nc.Name, Endpoint: nc.Endpoint, Region: nc.Region, PathStyle: nc.PathStyle}
+	cl := Cluster{Name: nc.Name, Endpoint: nc.Endpoint, Region: nc.Region, PathStyle: nc.PathStyle, Buckets: nc.Buckets}
 	u := User{Name: nc.Name, AccessKeyID: nc.AccessKeyID, Keychain: true}
 	cx := Context{Name: nc.Name, Cluster: nc.Name, User: nc.Name, ReadOnly: nc.ReadOnly}
 
@@ -84,6 +86,49 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 		"region", nc.Region, "readonly", nc.ReadOnly, "outcome", "ok")
 
 	return c.ContextNames(), nil
+}
+
+// AppendBucket adds a pinned bucket name to the cluster bound by the named context (010).
+// It mirrors AddConnection's trial-validate-persist-commit discipline: a trial copy is
+// validated and written to disk BEFORE the live config is mutated, so a failure leaves
+// cfg/UI untouched. The append is idempotent — a name already pinned is a no-op that still
+// succeeds — and the name is trimmed (empty is rejected). Returns the cluster's updated
+// bucket list. This is a CONFIG mutation (not an S3 write); it never touches the keychain.
+func (c *Config) AppendBucket(ctxName, bucket string) ([]string, error) {
+	bucket = strings.TrimSpace(bucket)
+	if bucket == "" {
+		return nil, fmt.Errorf("%w: empty bucket name", ErrInvalid)
+	}
+	cx, ok := c.context(ctxName)
+	if !ok {
+		return nil, fmt.Errorf("%w: no context named %q", ErrNotFound, ctxName)
+	}
+
+	trial := *c
+	trial.Clusters = slices.Clone(c.Clusters)
+	idx := slices.IndexFunc(trial.Clusters, func(cl Cluster) bool { return cl.Name == cx.Cluster })
+	if idx < 0 {
+		return nil, fmt.Errorf("%w: context %q references unknown cluster %q", ErrInvalid, ctxName, cx.Cluster)
+	}
+	existing := trial.Clusters[idx].Buckets
+	if slices.Contains(existing, bucket) {
+		return slices.Clone(existing), nil // already pinned — idempotent no-op
+	}
+	updated := append(slices.Clone(existing), bucket)
+	trial.Clusters[idx].Buckets = updated
+	if err := trial.Validate(); err != nil {
+		return nil, err
+	}
+	data, err := Marshal(&trial)
+	if err != nil {
+		return nil, fmt.Errorf("config: marshal: %w", err)
+	}
+	if err := Save(c.Path(), data); err != nil {
+		return nil, err
+	}
+	c.Clusters = trial.Clusters
+	slog.Info("connection.bucket-add", "context", ctxName, "bucket", bucket, "outcome", "ok")
+	return slices.Clone(updated), nil
 }
 
 // RemoveConnection deletes the connection named name — the cluster + user + context

@@ -31,6 +31,7 @@ const (
 	modeCommand     // `:` command bar — 006 US3
 	modeConnections // in-app connection manager list — 006 US4
 	modeConnForm    // add-connection form — 006 US4
+	modeAddBucket   // "+ add bucket" name input — 010 US2
 )
 
 // selKind classifies the current tree selection for the hint bar and direct-action gating.
@@ -83,6 +84,9 @@ type Backend struct {
 	Writable    bool   // initial write-arm intent (--write)
 	ReadOnly    bool   // context is readonly:true — never armable (FR-028)
 	DownloadDir string // default local download dir from config (005 FR-007)
+	// PinnedBuckets are the connection's declared bucket names (010). Non-empty ⇒ the
+	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
+	PinnedBuckets []string
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil
@@ -138,9 +142,14 @@ type App struct {
 	cmdInput string
 
 	// connection manager (006 US4)
-	connect Connector // nil disables in-app connection add
-	connSel int       // selection in modeConnections list
-	form    *connForm // active add-connection form (modeConnForm)
+	connect Connector      // nil disables in-app connection add
+	connSel int            // selection in modeConnections list
+	form    *connForm      // active add-connection form (modeConnForm)
+	addForm *bucketAddForm // active "+ add bucket" input (modeAddBucket) — 010 US2
+
+	// bucketsScoped marks the current bucket list as scoped (pins present, or list-all
+	// failed/denied/empty): the "+ add bucket" row is shown only then (010 FR-013a).
+	bucketsScoped bool
 
 	// search/filter input
 	searching   bool
@@ -242,7 +251,7 @@ func (m App) Init() tea.Cmd {
 	if m.raw == nil {
 		return nil
 	}
-	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen), spinnerTick())
+	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
 }
 
 // beginLoad cancels any in-flight load, bumps the generation, and starts a fresh
@@ -348,6 +357,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		m.buckets = msg.buckets
 		m.bucketSel = 0
+		// Scoped (010 FR-013a): the "+ add bucket" row shows when this connection has pinned
+		// buckets OR list-all returned nothing — never on a working list-all with results.
+		m.bucketsScoped = len(m.info.PinnedBuckets) > 0 || len(msg.buckets) == 0
 		return m, nil
 
 	case levelMsg:
@@ -379,6 +391,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.loading = false
 		m.err = msg.err
+		// A failed/denied list-all on the bucket list is the scoped-credentials case: offer
+		// the "+ add bucket" row so the user can reach a known bucket directly (010 FR-013a).
+		if m.mode == modeBuckets {
+			m.bucketsScoped = true
+		}
 		return m, nil
 
 	case operationProgressMsg:
@@ -420,6 +437,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case connDeletedMsg:
 		return m.onConnDeleted(msg)
+
+	case addBucketMsg:
+		return m.onAddBucket(msg)
 
 	case contextResolvedMsg:
 		return m.onContextResolved(msg)
@@ -466,6 +486,9 @@ func (m App) onPaste(content string) (tea.Model, tea.Cmd) {
 		return m, nil
 	case m.mode == modeConnForm && m.form != nil:
 		m.formAppend(text)
+		return m, nil
+	case m.mode == modeAddBucket && m.addForm != nil:
+		m.addForm.name.Insert(text)
 		return m, nil
 	case m.op != nil && m.op.phase == phaseConfirm && m.op.tier == confirmTyped:
 		m.op.input.Insert(text)
@@ -522,6 +545,9 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.mode == modeConnForm {
 		return m.onConnFormKey(key, msg)
+	}
+	if m.mode == modeAddBucket {
+		return m.onAddBucketKey(key, msg)
 	}
 	if m.mode == modeConnections {
 		// A connection-delete confirmation (007 US5) is an active op: it owns keys (typed
@@ -604,6 +630,9 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 // onBucketsKey handles the bucket-list view.
 func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 	n := len(m.filteredBuckets())
+	if m.bucketAddRowVisible() {
+		n++ // the "+ add bucket" row is selectable past the last real bucket (010 US2)
+	}
 	switch {
 	case matches(key, m.keys.Up):
 		if m.bucketSel > 0 {
@@ -628,6 +657,10 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case matches(key, m.keys.Enter):
 		fb := m.filteredBuckets()
+		// The "+ add bucket" row (one past the last bucket) opens the name input (010 US2).
+		if m.bucketAddRowVisible() && m.bucketSel == len(fb) {
+			return m.openAddBucket()
+		}
 		if m.bucketSel < 0 || m.bucketSel >= len(fb) {
 			return m, nil
 		}
@@ -753,15 +786,19 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.sel = nil
 	m.mode = modeBuckets
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen), spinnerTick())
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
 }
 
 // clampSelection keeps selection indices within bounds after resize/data change.
 // The visible window is recomputed statelessly at render time (windowBounds), so
 // only the selection indices need clamping here (Edge Case: resize reflow).
 func (m *App) clampSelection() {
-	if m.bucketSel >= len(m.buckets) {
-		m.bucketSel = max(0, len(m.buckets)-1)
+	limit := len(m.buckets) - 1
+	if m.bucketAddRowVisible() {
+		limit = len(m.buckets) // the "+ add bucket" row sits one past the last real bucket
+	}
+	if m.bucketSel > limit {
+		m.bucketSel = max(0, limit)
 	}
 	if m.level != nil && m.treeSel >= m.level.count() {
 		m.treeSel = max(0, m.level.count()-1)
@@ -865,6 +902,8 @@ func (m App) View() tea.View {
 		body = boxView("connections", "", m.connectionsView(w-2, dataRows), w, rows)
 	case modeConnForm:
 		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
+	case modeAddBucket:
+		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
 	}
 
 	// Binary-tier confirmation (007 US4): a centered popup over the body (the typed tier
@@ -1092,23 +1131,39 @@ func (m App) breadcrumb() string {
 	}
 }
 
-// bucketsView renders the bucket list table body (filtered) at the given width.
+// bucketAddRowVisible reports whether the synthetic "+ add bucket" row is shown: only for a
+// scoped bucket list (pins present, or list-all failed/empty) and only when a Connector is
+// wired to persist the addition (010 US2/FR-013a).
+func (m App) bucketAddRowVisible() bool { return m.bucketsScoped && m.connect != nil }
+
+// bucketsView renders the bucket list table body (filtered) at the given width. For a scoped
+// list it appends a "+ add bucket" row (mirrors the "+ add connection" row) so the user can
+// reach a bucket by name (010 US2).
 func (m App) bucketsView(w, rows int) string {
 	fb := m.filteredBuckets()
-	if len(fb) == 0 {
-		if m.loading {
-			return dimCellStyle.Render("Loading buckets…")
-		}
+	addRow := m.bucketAddRowVisible()
+	if m.loading && len(fb) == 0 {
+		return dimCellStyle.Render("Loading buckets…")
+	}
+	if len(fb) == 0 && !addRow {
 		if m.bucketFilter != "" {
 			return emptyStyle.Render(fmt.Sprintf("No buckets match %q.", m.bucketFilter))
 		}
 		return emptyStyle.Render("No buckets visible for this context.")
 	}
-	off, end := windowBounds(len(fb), m.bucketSel, rows)
+	n := len(fb)
+	if addRow {
+		n++
+	}
+	off, end := windowBounds(n, m.bucketSel, rows)
 	cols := []column{{"name", 0}, {"created", 19}}
 	data := make([][]string, 0, end-off)
 	for i := off; i < end; i++ {
-		data = append(data, []string{fb[i].Name, formatDate(fb[i].CreationDate)})
+		if addRow && i == len(fb) {
+			data = append(data, []string{"+ add bucket", ""})
+		} else {
+			data = append(data, []string{fb[i].Name, formatDate(fb[i].CreationDate)})
+		}
 	}
 	return renderTable(w, cols, data, nil, m.bucketSel-off)
 }

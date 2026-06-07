@@ -114,49 +114,41 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 008-connection-form-ux (connection + browser UX fixes; 9 user stories) —
-IMPLEMENTED (40/40 tasks; go test + lint + vet + check-readonly green; ui coverage 77%).
-007/006/005/004/003/002/001 — complete.
+Active feature: 010-pinned-buckets (scoped connections; 4 user stories) — IMPLEMENTED (33/33 tasks;
+go test + fmt + vet + lint(0) + check-readonly green; ui coverage 77.5%, config 79.1%).
+008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/008-connection-form-ux/plan.md. Artifacts (specs/008-connection-form-ux/):
-research.md (R1 textField editor, R2 paste, R3 chord label, R4 delete-hint placement, R5 secret
-guidance, R6 drop ALL block titles, R7 same-bucket post-mutation invalidation, R8 connections
-relabel+collapse-order, R9 filter-reset, R10 no-dup-delete), data-model.md, quickstart.md, contracts/ (text-input,
-connection-ui, command-bar, key-label, post-mutation-visibility), checklists/ (requirements 16/16,
-ux 27). Constitution v1.0.0; no amendment. ALL changes in internal/ui (NO storage/config edits;
-check-readonly stays green). Clarified: secret = hint-only, keychain stays sole save path
-(env/cmd/awsProfile = config-file-only, form does NOT resolve ${ENV}); delete hint = inline in
-connections view (NOT command-bar catalog); label format = "Ctrl+X" no-space (matches Ctrl+C);
-US6 = SAME-BUCKET cross-prefix only (CopyKey/MoveObject single-bucket), precise src+dst key
-invalidation (NOT cache.Clear); US7 = relabel "connections"; US9 = show-only-applicable delete.
-Scope expanded (4 follow-up defects): US6 post-mutation visibility ALL actions incl same-bucket
-cross-prefix copy/move/bulk_copy; US7 "connections" affordance; US8 filter-reset; US9 no dup delete.
-/speckit-analyze remediation applied: same-bucket scope, INFO heading also removed (US5), FR-020
-collapse-reorder, FR-014 defined surface (literal "w to arm"), FR-003 absent, bulk_copy covered.
+Plan: specs/010-pinned-buckets/plan.md. Artifacts (specs/010-pinned-buckets/): spec.md (US1 browse
+pinned w/o ListBuckets P1, US2 in-UI +add bucket per-connection P1, US3 form buckets field P2, US4
+honest test error P3; FR-001..016, SC-001..006), research.md (R1..R9), data-model.md, quickstart.md,
+contracts/ (config-schema, pinned-bucket-list, add-bucket, conn-form-buckets-field, conn-test-and-error),
+checklists/requirements.md 16/16. Constitution v1.0.0; no amendment. Changes span internal/config +
+internal/ui + cmd/s3s (NOT just ui); check-readonly STAYS green (no new write-S3 symbols; only a
+test-only read knob on storage.Fake).
 
-Key approach (9 US): (1) NEW textfield.go — rune-aware single-line editor {Value,Caret(rune
-idx)} Insert/Backspace/DeleteFwd/Left/Right/Home/End/Render(width,masked); shared by connForm 5
-text fields AND op.input (typed-confirm). (2) PASTE: bracketed paste on by default in BT v2 →
-tea.PasteMsg dropped today (Update only handles KeyPressMsg); add `case tea.PasteMsg` routing to
-active text surface (search/command/connForm/op.input), strip trailing \n, interior \n→space.
-(3) keys.go keyGlyph: "ctrl+x"→"Ctrl+X", "ctrl+o"→"Ctrl+O" (single source; all surfaces via
-glyph()); trim redundant "(Ctrl chord required)" nudge tail in hintbar dispatchActionKey. (4)
-connections.go connectionsView: inline delete hint (`Ctrl+X delete`) active for non-active conn,
-absent on +add/empty, guard on active (FR-002 unchanged). (5) connFormView: per-field focus hint;
-secret hint = "stored in OS keychain · env/cmd/awsProfile via config file". (6) commandbar.go:
-drop ALL THREE blockTitle rows INFO(162)/READ(148)/WRITE(191), keep columns+gap grouping;
-relocate "w to arm" literal text to write column lead row when !writable (FR-014).
-confirmview.typedConfirmForm renders op.input via textField.Render (real caret, not tail-only).
-US6: operation.go onOperationDone invalidates PRECISELY src+dst PREFIX keys SAME bucket for
-copy/move/bulk_copy (NOT whole Clear) via new tree.go invalidateLevel(key)+parentPrefix; no
-cross-bucket (single-bucket storage); same-level mutations already auto-show via refresh(). US7:
-relabel "new conn"→"connections" at infoColumn:172 AND collapsedBarView:220 (bound to AddConn);
-reorder ahead of droppable read entries on collapse (FR-020 — today appended last, fitEntries
-drops trailing first). US8: readEntries appends `Esc clear` when searchActive()&&!searching (list
-modes render command bar, NOT legacy footerHints which had the cue). US9: writeEntries shows ONLY
-the selection-applicable delete (suppress inapplicable) — targeted exception to 007 all-write-
-always-shown. Command-bar/title/^x test asserts live in hintbar_test.go (NOT commandbar_test.go;
-T036 edits :166 INFO/READ/WRITE, T018 edits :199 ^x). Tests white-box package ui (deliver/press +
-tea.PasteMsg helper); textfield_test unit; operation same-bucket cross-prefix visibility test
-(storage.Fake); no integration (no storage contract change).
+PROBLEM: bucket-scoped creds (no s3:ListAllMyBuckets) → ListBuckets 403 dead-ends s3s 3 ways (test
+probe, mislabeled "unreachable", browser can't reach a bucket). Verified Avito case: domain-style
+`<bucket>.bucket.avito-sd` resolves per provisioned bucket, apex `bucket.avito-sd` is unlistable.
+
+Clarified (2026-06-07): add-bucket UX = "+ add bucket" row (mirror "+ add connection"); affordance
+SCOPED-ONLY — shown iff pins exist OR list-all failed/denied/empty, HIDDEN when list-all succeeds
+(no footgun hiding buckets on a working connection).
+
+Key approach (canonical names): config.Cluster.Buckets []string `yaml:"buckets,omitempty"` (R1 — on
+Cluster not Context); NewConnection.Buckets + AddConnection maps it; NEW config.AppendBucket(ctx,
+bucket) trial-validate-persist + logs connection.bucket-add (R8). ui.Backend.PinnedBuckets +
+App.pinnedBuckets seeded in New()/contextResolvedMsg. loadBuckets(ctx,st,gen,pinned): pins non-empty
+→ synthesize []storage.Bucket{{Name}} (zero date), NO ListBuckets call (R2). bucketsView injects
+"+ add bucket" row at render when scoped (R3/R4); onBucketsKey Enter on it → modeAddBucket +
+bucketAddForm{name textField,err}; submit → Connector.AddBucket → addBucketCmd/addBucketMsg{gen,
+buckets,err}/onAddBucket (mirror saveConnCmd/connSavedMsg/onConnSaved) → update pins + reload.
+connForm: NEW buckets textField at fldBuckets=5 (shifts fldPathStyle→6/fldReadOnly→7/count→8); label
+"buckets"; focusField returns &f.buckets; draft() parseBuckets (split comma/space,trim,drop,dedupe
+order-stable); validateForm optional. connSeam.Test: d.Buckets non-empty → ListLevel(d.Buckets[0],
+MaxKeys:1) else ListBuckets (R6). onConnTested: nil OR ErrAccessDenied → save (R7/FR-009); else
+m.err=msg.err + m.form.err = errorText()+" — press Enter again to save anyway" (drop hardcoded
+"unreachable"); clear m.err on esc/save. storage.Fake test knobs: FailListBuckets bool +
+AccessDeniedBuckets (R9, read-only, check-readonly green). Tests white-box package ui (deliver/press/
+viewOf + fakeConnector; assert 0 ListBuckets calls via Fake counter); config temp-file round-trip +
+AppendBucket; textfield_test for buckets parse; NO integration (no storage contract change).
 <!-- SPECKIT END -->

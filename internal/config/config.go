@@ -51,11 +51,12 @@ func InsecurePerms(path string) bool {
 
 // Cluster is a named S3-compatible endpoint.
 type Cluster struct {
-	Name          string `yaml:"name"`
-	Endpoint      string `yaml:"endpoint"`
-	Region        string `yaml:"region,omitempty"`
-	PathStyle     bool   `yaml:"pathStyle"`
-	TLSSkipVerify bool   `yaml:"tlsSkipVerify,omitempty"`
+	Name          string   `yaml:"name"`
+	Endpoint      string   `yaml:"endpoint"`
+	Region        string   `yaml:"region,omitempty"`
+	PathStyle     bool     `yaml:"pathStyle"`
+	TLSSkipVerify bool     `yaml:"tlsSkipVerify,omitempty"`
+	Buckets       []string `yaml:"buckets,omitempty"` // pinned bucket names (010) — empty ⇒ list-all
 }
 
 // User is a named credential. Secrets are redacted everywhere (FR-005). A
