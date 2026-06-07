@@ -15,8 +15,10 @@ type connSeam struct {
 	cfg *config.Config
 }
 
-// Test runs a live reachability check against the draft (storage.New + ListBuckets) off
-// the event loop (FR-025a). The secret is revealed only to build the throwaway client.
+// Test runs a live reachability check against the draft off the event loop (FR-025a). The
+// secret is revealed only to build the throwaway client. For a pinned (scoped) connection it
+// probes the first declared bucket via a bounded ListLevel instead of ListBuckets — what the
+// connection will actually use, and what bucket-scoped creds can reach (010 US4/FR-008).
 func (s connSeam) Test(ctx context.Context, d ui.ConnDraft) error {
 	cc := storage.ClientConfig{
 		Endpoint:    d.Endpoint,
@@ -27,6 +29,10 @@ func (s connSeam) Test(ctx context.Context, d ui.ConnDraft) error {
 	}
 	st, err := storage.New(cc)
 	if err != nil {
+		return err
+	}
+	if len(d.Buckets) > 0 {
+		_, err = st.ListLevel(ctx, storage.LevelQuery{Bucket: d.Buckets[0], MaxKeys: 1})
 		return err
 	}
 	_, err = st.ListBuckets(ctx)
@@ -43,6 +49,7 @@ func (s connSeam) Save(_ context.Context, d ui.ConnDraft) ([]string, error) {
 		AccessKeyID: d.AccessKeyID,
 		PathStyle:   d.PathStyle,
 		ReadOnly:    d.ReadOnly,
+		Buckets:     d.Buckets,
 	}, d.Secret.Reveal())
 }
 
@@ -50,4 +57,10 @@ func (s connSeam) Save(_ context.Context, d ui.ConnDraft) ([]string, error) {
 // updated context-name list (007 US5).
 func (s connSeam) Delete(_ context.Context, name string) ([]string, error) {
 	return s.cfg.RemoveConnection(name)
+}
+
+// AddBucket pins a bucket name to the named connection's cluster and returns the updated
+// pinned list (010 US2). A config mutation only — no keychain, no S3 write.
+func (s connSeam) AddBucket(_ context.Context, ctxName, bucket string) ([]string, error) {
+	return s.cfg.AppendBucket(ctxName, bucket)
 }

@@ -2,12 +2,14 @@ package ui
 
 import (
 	"context"
+	"errors"
 	"net/url"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/danchupin/s3s/internal/logging"
+	"github.com/danchupin/s3s/internal/storage"
 )
 
 // In-app connection manager (006 US4). A connection list (modeConnections) and an add
@@ -22,6 +24,7 @@ type ConnDraft struct {
 	Region      string
 	AccessKeyID string
 	Secret      logging.Secret
+	Buckets     []string // pinned bucket names (010 US3) — empty ⇒ list-all
 	PathStyle   bool
 	ReadOnly    bool
 }
@@ -37,6 +40,9 @@ type Connector interface {
 	// Delete removes the named connection (config triple + keychain secret) and returns
 	// the updated context-name list. Refuses the active context (007 US5 / FR-031/032).
 	Delete(ctx context.Context, name string) ([]string, error)
+	// AddBucket pins a bucket name to the named connection and returns the updated pinned
+	// bucket list (010 US2). A CONFIG mutation (no keychain, no S3 write); idempotent.
+	AddBucket(ctx context.Context, ctxName, bucket string) ([]string, error)
 }
 
 // connField indexes the editable form fields (the read-only flag and submit are handled
@@ -47,12 +53,13 @@ const (
 	fldRegion
 	fldAccessKey
 	fldSecret
+	fldBuckets // pinned bucket names (010 US3) — optional, comma/space separated
 	fldPathStyle
 	fldReadOnly
 	connFieldCount
 )
 
-var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "secret", "path-style", "read-only"}
+var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "secret", "buckets", "path-style", "read-only"}
 
 // connForm is the in-flight add-connection form state (modeConnForm). The secret field is
 // masked BY THE FORM (held as a raw string, rendered as bullets, wrapped in logging.Secret
@@ -61,12 +68,20 @@ var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "s
 type connForm struct {
 	name, endpoint, region, accessKey textField
 	secret                            textField // masked on render, never logged
+	buckets                           textField // pinned bucket names (010 US3), comma/space separated
 	pathStyle                         bool
 	readOnly                          bool
 	cursor                            int    // 0..fldReadOnly
 	err                               string // field-level / test error (secret-free)
 	tested                            bool   // a reachability test has run
 	testOK                            bool   // the last test succeeded
+}
+
+// bucketAddForm is the in-flight "+ add bucket" input (modeAddBucket, 010 US2): a single
+// rune-aware field for a bucket name plus a field-level error. Mirrors connForm, minimal.
+type bucketAddForm struct {
+	name textField
+	err  string
 }
 
 // openConnections opens the connection manager. Disabled (a notice) when no Connector was
@@ -180,6 +195,7 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	switch key {
 	case "esc":
 		m.form = nil
+		m.err = nil // clear any test error so it doesn't leak into the list footer (010 US4)
 		m.mode = modeConnections
 		return m, nil
 	case "up":
@@ -247,6 +263,8 @@ func (f *connForm) focusField() *textField {
 		return &f.accessKey
 	case fldSecret:
 		return &f.secret
+	case fldBuckets:
+		return &f.buckets
 	}
 	return nil
 }
@@ -283,9 +301,27 @@ func (f *connForm) draft() ConnDraft {
 		Region:      strings.TrimSpace(f.region.Value),
 		AccessKeyID: strings.TrimSpace(f.accessKey.Value),
 		Secret:      logging.Secret(f.secret.Value),
+		Buckets:     parseBuckets(f.buckets.Value),
 		PathStyle:   f.pathStyle,
 		ReadOnly:    f.readOnly,
 	}
+}
+
+// parseBuckets normalizes a free-text bucket list (010 US3/FR-006): split on commas and
+// whitespace, trim, drop empties, de-duplicate preserving first-seen order. nil when empty.
+func parseBuckets(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' || r == '\n' })
+	var out []string
+	seen := map[string]bool{}
+	for _, f := range fields {
+		f = strings.TrimSpace(f)
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // validate enforces required/format rules + name uniqueness before any backend call.
@@ -352,12 +388,18 @@ func (m App) onConnTested(msg connTestedMsg) (tea.Model, tea.Cmd) {
 	if m.form == nil {
 		return m, nil
 	}
-	if msg.err == nil {
+	// nil OR access-denied counts as reachable → save (010 US4/FR-009): the endpoint resolved
+	// and the server answered; bucket-scoped creds simply may lack list-all. Other failures
+	// (unreachable/not-found/invalid-config) show the CLASSIFIED reason (not a blanket
+	// "unreachable") and keep the "save anyway" affordance (FR-010).
+	if msg.err == nil || errors.Is(msg.err, storage.ErrAccessDenied) {
 		m.form.tested, m.form.testOK = true, true
+		m.err = nil
 		return m, saveConnCmd(m.connect, m.form.draft())
 	}
 	m.form.tested, m.form.testOK = true, false
-	m.form.err = "unreachable — press Enter again to save anyway"
+	m.err = msg.err
+	m.form.err = m.errorText() + " — press Enter again to save anyway"
 	return m, nil
 }
 
@@ -378,6 +420,7 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 		name = m.form.draft().Name
 	}
 	m.form = nil
+	m.err = nil // a stale test error must not bleed into the bucket-list footer (010 US4)
 	m.notice = "connection saved: " + name
 	// First run (no active context yet): enter the just-added connection directly instead of
 	// dropping to the manager list, so a fresh install lands in the browser (009).
@@ -386,6 +429,99 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.mode = modeConnections
 	return m, nil
+}
+
+// openAddBucket opens the "+ add bucket" input (010 US2). No-op without a Connector.
+func (m App) openAddBucket() (tea.Model, tea.Cmd) {
+	if m.connect == nil {
+		return m, nil
+	}
+	m.addForm = &bucketAddForm{}
+	m.mode = modeAddBucket
+	m.err = nil
+	return m, nil
+}
+
+// addBucketCmd persists a pinned bucket off the event loop via the injected Connector
+// (010 US2), mirroring saveConnCmd. The result list flows back via addBucketMsg.
+func addBucketCmd(c Connector, ctxName, bucket string) tea.Cmd {
+	return func() tea.Msg {
+		buckets, err := c.AddBucket(context.Background(), ctxName, bucket)
+		return addBucketMsg{buckets: buckets, err: err}
+	}
+}
+
+// onAddBucketKey edits the "+ add bucket" input (modeAddBucket, 010 US2). Enter submits a
+// non-empty name; Esc cancels; the rest drive the single textField (incl. caret + paste).
+func (m App) onAddBucketKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	f := m.addForm
+	switch key {
+	case "esc":
+		m.addForm = nil
+		m.mode = modeBuckets
+		return m, nil
+	case "enter":
+		name := strings.TrimSpace(f.name.Value)
+		if name == "" {
+			f.err = "bucket name required"
+			return m, nil
+		}
+		f.err = ""
+		return m, addBucketCmd(m.connect, m.ctxName, name)
+	case "left":
+		f.name.Left()
+	case "right":
+		f.name.Right()
+	case "home":
+		f.name.Home()
+	case "end":
+		f.name.End()
+	case "backspace":
+		f.name.Backspace()
+	case "delete":
+		f.name.DeleteFwd()
+	case " ", "space":
+		f.name.Insert(" ")
+	default:
+		if msg.Text != "" {
+			f.name.Insert(msg.Text)
+		}
+	}
+	return m, nil
+}
+
+// onAddBucket applies the persist outcome (010 US2): on success update the live pinned list
+// and reload the bucket view so the new bucket appears; on failure surface it on the form.
+func (m App) onAddBucket(msg addBucketMsg) (tea.Model, tea.Cmd) {
+	if msg.err != nil {
+		if m.addForm != nil {
+			m.addForm.err = "add failed: " + msg.err.Error()
+		}
+		return m, nil
+	}
+	m.info.PinnedBuckets = msg.buckets
+	m.addForm = nil
+	m.mode = modeBuckets
+	m.notice = "bucket added"
+	ctx := (&m).beginLoad()
+	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
+}
+
+// addBucketView renders the "+ add bucket" input body (010 US2).
+func (m App) addBucketView(w int) string {
+	f := m.addForm
+	if f == nil {
+		return ""
+	}
+	avail := max(1, w-20)
+	var b strings.Builder
+	b.WriteString("▶ " + formActiveStyle.Render(pad("bucket", 16)) + objCellStyle.Render(f.name.Render(avail, false)) + "\n\n")
+	b.WriteString(dimCellStyle.Render(truncate("name of a bucket your credentials can access", max(1, w-1))) + "\n")
+	if f.err != "" {
+		b.WriteString(formErrStyle.Render(truncate(f.err, max(1, w-1))) + "\n")
+	}
+	b.WriteString(dimCellStyle.Render("Enter add · Esc cancel"))
+	return b.String()
 }
 
 // connDeleteHint is the connection-list help line (008 US1). It always advertises
@@ -425,6 +561,8 @@ func (m App) connFieldHint(cursor int) string {
 		return "access key id"
 	case fldSecret:
 		return "secret access key — stored in your OS keychain · env var / cmd / AWS profile via config file"
+	case fldBuckets:
+		return "comma/space-separated bucket names — pin these when credentials can't list all (optional)"
 	}
 	return ""
 }
@@ -435,7 +573,7 @@ func (m App) connFormView(w int) string {
 	if f == nil {
 		return ""
 	}
-	fields := []textField{f.name, f.endpoint, f.region, f.accessKey, f.secret}
+	fields := []textField{f.name, f.endpoint, f.region, f.accessKey, f.secret, f.buckets}
 	checkbox := func(on bool) string {
 		if on {
 			return "[x] (space toggles)"

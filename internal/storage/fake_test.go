@@ -7,6 +7,35 @@ import (
 	"testing"
 )
 
+func TestFakeFailListBuckets(t *testing.T) {
+	f := NewFake()
+	f.Seed("b")
+	f.FailListBuckets = true
+	if _, err := f.ListBuckets(context.Background()); !errors.Is(err, ErrAccessDenied) {
+		t.Errorf("FailListBuckets: want ErrAccessDenied, got %v", err)
+	}
+	if f.ListBucketsCalls != 1 {
+		t.Errorf("ListBucketsCalls = %d, want 1", f.ListBucketsCalls)
+	}
+}
+
+func TestFakeAccessDeniedBucket(t *testing.T) {
+	f := NewFake()
+	f.Seed("ok", "a.txt")
+	f.AccessDeniedBuckets = map[string]bool{"denied": true}
+	// A denied bucket → ErrAccessDenied (NOT ErrNotFound), even though it isn't seeded.
+	if _, err := f.ListLevel(context.Background(), LevelQuery{Bucket: "denied", MaxKeys: 1}); !errors.Is(err, ErrAccessDenied) {
+		t.Errorf("denied bucket: want ErrAccessDenied, got %v", err)
+	}
+	// A reachable seeded bucket still succeeds.
+	if _, err := f.ListLevel(context.Background(), LevelQuery{Bucket: "ok", MaxKeys: 1}); err != nil {
+		t.Errorf("ok bucket: unexpected err %v", err)
+	}
+	if f.ListLevelCalls != 2 {
+		t.Errorf("ListLevelCalls = %d, want 2", f.ListLevelCalls)
+	}
+}
+
 func TestFakeListBucketsSorted(t *testing.T) {
 	f := NewFake()
 	f.Seed("zeta")

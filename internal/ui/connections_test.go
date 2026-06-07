@@ -17,10 +17,14 @@ type fakeConnector struct {
 	testErr     error
 	saveErr     error
 	deleteErr   error
+	addErr      error
 	names       []string
+	addBuckets  []string // returned by AddBucket
 	tested      bool
 	savedName   string
+	savedDraft  ConnDraft // last draft passed to Save (010 US3: assert Buckets)
 	deletedName string
+	addedBucket string // last bucket passed to AddBucket (010 US2)
 }
 
 func (c *fakeConnector) Test(_ context.Context, _ ConnDraft) error {
@@ -30,12 +34,18 @@ func (c *fakeConnector) Test(_ context.Context, _ ConnDraft) error {
 
 func (c *fakeConnector) Save(_ context.Context, d ConnDraft) ([]string, error) {
 	c.savedName = d.Name
+	c.savedDraft = d
 	return c.names, c.saveErr
 }
 
 func (c *fakeConnector) Delete(_ context.Context, name string) ([]string, error) {
 	c.deletedName = name
 	return c.names, c.deleteErr
+}
+
+func (c *fakeConnector) AddBucket(_ context.Context, _, bucket string) ([]string, error) {
+	c.addedBucket = bucket
+	return c.addBuckets, c.addErr
 }
 
 func connApp(conn Connector, contexts []string) App {

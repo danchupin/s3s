@@ -32,8 +32,21 @@ func logOpErr(op string, err error, attrs ...any) {
 	slog.Error(op+" failed", append(attrs, "err", err)...)
 }
 
-// loadBuckets fetches the bucket list off the event loop.
-func loadBuckets(ctx context.Context, st storage.Storage, gen int) tea.Cmd {
+// loadBuckets fetches the bucket list off the event loop. When pinned is non-empty the
+// connection is "scoped" (bucket-scoped credentials that cannot list all buckets, 010): the
+// list is synthesized from the pinned names with NO ListBuckets call. Otherwise it lists as
+// before. The synthesized buckets carry only a name (zero CreationDate → rendered as "—").
+func loadBuckets(ctx context.Context, st storage.Storage, gen int, pinned []string) tea.Cmd {
+	if len(pinned) > 0 {
+		buckets := make([]storage.Bucket, 0, len(pinned))
+		for _, name := range pinned {
+			buckets = append(buckets, storage.Bucket{Name: name})
+		}
+		return func() tea.Msg {
+			slog.Debug("pinned buckets", "count", len(buckets))
+			return bucketsMsg{gen: gen, buckets: buckets}
+		}
+	}
 	return func() tea.Msg {
 		bs, err := st.ListBuckets(ctx)
 		if err != nil {

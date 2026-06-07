@@ -164,6 +164,8 @@ clusters:
     region: us-east-1
     pathStyle: true          # path-style; false => virtual-host/domain style
     tlsSkipVerify: false     # explicit opt-in, https only
+    buckets:                 # optional: pin specific buckets (see below)
+      - my-bucket
 users:
   - name: dev
     accessKeyId: admin
@@ -184,6 +186,31 @@ export S3S_DEV_SECRET=password
 
 Active-context precedence: `--context <name>` > `S3S_CONTEXT` env >
 `current-context`.
+
+### Scoped credentials (pinned buckets)
+
+Some credentials can access specific buckets but cannot **list all buckets**
+(`s3:ListAllMyBuckets`) — common with bucket-scoped Ceph RGW / MinIO keys, and with
+domain-style endpoints where only `<bucket>.<host>` resolves. s3s normally opens at the bucket
+list (a `ListBuckets` call), which fails for such credentials.
+
+Pin the buckets you can reach with a `buckets:` list on the cluster:
+
+```yaml
+clusters:
+  - name: scoped
+    endpoint: https://bucket.example-rgw   # domain/virtual-hosted style → pathStyle: false
+    pathStyle: false
+    buckets:
+      - my-bucket
+      - another-bucket
+```
+
+When `buckets:` is set, s3s skips `ListBuckets` and shows exactly those names; open and switch
+between them normally. You can also add buckets at runtime: on a scoped bucket list, choose the
+`+ add bucket` row, type a name, and it is pinned to the connection (persisted to the config).
+The in-app add-connection form has a `buckets` field for the same purpose. Connections that can
+list buckets normally are unaffected (no `+ add bucket` row, no behavior change).
 
 ### Credential sources
 
