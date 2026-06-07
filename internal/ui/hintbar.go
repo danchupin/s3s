@@ -2,10 +2,8 @@ package ui
 
 import (
 	"fmt"
-	"strings"
 
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -24,6 +22,11 @@ type action struct {
 	label     string
 	writeOnly bool
 	bulk      bool // routes to the bulk variant + shows a count when a multi-select is active
+	// dangerous gates the action behind a Ctrl chord (007 US4, FR-021): the bare key is
+	// inert (nudge only); chord is the displayed/triggering key. chord is the key string
+	// (e.g. "ctrl+x") used both to render the `^x` glyph and to route the chord press.
+	dangerous bool
+	chord     string
 	// avail receives the precomputed selection kind so each predicate avoids re-deriving it
 	// (selKind→selected→treeEntries re-sorts the level; recomputing per action is wasteful).
 	avail  func(App, selKind) bool
@@ -44,6 +47,8 @@ func (m App) actionCatalog() []action {
 		return []action{
 			{binds: k.Analyze, label: "analyze", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startAnalyze},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
+			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chord: "ctrl+x",
+				avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startRemoveBucket},
 		}
 	}
 	objOrMarks := func(a App, kind selKind) bool { return kind == selObject || a.hasMarks() }
@@ -55,22 +60,22 @@ func (m App) actionCatalog() []action {
 			return a.startDownload()
 		}},
 		{binds: k.Analyze, label: "analyze", avail: func(_ App, kind selKind) bool { return kind != selObject }, invoke: App.startAnalyze},
-		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
+		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chord: "ctrl+x", avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkDelete()
 			}
 			return a.startRemoveObject()
 		}},
-		{binds: k.DeleteAll, label: "rm -r", writeOnly: true, avail: func(_ App, kind selKind) bool { return kind == selFolder }, invoke: App.startRecursiveDelete},
+		{binds: k.DeleteAll, label: "delete", writeOnly: true, dangerous: true, chord: "ctrl+x", avail: func(_ App, kind selKind) bool { return kind == selFolder }, invoke: App.startRecursiveDelete},
 		{binds: k.Copy, label: "copy", writeOnly: true, bulk: true, avail: objOrMarks, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkCopy()
 			}
 			return a.startCopy()
 		}},
-		{binds: k.Move, label: "move", writeOnly: true, avail: func(_ App, kind selKind) bool { return kind == selObject }, invoke: App.startMove},
+		{binds: k.Move, label: "move", writeOnly: true, dangerous: true, chord: "ctrl+o", avail: func(_ App, kind selKind) bool { return kind == selObject }, invoke: App.startMove},
 		{binds: k.Upload, label: "upload", writeOnly: true, avail: always, invoke: App.startUpload},
-		{binds: k.NewFolder, label: "mkdir", writeOnly: true, avail: always, invoke: App.startCreateFolder},
+		{binds: k.NewFolder, label: "new folder", writeOnly: true, avail: always, invoke: App.startCreateFolder},
 		{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refresh},
 	}
 }
@@ -96,6 +101,8 @@ func (m App) availableActions() []action {
 // dispatchActionKey runs the action bound to key if it is currently available. Reports
 // whether the key matched an action (so the caller can fall through otherwise). A
 // write key pressed in a read-only context matches but is a safe no-op + hint (FR-004).
+// A DANGEROUS action's bare key is inert: it never mutates and nudges the operator to
+// use the Ctrl chord instead (007 FR-021). The chord itself is routed by dispatchChord.
 func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 	kind := m.selKind()
 	for _, a := range m.actionCatalog() {
@@ -105,8 +112,41 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 		if a.avail != nil && !a.avail(m, kind) {
 			return m, nil, true // matched but not applicable to this selection — inert
 		}
+		if a.dangerous {
+			// Bare dangerous key never triggers; require the chord (FR-021). Nudge only.
+			if m.writable() {
+				m.notice = "press " + glyph(a.chord) + " to " + a.label + " (Ctrl chord required)"
+			} else {
+				m.err = storage.ErrReadOnly
+			}
+			return m, nil, true
+		}
 		if a.writeOnly && !m.writable() {
 			m.err = storage.ErrReadOnly
+			return m, nil, true
+		}
+		mm, cmd := a.invoke(m)
+		return mm, cmd, true
+	}
+	return m, nil, false
+}
+
+// dispatchChord runs a dangerous action when its Ctrl chord is pressed (007 US4,
+// FR-021). It scans the catalog for a dangerous action whose chord matches and whose
+// availability holds for the current selection; in a read-only context it falls through
+// to the read-only nudge and opens NO surface (FR-028). Reports whether the chord
+// matched a dangerous action.
+func (m App) dispatchChord(key string) (tea.Model, tea.Cmd, bool) {
+	kind := m.selKind()
+	for _, a := range m.actionCatalog() {
+		if !a.dangerous || a.chord == "" || a.chord != key {
+			continue
+		}
+		if a.avail != nil && !a.avail(m, kind) {
+			continue // this dangerous action doesn't fit the selection — try the next
+		}
+		if !m.writable() {
+			m.err = storage.ErrReadOnly // FR-028: no surface in read-only
 			return m, nil, true
 		}
 		mm, cmd := a.invoke(m)
@@ -121,39 +161,6 @@ func (m App) actionLabel(a action) string {
 		return fmt.Sprintf("%s %d", a.label, m.selCount())
 	}
 	return a.label
-}
-
-// hintBarView renders the always-visible contextual hint line: navigation cues, the
-// valid direct actions for the current selection/capability, then the global cues
-// (006 US1, FR-003). It is width-fit segment-by-segment, dropping the lowest-priority
-// middle items first while keeping the global help/quit cues (FR-040).
-func (m App) hintBarView(w int) string {
-	seg := func(key, label string) string {
-		return hintKeyStyle.Render(key) + " " + hintLabelStyle.Render(label)
-	}
-	// Leading navigation cues.
-	parts := []string{seg("↵", "open")}
-	if m.mode == modeBuckets {
-		parts = append(parts, seg("/", "filter"))
-	} else {
-		parts = append(parts, seg("/", "search"))
-	}
-	// Direct actions for the current selection/capability (the heart of US1).
-	for _, a := range m.availableActions() {
-		parts = append(parts, seg(glyph(a.binds[0]), m.actionLabel(a)))
-	}
-	if len(m.contexts) > 1 {
-		parts = append(parts, seg("c", "context"))
-	}
-	// Trailing global cues — these survive every width drop.
-	globals := []string{seg("?", "help"), seg("q", "quit")}
-
-	sep := hintLabelStyle.Render(" · ")
-	join := func(mid []string) string { return strings.Join(append(append([]string{}, mid...), globals...), sep) }
-	for len(parts) > 0 && lipgloss.Width(join(parts)) > w {
-		parts = parts[:len(parts)-1] // drop the lowest-priority (trailing) middle cue
-	}
-	return join(parts)
 }
 
 // refreshBuckets reloads the bucket list (the `r` action in the bucket list).

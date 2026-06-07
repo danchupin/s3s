@@ -107,3 +107,82 @@ func TestAddConnectionInvalidDoesNotCorrupt(t *testing.T) {
 		t.Errorf("a valid add after a failed one should succeed: %v", err)
 	}
 }
+
+func TestRemoveConnectionDropsTripleAndSecret(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+	// Add a second connection so the active "base" is not the only one.
+	if _, err := cfg.AddConnection(NewConnection{
+		Name: "extra", Endpoint: "http://h:9000", AccessKeyID: "AKID",
+	}, "SECRET"); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	// The keychain secret for "extra" exists.
+	if _, err := keyring.Get("s3s", "extra"); err != nil {
+		t.Fatalf("precondition: keychain secret for extra missing: %v", err)
+	}
+
+	names, err := cfg.RemoveConnection("extra")
+	if err != nil {
+		t.Fatalf("RemoveConnection: %v", err)
+	}
+	if len(names) != 1 || names[0] != "base" {
+		t.Errorf("after delete, contexts = %v, want [base]", names)
+	}
+	// Triple is gone from the live config and on disk.
+	if _, ok := cfg.context("extra"); ok {
+		t.Error("context extra should be gone from the live config")
+	}
+	raw, _ := os.ReadFile(cfg.Path())
+	if strings.Contains(string(raw), "extra") {
+		t.Errorf("on-disk config still mentions extra:\n%s", raw)
+	}
+	// Keychain secret is removed.
+	if _, err := keyring.Get("s3s", "extra"); err == nil {
+		t.Error("keychain secret for extra should be removed")
+	}
+}
+
+func TestRemoveConnectionRefusesActive(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+	if _, err := cfg.RemoveConnection("base"); err == nil {
+		t.Fatal("deleting the active context must be refused")
+	}
+	if _, ok := cfg.context("base"); !ok {
+		t.Error("the active context must remain after a refused delete")
+	}
+}
+
+func TestRemoveConnectionMissingSecretIsBenign(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+	// Add a second connection, then wipe its keychain secret to simulate an absent one.
+	if _, err := cfg.AddConnection(NewConnection{
+		Name: "extra", Endpoint: "http://h:9000", AccessKeyID: "AKID",
+	}, "SECRET"); err != nil {
+		t.Fatalf("AddConnection: %v", err)
+	}
+	_ = keyring.Delete("s3s", "extra")
+	if _, err := cfg.RemoveConnection("extra"); err != nil {
+		t.Fatalf("RemoveConnection with a missing secret must be benign; got %v", err)
+	}
+}
+
+func TestRemoveLastConnectionLeavesEmptyConfig(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+	// Switch the active context away so "base" is deletable (active is non-deletable).
+	cfg.CurrentContext = ""
+	names, err := cfg.RemoveConnection("base")
+	if err != nil {
+		t.Fatalf("removing the last connection should be allowed; got %v", err)
+	}
+	if len(names) != 0 {
+		t.Errorf("after removing the last connection, contexts = %v, want empty", names)
+	}
+	// An empty config is valid (the no-connection state).
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("empty config should be valid; got %v", err)
+	}
+}

@@ -84,3 +84,57 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 
 	return c.ContextNames(), nil
 }
+
+// RemoveConnection deletes the connection named name — the cluster + user + context
+// triple — and its keychain secret (007 US5 / FR-031). It is the symmetric inverse of
+// AddConnection: it refuses the ACTIVE context (FR-032), validates a TRIAL copy with the
+// triple removed before mutating the live config, deletes the keychain secret
+// best-effort (a missing secret never blocks removal), persists, then commits to the
+// live config (so the change is visible in-session, FR-033). Returns the updated
+// context-name list.
+func (c *Config) RemoveConnection(name string) ([]string, error) {
+	if name == c.CurrentContext {
+		return nil, fmt.Errorf("%w: cannot delete the active context %q (switch first)", ErrInvalid, name)
+	}
+	// Build a trial copy with every triple member named `name` dropped.
+	trial := *c
+	trial.Clusters = filterNamed(c.Clusters, func(x Cluster) string { return x.Name }, name)
+	trial.Users = filterNamed(c.Users, func(x User) string { return x.Name }, name)
+	trial.Contexts = filterNamed(c.Contexts, func(x Context) string { return x.Name }, name)
+	if len(trial.Contexts) == len(c.Contexts) {
+		return nil, fmt.Errorf("%w: no context named %q", ErrNotFound, name)
+	}
+	// A config with zero contexts is valid (the app falls back to the no-connection
+	// state, 007 US5 last-connection edge case); Validate tolerates an empty set.
+	if err := trial.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Persist first, then commit live — a failure leaves cfg/UI untouched.
+	data, err := Marshal(&trial)
+	if err != nil {
+		return nil, fmt.Errorf("config: marshal: %w", err)
+	}
+	if err := Save(c.Path(), data); err != nil {
+		return nil, err
+	}
+	// Best-effort keychain cleanup: a missing secret MUST NOT fail the removal (FR-031).
+	if rmErr := secret.RemoveKeychain(name); rmErr != nil {
+		slog.Warn("connection.delete", "name", name, "keychain", "not-removed", "err", rmErr)
+	}
+	c.Clusters, c.Users, c.Contexts = trial.Clusters, trial.Users, trial.Contexts
+
+	slog.Info("connection.delete", "name", name, "outcome", "ok")
+	return c.ContextNames(), nil
+}
+
+// filterNamed returns a new slice with every element whose name == drop removed.
+func filterNamed[T any](in []T, nameOf func(T) string, drop string) []T {
+	out := make([]T, 0, len(in))
+	for _, x := range in {
+		if nameOf(x) != drop {
+			out = append(out, x)
+		}
+	}
+	return out
+}

@@ -3,7 +3,6 @@ package ui
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -143,16 +142,16 @@ func TestBulkDeleteWriteGatedTypedConfirm(t *testing.T) {
 		t.Errorf("bulk delete must be refused read-only; op=%+v", got.op)
 	}
 
-	// Writable: typed-count confirm, then it deletes both.
+	// Writable: 007 US4 — bulk (group) delete is the BINARY tier; y confirms, then it
+	// deletes both.
 	rw := treeApp(f, true)
 	markObjects(&rw, "x", "y")
 	mm, _ = rw.startBulkDelete()
 	m := mm.(App)
-	if m.op == nil || m.op.kind != "bulk_delete" || m.op.tier != confirmTyped || m.op.expect != strconv.Itoa(2) {
-		t.Fatalf("bulk delete should require a typed count confirm; op=%+v", m.op)
+	if m.op == nil || m.op.kind != "bulk_delete" || m.op.tier != confirmSimple {
+		t.Fatalf("bulk delete should be a binary confirm; op=%+v", m.op)
 	}
-	m.op.input = "2" // type the count
-	mm, _ = m.onConfirmKey("enter", keyMsgFor("enter"))
+	mm, _ = m.onConfirmKey("y", keyMsgFor("y"))
 	m = runBulkToDone(t, mm.(App))
 	if len(f.Buckets["b"].Objects) != 0 {
 		t.Errorf("bulk delete should remove both objects; remaining=%v", f.Buckets["b"].Objects)

@@ -56,7 +56,7 @@ func (m App) paneTree(w, rows int) string {
 	}
 	if e.isDir {
 		return metaRow("Folder", sanitizeLabel(e.label), w) +
-			"\n" + hintLabelStyle.Render("a analyze · X rm -r · ↵ open")
+			"\n" + hintLabelStyle.Render("a analyze · ^x delete · ↵ open")
 	}
 
 	// Object: once the debounced metadata arrives for THIS key, render the full shared

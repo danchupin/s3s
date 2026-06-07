@@ -36,6 +36,8 @@ func (readOnlyGuard) DeleteRecursive(context.Context, string, string, func(Delet
 	return DeleteSummary{}, ErrReadOnly
 }
 
+func (readOnlyGuard) RemoveBucket(context.Context, string) error { return ErrReadOnly }
+
 var _ Mutator = readOnlyGuard{}
 
 // Guard returns b unchanged when writable, or a read-only wrapper that refuses all

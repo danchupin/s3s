@@ -110,6 +110,15 @@ type connSavedMsg struct {
 	err   error
 }
 
+// connDeletedMsg delivers the off-loop connection-delete result (007 US5). Carries the
+// updated context-name list on success and the gen it was dispatched under.
+type connDeletedMsg struct {
+	gen   int
+	name  string
+	names []string
+	err   error
+}
+
 // contextResolvedMsg delivers the result of resolving a context switch off the event
 // loop. Credential resolution (keychain unlock / external command) can be slow, so it
 // MUST NOT run synchronously in Update (Constitution II, 005 US6). Carries the gen it

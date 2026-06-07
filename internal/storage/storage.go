@@ -37,6 +37,10 @@ var (
 	// delete the source. The data is safe at the destination; the source still
 	// exists. Never a clean success (FR-007).
 	ErrMovePartial = errors.New("storage: move copied object but source delete failed")
+	// ErrBucketNotEmpty: a bucket delete was attempted on a bucket that still holds
+	// objects. Bucket delete requires an empty bucket; it never recursively purges
+	// (007 FR-024b). Returned before any DeleteBucket call.
+	ErrBucketNotEmpty = errors.New("storage: bucket is not empty")
 )
 
 // DeleteSummary is the truthful outcome of a recursive delete: how many objects
@@ -85,6 +89,12 @@ type Mutator interface {
 	// cancelled ctx stops further work and returns the counts achieved with ctx.Err().
 	// FR-008, FR-009, FR-011.
 	DeleteRecursive(ctx context.Context, bucket, prefix string, onProgress func(DeleteSummary)) (DeleteSummary, error)
+
+	// RemoveBucket deletes a whole bucket. It requires the bucket to be EMPTY: a
+	// non-empty bucket returns ErrBucketNotEmpty BEFORE any delete (no recursive
+	// purge). Returns ErrReadOnly when read-only. The method name uses "Remove" (not
+	// "Delete") so UI references do not trip the read-only scan. 007 FR-024b.
+	RemoveBucket(ctx context.Context, bucket string) error
 }
 
 // Storage is a read-only view of one S3-compatible backend (bound to one context).

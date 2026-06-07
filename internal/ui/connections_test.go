@@ -14,11 +14,13 @@ import (
 
 // fakeConnector records calls and returns canned results (no real keychain/network).
 type fakeConnector struct {
-	testErr   error
-	saveErr   error
-	names     []string
-	tested    bool
-	savedName string
+	testErr     error
+	saveErr     error
+	deleteErr   error
+	names       []string
+	tested      bool
+	savedName   string
+	deletedName string
 }
 
 func (c *fakeConnector) Test(_ context.Context, _ ConnDraft) error {
@@ -29,6 +31,11 @@ func (c *fakeConnector) Test(_ context.Context, _ ConnDraft) error {
 func (c *fakeConnector) Save(_ context.Context, d ConnDraft) ([]string, error) {
 	c.savedName = d.Name
 	return c.names, c.saveErr
+}
+
+func (c *fakeConnector) Delete(_ context.Context, name string) ([]string, error) {
+	c.deletedName = name
+	return c.names, c.deleteErr
 }
 
 func connApp(conn Connector, contexts []string) App {
@@ -202,4 +209,103 @@ func TestConnectionsListReachableViaCommand(t *testing.T) {
 	if m.mode != modeConnections {
 		t.Fatalf("':conn' should open the connection manager; mode=%v", m.mode)
 	}
+}
+
+// --- 007 US5: delete a connection on the contexts screen ---
+
+// drainCmds runs a command chain to completion against the model.
+func drainCmds(m App, cmd tea.Cmd) App {
+	for cmd != nil {
+		var nm tea.Model
+		nm, cmd = m.Update(cmd())
+		m = nm.(App)
+	}
+	return m
+}
+
+func TestDeleteConnectionTypedConfirmFlow(t *testing.T) {
+	conn := &fakeConnector{names: []string{"ctx"}} // post-delete names
+	m := connApp(conn, []string{"ctx", "other"})
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 1 // select "other" (non-active)
+
+	m = press(m, "ctrl+x")
+	if m.op == nil || m.op.kind != "delete_connection" || m.op.tier != confirmTyped || m.op.expect != "other" {
+		t.Fatalf("ctrl+x should start a typed connection delete; op=%+v", m.op)
+	}
+	// Type the exact name and confirm.
+	for _, r := range "other" {
+		m = press(m, string(r))
+	}
+	mm2, cmd := m.Update(keyMsgFor("enter"))
+	m = drainCmds(mm2.(App), cmd)
+
+	if conn.deletedName != "other" {
+		t.Errorf("connector.Delete should be called with %q; got %q", "other", conn.deletedName)
+	}
+	if len(m.contexts) != 1 || m.contexts[0] != "ctx" {
+		t.Errorf("context list should refresh live to [ctx]; got %v", m.contexts)
+	}
+	if m.op != nil {
+		t.Errorf("op should be cleared after delete; got %+v", m.op)
+	}
+}
+
+func TestDeleteConnectionRefusesActive(t *testing.T) {
+	conn := &fakeConnector{names: []string{"ctx", "other"}}
+	m := connApp(conn, []string{"ctx", "other"})
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 0 // "ctx" is the active context
+
+	m = press(m, "ctrl+x")
+	if m.op != nil {
+		t.Fatalf("deleting the active context must be refused; op=%+v", m.op)
+	}
+	if conn.deletedName != "" {
+		t.Error("connector.Delete must not be called for the active context")
+	}
+	if m.notice == "" {
+		t.Error("refusing the active context should surface a nudge")
+	}
+}
+
+func TestDeleteConnectionWrongNameAborts(t *testing.T) {
+	conn := &fakeConnector{names: []string{"ctx"}}
+	m := connApp(conn, []string{"ctx", "other"})
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 1
+	m = press(m, "ctrl+x")
+	for _, r := range "wrong" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	if conn.deletedName != "" {
+		t.Error("a mismatched name must abort without calling Delete")
+	}
+	if m.op != nil {
+		t.Errorf("mismatch should clear the op; got %+v", m.op)
+	}
+}
+
+func TestDeleteLastConnectionEmptyState(t *testing.T) {
+	conn := &fakeConnector{names: []string{}} // last one deleted → empty
+	m := connApp(conn, []string{"ctx", "solo"})
+	m.ctxName = "ctx"
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 1 // "solo"
+	m = press(m, "ctrl+x")
+	for _, r := range "solo" {
+		m = press(m, string(r))
+	}
+	mm2, cmd := m.Update(keyMsgFor("enter"))
+	m = drainCmds(mm2.(App), cmd)
+	if len(m.contexts) != 0 {
+		t.Errorf("after deleting the last connection, contexts should be empty; got %v", m.contexts)
+	}
+	// The connections view must render without panicking on an empty list.
+	_ = m.connectionsView(80, 10)
 }

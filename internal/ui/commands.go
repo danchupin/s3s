@@ -117,6 +117,16 @@ func removeObjectCmd(ctx context.Context, mut storage.Mutator, bucket, key strin
 	}
 }
 
+// removeBucketCmd deletes a whole (empty) bucket (007 FR-024b). A non-empty bucket
+// surfaces ErrBucketNotEmpty as the outcome so the UI shows the "purge first" notice.
+func removeBucketCmd(ctx context.Context, mut storage.Mutator, bucket string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		err := mut.RemoveBucket(ctx, bucket)
+		logMutationDone("delete_bucket", err, "bucket", bucket)
+		return operationDoneMsg{gen: gen, err: err}
+	}
+}
+
 // copyKeyCmd server-side copies an object to a new key (FR-004).
 func copyKeyCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey string, gen int) tea.Cmd {
 	return func() tea.Msg {

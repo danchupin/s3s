@@ -45,3 +45,9 @@ func (s connSeam) Save(_ context.Context, d ui.ConnDraft) ([]string, error) {
 		ReadOnly:    d.ReadOnly,
 	}, d.Secret.Reveal())
 }
+
+// Delete removes the named connection (config triple + keychain secret) and returns the
+// updated context-name list (007 US5).
+func (s connSeam) Delete(_ context.Context, name string) ([]string, error) {
+	return s.cfg.RemoveConnection(name)
+}

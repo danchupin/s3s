@@ -185,6 +185,12 @@ func resolveRef(v string) (string, error) {
 
 // Validate enforces structural and cross-reference rules (contracts/config-schema.md).
 func (c *Config) Validate() error {
+	// A fully-empty config is the valid "no connections yet" state (007 US5: the last
+	// connection is deletable, leaving the app in its add-connection state). A PARTIAL
+	// set is still invalid (caught by the cross-reference checks below).
+	if len(c.Clusters) == 0 && len(c.Users) == 0 && len(c.Contexts) == 0 {
+		return nil
+	}
 	if len(c.Clusters) == 0 || len(c.Users) == 0 || len(c.Contexts) == 0 {
 		return fmt.Errorf("%w: need at least one cluster, user, and context", ErrInvalid)
 	}

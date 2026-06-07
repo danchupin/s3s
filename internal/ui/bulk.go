@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -44,9 +43,11 @@ func (m App) startBulkDelete() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.err = nil
+	// Selected-group (bulk) delete is the BINARY tier (007 FR-024): a centered y/N popup,
+	// not a typed count. Only container-removal (recursive/bucket/connection) types.
 	m.op = &operation{
 		kind: "bulk_delete", bucket: m.bucket, parent: m.prefix, bulkKeys: keys,
-		tier: confirmTyped, expect: strconv.Itoa(len(keys)),
+		tier:   confirmSimple,
 		target: fmt.Sprintf("%d objects", len(keys)), phase: phaseConfirm,
 	}
 	return m, nil

@@ -114,39 +114,40 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 006-ui-redesign (k9s-style UI rework; 4 user stories) — IMPLEMENTED
-(34/34 tasks; only the MinIO integration test t.Skips without Docker). 005/004/003/002/001
-— complete.
+Active feature: 007-command-bar-blocks (blocked command bar info·read·write + dangerous-action
+chords + bucket/connection delete + progress bar; 6 user stories) — IMPLEMENTED (41/41 tasks;
+go test + lint + check-readonly green; RemoveBucket MinIO integration t.Skips without Docker).
+006/005/004/003/002/001 — complete.
 
-Implemented surfaces (internal/ui): hintbar.go (menu-less direct-action catalog + dispatch),
-pane.go + paneTick debounce (persistent details/preview, paneGen supersede, NEVER flips
-modeObject), listWithPane split (≥100 cols), command.go (`:` registry), connections.go
-(modeConnections/modeConnForm + Connector seam). keys.go rebind: a=analyze d=download
-x=delete X=rm-r, `:`=command. config/connection.go = (*Config).AddConnection (triple,
-keychain-first, no plaintext, mutates live cfg for in-session switch). cmd/s3s/connection.go
-= connSeam (Test=New+ListBuckets, Save=AddConnection). actionmenu.go DELETED.
+Plan: specs/007-command-bar-blocks/plan.md. Artifacts (specs/007-command-bar-blocks/):
+research.md (R1 chords, R2 confirm surfaces, R3 progress, R4 columns, R5 palette, R6 bucket
+delete, R7 connection delete, R8 label rule), data-model.md, quickstart.md, contracts/
+(command-bar-blocks, dangerous-actions, progress, connection-delete), checklists/ (requirements
+16/16, actions 42). Constitution v1.0.0; no amendment. Clarified: last-conn deletable→empty
+state; del-conn = typed name; progress = inline footer Claude-Code bar; tiers binary(object/
+group/move/overwrite) vs typed-identifier(dir path/bucket name/conn name); bucket delete =
+empty-only; labels = 1 imperative verb ≤2 words lowercase; surfaces = binary→centered popup,
+typed→prominent inline form, ONE shared style (FR-027a).
 
-Plan: specs/006-ui-redesign/plan.md. Design artifacts (specs/006-ui-redesign/):
-research.md (R1–R8), data-model.md, quickstart.md, contracts/ (layout-contract,
-actions-keybindings-contract, command-bar-contract, connection-manager-contract). Governed by
-Constitution v1.0.0; no amendment needed. Clarified: pane load = debounced; new connection =
-persist-to-config; secrets = keychain. Slices by priority: (1) US1 menu-less direct keys + hint
-bar [P1]; (2) US2 list+pane layout [P1]; (3) US3 `:` command bar [P2]; (4) US4 in-app connection
-manager [P2].
-
-Key approach. ui (almost everything): DELETE actionmenu.go + `modeActionMenu`; reuse its
-selection/capability gating to build hintbar.go (always-visible `key label` catalog) + a direct
-dispatch table — each key calls the SAME `start*`/`refresh` entry the menu used, so confirmations
-are untouched (FR-005). REBIND: `a`→analyze (frees menu key), `d`→download, delete `d`→`x`,
-recursive `D`→`X`, `r`→refresh direct; add `:` command bar. NEW pane.go: persistent details/preview
-pane via DEBOUNCED load (paneTick ~150–250ms + paneGen supersede; new paneMetaMsg/panePreviewMsg
-that do NOT flip `modeObject`); reuse loadMetadata/loadPreview. app.go View() splits body into
-list+pane (JoinHorizontal ≥100 cols, stack/collapse below). NEW command.go (`modeCommand`,
-registry buckets/contexts/conn/analyze/refresh/help/quit). NEW connections.go (`modeConnections`,
-`modeConnForm`): form → injected `Connector{Test,Save}` seam from main.go (UI-agnostic ConnDraft;
-keeps S3/config out of UI per Constitution I). Save maps one draft → cluster+user+context triple
-(schema unchanged) via config.Upsert+Save; secret → secret.StoreKeychain FIRST (abort config on
-keychain fail), `keychain:true` only in config (no plaintext, FR-022). Test=storage.New+ListBuckets;
-fail → "save anyway" (FR-025a). connSavedMsg returns new context names → live in-session switch.
-Read-only guard untouched (no new S3 write symbols leave internal/storage).
+Key approach (almost all internal/ui). REWORK hintbar.go→three-block command bar
+(info|read|write) via lipgloss.JoinHorizontal; write block ALWAYS shown, dimmed in read-only
+(reverses 006 FR-004), amber/caution when armed; collapse to compact row <~100 cols. Palette:
+reuse existing tokens (info=seg*Style hues, read=accent keys, write-armed=warnStyle amber,
+write-dimmed=emptyStyle faint); NO new hue; text cues for NO_COLOR. Labels→FR-005a rule
+(rm-r→delete, mkdir→new folder). Dangerous chords (keys.go): ctrl+x = delete (object/group/
+recursive/bucket/connection, routed by selection context), ctrl+o = move (ctrl+m is Enter—
+reserved); bare x/X/m inert→nudge; write block shows `^x delete`. Confirm surfaces
+(confirm.go+NEW confirmview.go): tier→surface fn — binary(delete-object/bulk/move/overwrite)→
+centered popup overlay in View(); typed(recursive/bucket/connection)→prominent inline form with
+real editable field (h-scroll long ids); both carry writeBadge + one shared style. REVISES 006:
+startRemoveObject/startMove drop confirmTyped→confirmSimple; recursive stays typed. NEW
+progress.go: progressBar(frac,width) Claude-Code determinate bar+percent+elapsed in footer;
+indeterminate fallback (unknown total); ~400ms threshold (no flash); opProgress.determinate()
+helper; reuse spinnerTick/waitForProgress (non-blocking II). storage: Mutator.RemoveBucket
+(verb Remove dodges read-only scan; ListObjectsV2 maxkeys=1 empty pre-check→ErrBucketNotEmpty
+else s3 DeleteBucket in writer.go; guard+Fake refuse); MinIO integration test. config:
+(*Config).RemoveConnection(name)→trial-validate triple-removed copy, RemoveKeychain best-effort,
+refuse CurrentContext, live commit; ui.Connector gains Delete; connSeam.Delete. modeConnections
+binds ctrl+x→typed-name confirm→connDeletedMsg→live refresh; last-conn→empty state. Read-only
+guard intact (no new fused mutation-verb+entity S3 symbol leaves internal/storage).
 <!-- SPECKIT END -->

@@ -304,6 +304,23 @@ func (f *Fake) DeleteRecursive(ctx context.Context, bucket, prefix string, onPro
 	return sum, nil
 }
 
+// RemoveBucket deletes an empty bucket; a non-empty bucket returns ErrBucketNotEmpty
+// without removing anything (007 FR-024b). A missing bucket returns ErrNotFound.
+func (f *Fake) RemoveBucket(ctx context.Context, bucket string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return fmt.Errorf("remove bucket %q: %w", bucket, ErrNotFound)
+	}
+	if len(b.Objects) > 0 {
+		return ErrBucketNotEmpty
+	}
+	delete(f.Buckets, bucket)
+	return nil
+}
+
 // GetObject returns a reader over the full object body (005 FR-001).
 func (f *Fake) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {

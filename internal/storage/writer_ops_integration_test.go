@@ -190,3 +190,35 @@ func TestIntegrationGuardRefusesAllOps(t *testing.T) {
 		t.Error("guard must not have mutated storage")
 	}
 }
+
+// TestIntegrationRemoveBucket: an empty bucket is deleted; a non-empty bucket is refused
+// with ErrBucketNotEmpty and left intact (007 US4 / FR-024b, SC-015).
+func TestIntegrationRemoveBucket(t *testing.T) {
+	b := startBackend(t)
+	ctx := context.Background()
+
+	// Empty bucket → removed.
+	b.createBucket(t, "rmempty")
+	if err := b.mut(t).RemoveBucket(ctx, "rmempty"); err != nil {
+		t.Fatalf("RemoveBucket(empty) = %v, want nil", err)
+	}
+	buckets, err := b.store.ListBuckets(ctx)
+	if err != nil {
+		t.Fatalf("ListBuckets: %v", err)
+	}
+	for _, bk := range buckets {
+		if bk.Name == "rmempty" {
+			t.Error("empty bucket should be gone after RemoveBucket")
+		}
+	}
+
+	// Non-empty bucket → refused, left intact.
+	b.createBucket(t, "rmfull")
+	b.put(t, "rmfull", "keep.txt", "data", "text/plain")
+	if err := b.mut(t).RemoveBucket(ctx, "rmfull"); !errors.Is(err, ErrBucketNotEmpty) {
+		t.Fatalf("RemoveBucket(non-empty) = %v, want ErrBucketNotEmpty", err)
+	}
+	if !b.exists(t, "rmfull", "keep.txt") {
+		t.Error("non-empty bucket and its object must be intact after a refused delete")
+	}
+}

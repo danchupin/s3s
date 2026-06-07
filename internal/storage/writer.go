@@ -144,6 +144,27 @@ func (c *s3Client) MoveObject(ctx context.Context, bucket, srcKey, dstKey string
 	return nil
 }
 
+// RemoveBucket deletes an EMPTY bucket. It first probes for any content via
+// ListObjectsV2 (MaxKeys=1); if anything is present it returns ErrBucketNotEmpty
+// WITHOUT calling DeleteBucket — bucket delete never recursively purges (007 FR-024b).
+// Only on an empty bucket does it issue DeleteBucket.
+func (c *s3Client) RemoveBucket(ctx context.Context, bucket string) error {
+	out, err := c.api.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+		Bucket:  aws.String(bucket),
+		MaxKeys: aws.Int32(1),
+	})
+	if err != nil {
+		return classify(err)
+	}
+	if aws.ToInt32(out.KeyCount) > 0 || len(out.Contents) > 0 {
+		return ErrBucketNotEmpty
+	}
+	if _, err := c.api.DeleteBucket(ctx, &s3.DeleteBucketInput{Bucket: aws.String(bucket)}); err != nil {
+		return classify(err)
+	}
+	return nil
+}
+
 // DeleteRecursive enumerates every object under prefix via ListObjectsV2 (paginated)
 // and deletes them one at a time with DeleteObject, best-effort: a per-object failure
 // is counted into Failed and the run continues (FR-009). Per-object DeleteObject (vs

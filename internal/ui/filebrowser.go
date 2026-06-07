@@ -75,12 +75,10 @@ func (m App) chooseUploadFile(e localfs.Entry) (tea.Model, tea.Cmd) {
 	m.op.localSize = e.Size
 	m.op.target = target
 	m.op.overwrite = m.levelHasKey(target)
-	if m.op.overwrite {
-		m.op.tier = confirmTyped
-		m.op.expect = target
-	} else {
-		m.op.tier = confirmSimple
-	}
+	// 007 US4: an overwrite is the BINARY tier (a centered y/N popup, not a typed
+	// identifier) — only container-removal types. The overwrite flag still drives the
+	// loud confirmation text.
+	m.op.tier = confirmSimple
 	m.op.phase = phaseConfirm
 	return m, nil
 }

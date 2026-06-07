@@ -308,6 +308,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case spinnerTickMsg:
 		if m.loading {
 			m.spin = (m.spin + 1) % len(spinnerFrames)
+			// Count ticks during a running op so the progress bar appears only after a
+			// brief threshold (007 US6 / FR-035) — fast ops finish first and never flash.
+			if m.op != nil && m.op.phase == phaseRunning {
+				m.op.ticks++
+			}
 			return m, spinnerTick()
 		}
 		return m, nil
@@ -389,6 +394,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case connSavedMsg:
 		return m.onConnSaved(msg)
 
+	case connDeletedMsg:
+		return m.onConnDeleted(msg)
+
 	case contextResolvedMsg:
 		return m.onContextResolved(msg)
 
@@ -430,6 +438,11 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onConnFormKey(key, msg)
 	}
 	if m.mode == modeConnections {
+		// A connection-delete confirmation (007 US5) is an active op: it owns keys (typed
+		// name entry) before the list navigation, so typing the name isn't intercepted.
+		if m.op != nil {
+			return m.onOpKey(key, msg)
+		}
 		return m.onConnectionsKey(key)
 	}
 
@@ -483,6 +496,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// never interferes with in-progress text entry (FR-019).
 	if matches(key, m.keys.Command) && m.canOpenCommand() {
 		return m.startCommand()
+	}
+
+	// Add-connection affordance (007 US2): a visible, discoverable key in the list modes
+	// opens the in-app connection manager (FR-011/FR-012).
+	if matches(key, m.keys.AddConn) && m.connect != nil && (m.mode == modeBuckets || m.mode == modeTree) {
+		return m.openConnections()
 	}
 
 	// Write-arm toggle: a global safety primitive (005 US5). Arming prompts to
@@ -547,6 +566,10 @@ func (m App) onBucketsKey(key string) (tea.Model, tea.Cmd) {
 		m.search = ""
 		return m.enterLevel()
 	default:
+		// Dangerous-action chord (007 US4): ctrl+x → delete the selected bucket.
+		if mm, cmd, ok := m.dispatchChord(key); ok {
+			return mm, cmd
+		}
 		// Direct single-key actions (006 US1): analyze / refresh on the bucket list.
 		if mm, cmd, ok := m.dispatchActionKey(key); ok {
 			return mm, cmd
@@ -774,6 +797,14 @@ func (m App) View() tea.View {
 		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
 	}
 
+	// Binary-tier confirmation (007 US4): a centered popup over the body (the typed tier
+	// uses the prominent inline form in the footer instead). Replaces the body so the
+	// dialog is centered and never clipped (SC-009).
+	if m.op != nil && m.op.phase == phaseConfirm && confirmSurface(m.op) == surfacePopupBinary {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.confirmPopupView(w, bodyH)
+	}
+
 	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true
 	return v
@@ -813,18 +844,20 @@ func (m App) footerBlock(w int) string {
 	// In the list modes the always-visible hint bar advertises the valid direct actions
 	// for the current selection/capability (006 US1, FR-003); other modes keep the
 	// legacy contextual hints.
-	hintLine := footerHints(hintCtx{
-		mode:         m.mode,
-		searchActive: m.searchActive(),
-		multiContext: len(m.contexts) > 1,
-		width:        w,
-	})
+	// List modes (buckets/tree) render the three-block command bar (007 US1), which
+	// carries its own identity + loud arm badge in the info block. Other modes keep the
+	// compact identity line + generic contextual hints.
+	var lines []string
 	if m.mode == modeBuckets || m.mode == modeTree {
-		hintLine = m.hintBarView(w)
-	}
-	lines := []string{
-		footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()),
-		hintLine,
+		lines = append(lines, m.commandBarView(w))
+	} else {
+		hintLine := footerHints(hintCtx{
+			mode:         m.mode,
+			searchActive: m.searchActive(),
+			multiContext: len(m.contexts) > 1,
+			width:        w,
+		})
+		lines = append(lines, footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()), hintLine)
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)

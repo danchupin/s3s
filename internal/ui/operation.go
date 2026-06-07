@@ -61,6 +61,7 @@ type operation struct {
 	bulkKeys  []string // marked object keys for a bulk_* operation (005 US3)
 	phase     opPhase
 	progress  opProgress
+	ticks     int // spinner ticks elapsed while phaseRunning — gates the progress bar (007 FR-035)
 }
 
 // UI-local hint sentinels (rendered as secret-free status lines).
@@ -99,14 +100,40 @@ func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 		return m, nil // delete targets an object; a folder uses recursive delete (D)
 	}
 	m.err = nil
+	// Single-object delete is the BINARY tier (007 FR-024): a centered y/N popup, no
+	// typed identifier (only container-removal — recursive/bucket/connection — types).
 	m.op = &operation{
 		kind:   "delete_object",
 		bucket: m.bucket,
 		parent: m.prefix,
 		srcKey: e.full,
 		target: e.full,
+		tier:   confirmSimple,
+		phase:  phaseConfirm,
+	}
+	return m, nil
+}
+
+// startRemoveBucket begins a whole-bucket delete (typed tier — type the exact bucket
+// name) on the selected bucket. Only valid in the bucket list; refused read-only. The
+// backend requires the bucket be EMPTY (007 FR-024b).
+func (m App) startRemoveBucket() (tea.Model, tea.Cmd) {
+	if !m.writable() {
+		m.err = storage.ErrReadOnly
+		return m, nil
+	}
+	fb := m.filteredBuckets()
+	if m.bucketSel < 0 || m.bucketSel >= len(fb) {
+		return m, nil
+	}
+	name := fb[m.bucketSel].Name
+	m.err = nil
+	m.op = &operation{
+		kind:   "delete_bucket",
+		bucket: name,
+		target: name,
 		tier:   confirmTyped,
-		expect: e.full,
+		expect: name,
 		phase:  phaseConfirm,
 	}
 	return m, nil
@@ -281,14 +308,9 @@ func (m App) submitDest() (tea.Model, tea.Cmd) {
 	}
 	m.op.target = dst
 	m.op.overwrite = m.levelHasKey(dst)
-	// Move always uses the typed tier (the source is removed). Copy uses simple
-	// unless the destination already exists (advisory overwrite check → typed).
-	if m.op.kind == "move" || m.op.overwrite {
-		m.op.tier = confirmTyped
-		m.op.expect = dst
-	} else {
-		m.op.tier = confirmSimple
-	}
+	// Move and overwrite are now the BINARY tier (007 FR-024): a centered y/N popup, not
+	// a typed identifier. Only container-removal (recursive/bucket/connection) types.
+	m.op.tier = confirmSimple
 	m.op.phase = phaseConfirm
 	return m, nil
 }
@@ -341,6 +363,21 @@ func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	if op.kind == "bulk_download" || op.kind == "bulk_delete" || op.kind == "bulk_copy" {
 		return m.dispatchBulk(op)
 	}
+	// Connection delete is a CONFIG mutation via the injected Connector, not an S3 call —
+	// it does not touch the storage Mutator (007 US5).
+	if op.kind == "delete_connection" {
+		if m.connect == nil {
+			m.op = nil
+			m.notice = "in-app connections unavailable"
+			return m, nil
+		}
+		name := op.target
+		op.phase = phaseRunning
+		(&m).beginLoad() // bump gen; the live config write logs the delete (Constitution V)
+		// A single cmd (not a Batch): the delete is near-instant and the result clears the
+		// op. Batching a spinner here would emit a BatchMsg the linear drain can't follow.
+		return m, connDeleteCmd(m.connect, name, m.gen)
+	}
 	mut, ok := m.activeStore().(storage.Mutator)
 	if !ok {
 		m.op = nil
@@ -378,6 +415,10 @@ func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 		ch := make(chan progressEvent, 8)
 		m.opCh = ch
 		return m, tea.Batch(recursiveDeleteCmd(ctx, mut, op.bucket, op.prefix, ch, m.gen), spinnerTick())
+	case "delete_bucket":
+		logMutationStart(op.kind, "bucket", op.bucket, "context", m.ctxName)
+		ctx := (&m).beginLoad()
+		return m, tea.Batch(removeBucketCmd(ctx, mut, op.bucket, m.gen), spinnerTick())
 	default:
 		// Test-only kinds: complete immediately as success.
 		(&m).beginLoad()
@@ -412,10 +453,25 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	if isBulk {
 		bulkVerb = strings.TrimPrefix(m.op.kind, "bulk_")
 	}
+	isBucket := m.op != nil && m.op.kind == "delete_bucket"
+	bucketName := ""
+	if isBucket {
+		bucketName = m.op.bucket
+	}
 	m.loading = false
 	m.op = nil
 	m.opCh = nil
 	switch {
+	case isBucket && msg.err == nil:
+		// Bucket removed — return to a fresh bucket list (the bucket is gone).
+		m.notice = "bucket deleted: " + bucketName
+		return m.refreshBuckets()
+	case isBucket && errors.Is(msg.err, storage.ErrBucketNotEmpty):
+		m.notice = "bucket not empty — empty it first (bucket delete does not purge)"
+		return m, nil
+	case isBucket && msg.err != nil:
+		m.err = msg.err
+		return m, nil
 	case isBulk:
 		// Truthful per-batch summary; the selection is consumed (005 FR-018/FR-019).
 		m.sel = nil
@@ -489,18 +545,13 @@ func (m App) opPromptLine(w int) string {
 		input := truncate(sanitizeLabel(op.dstKey), max(1, w-len(label)-len(suffix)))
 		return accentStyle.Render(label) + objCellStyle.Render(input) + style.Render(suffix)
 	case phaseConfirm:
-		if op.tier == confirmTyped {
-			const label = "type to confirm: "
-			input := truncate(op.input, max(1, w-len(label)-24))
-			hint := dimCellStyle.Render("▏  (need " + sanitizeLabel(op.expect) + " · Esc)")
-			if op.overwrite {
-				hint = errStyle.Render("▏  OVERWRITES "+sanitizeLabel(op.target)) +
-					dimCellStyle.Render(" · Esc")
-			}
-			return accentStyle.Render(label) + objCellStyle.Render(input) + hint
+		// Typed-identifier tier → the prominent inline form (007 FR-023a). Binary tier is
+		// rendered as a centered popup by View() (confirmPopupView), so the footer line is
+		// empty for it.
+		if confirmSurface(op) == surfaceInlineTyped {
+			return m.typedConfirmForm(w)
 		}
-		msg := m.simpleConfirmText()
-		return accentStyle.Render(truncate(msg, max(1, w-12))) + dimCellStyle.Render("  (y / N)")
+		return ""
 	}
 	return ""
 }
@@ -512,38 +563,58 @@ func (m App) simpleConfirmText() string {
 	case "create_folder":
 		return fmt.Sprintf("create folder %s/ ?", sanitizeLabel(op.target))
 	case "copy":
+		if op.overwrite {
+			return fmt.Sprintf("OVERWRITE %s ?", sanitizeLabel(op.target))
+		}
 		return fmt.Sprintf("copy to %s ?", sanitizeLabel(op.target))
 	case "upload":
+		if op.overwrite {
+			return fmt.Sprintf("OVERWRITE %s ?", sanitizeLabel(op.target))
+		}
 		return fmt.Sprintf("upload to %s ?", sanitizeLabel(op.target))
 	case "download":
 		return fmt.Sprintf("overwrite local %s ?", sanitizeLabel(op.target))
+	case "delete_object":
+		return fmt.Sprintf("delete %s ?", sanitizeLabel(op.srcKey))
+	case "bulk_delete":
+		return fmt.Sprintf("delete %s ?", op.target)
+	case "move":
+		if op.overwrite {
+			return fmt.Sprintf("move %s → OVERWRITE %s ?", sanitizeLabel(op.srcKey), sanitizeLabel(op.target))
+		}
+		return fmt.Sprintf("move %s → %s ?", sanitizeLabel(op.srcKey), sanitizeLabel(op.target))
 	default:
 		return fmt.Sprintf("%s %s ?", op.kind, sanitizeLabel(op.target))
 	}
 }
 
-// opProgressLine renders live progress for a running streaming operation (FR-010).
+// opProgressLine renders live progress for a running streaming operation (FR-010, 007
+// US6). When the total is known AND the op has run past the "taking a while" threshold it
+// shows a Claude-Code-style determinate bar with a percent; otherwise it shows the
+// indeterminate spinner (no fabricated percent, FR-037). The cancel hint is always shown.
 func (m App) opProgressLine() string {
 	op := m.op
+	label := opProgressLabel(op)
+	cancel := dimCellStyle.Render("  (x to cancel)")
+	if frac, ok := op.progress.determinate(); ok && op.ticks >= progressThreshold {
+		return progressBar(frac, 24) + dimCellStyle.Render(" "+label) + cancel
+	}
+	return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" "+label) + cancel
+}
+
+// opProgressLabel is the human, secret-free description of a running operation.
+func opProgressLabel(op *operation) string {
 	switch op.kind {
 	case "upload":
-		return accentStyle.Render(m.spinnerView()) +
-			dimCellStyle.Render(fmt.Sprintf(" uploading %s / %s  (x to cancel)",
-				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
+		return fmt.Sprintf("uploading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
 	case "download":
-		return accentStyle.Render(m.spinnerView()) +
-			dimCellStyle.Render(fmt.Sprintf(" downloading %s / %s  (x to cancel)",
-				humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded))))
+		return fmt.Sprintf("downloading %s / %s", humanSize(op.progress.uploaded), humanSize(max64(op.progress.total, op.progress.uploaded)))
 	case "bulk_download", "bulk_delete", "bulk_copy":
-		return accentStyle.Render(m.spinnerView()) +
-			dimCellStyle.Render(fmt.Sprintf(" %s… %d/%d done, %d failed  (x to cancel)",
-				strings.TrimPrefix(op.kind, "bulk_"), op.progress.deleted, op.progress.total, op.progress.failed))
+		return fmt.Sprintf("%s… %d/%d done, %d failed", strings.TrimPrefix(op.kind, "bulk_"), op.progress.deleted, op.progress.total, op.progress.failed)
 	case "delete_recursive":
-		return accentStyle.Render(m.spinnerView()) +
-			dimCellStyle.Render(fmt.Sprintf(" deleting… %d removed, %d failed  (x to cancel)",
-				op.progress.deleted, op.progress.failed))
+		return fmt.Sprintf("deleting… %d removed, %d failed", op.progress.deleted, op.progress.failed)
 	default:
-		return accentStyle.Render(m.spinnerView()) + dimCellStyle.Render(" working…  (x to cancel)")
+		return "working…"
 	}
 }
 

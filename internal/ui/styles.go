@@ -62,8 +62,7 @@ var (
 	// hue is introduced. The hint bar advertises action keys (accent) + labels (dim);
 	// the pane reuses the metadata key/value styles; the command bar/form reuse accent
 	// for the active cue and dim for the rest, keeping the screen calm (FR-037/FR-038).
-	hintKeyStyle    = accentStyle                               // single-key glyph in the hint bar
-	hintLabelStyle  = dimCellStyle                              // its label
+	hintLabelStyle  = dimCellStyle                              // contextual hint label (pane cues)
 	formActiveStyle = lipgloss.NewStyle().Foreground(colAccent) // focused form field label
 	formErrStyle    = errStyle                                  // form/test error line
 )
