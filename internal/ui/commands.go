@@ -315,6 +315,22 @@ func paneTickCmd(gen int, key string) tea.Cmd {
 	})
 }
 
+// bucketTickMsg fires after the bucket-scroll debounce window (011 US1, FR-003). It carries
+// the bucket-load generation + the bucket name it was scheduled for, so a tick for a bucket
+// the cursor has scrolled past is ignored (mirrors paneTickMsg).
+type bucketTickMsg struct {
+	gen    int
+	bucket string
+}
+
+// bucketTickCmd schedules a debounced objects-zone load for (gen, bucket) — the highlighted
+// bucket's first level is fetched only once the bucket selection settles (011 FR-003).
+func bucketTickCmd(gen int, bucket string) tea.Cmd {
+	return tea.Tick(paneDebounce, func(time.Time) tea.Msg {
+		return bucketTickMsg{gen: gen, bucket: bucket}
+	})
+}
+
 // loadPaneMeta fetches object metadata for the details pane off the event loop. Unlike
 // loadMetadata it emits paneMetaMsg (which does NOT flip modeObject) under the pane gen.
 func loadPaneMeta(ctx context.Context, st storage.Storage, bucket, key string, gen int) tea.Cmd {

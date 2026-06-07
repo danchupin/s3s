@@ -59,8 +59,8 @@ type infoField struct {
 // barGlobals is the always-present help/quit cue, rendered once at init (it never
 // changes per frame). Shared by the info column and the collapsed bar so the two never
 // drift.
-var barGlobals = accentStyle.Render("?") + " " + dimCellStyle.Render("help") +
-	dimCellStyle.Render(" · ") + accentStyle.Render("q") + " " + dimCellStyle.Render("quit")
+var barGlobals = keyStyle.Render("?") + " " + dimCellStyle.Render("help") +
+	dimCellStyle.Render(" · ") + keyStyle.Render("q") + " " + dimCellStyle.Render("quit")
 
 // readEntries builds the read block: open + search/filter, then the read (non-write)
 // actions. A read action inapplicable to the current selection is marked (still shown),
@@ -151,7 +151,10 @@ func (m App) infoFields() []infoField {
 // entryStyled renders one read/write entry as "key label" in its role style (one Render
 // of the whole string).
 func entryStyled(e barEntry) string {
-	return roleStyle[e.role].Render(e.key + " " + e.label)
+	st := roleStyle[e.role]
+	// Bold the KEY glyph (011 FR-023) while the label stays the role style — the key
+	// keeps its role color but gains emphasis, distinct from its label.
+	return st.Bold(true).Render(e.key) + st.Render(" "+e.label)
 }
 
 // commandBarView renders the three-block command bar (or the collapsed compact row on a
@@ -186,9 +189,10 @@ func (m App) infoColumn() string {
 		rows = append(rows, dimCellStyle.Render(pad(f.label, 7))+" "+f.style.Render(val))
 	}
 	if m.connect != nil {
-		// "connections" (not "new conn"): the entry opens the manager where one switches,
-		// adds, or deletes — so the switch affordance is discoverable (008 US7, FR-019).
-		rows = append(rows, accentStyle.Render(glyph(m.keys.AddConn[0]))+" "+dimCellStyle.Render("connections"))
+		// "connections" opens the manager (switch / add / delete) via the context key `c`
+		// (011 US4: the standalone `n` add-connection key was removed; the "+ add connection"
+		// row inside the manager is the sole add affordance).
+		rows = append(rows, keyStyle.Render(glyph(m.keys.Context[0]))+" "+dimCellStyle.Render("connections"))
 	}
 	rows = append(rows, barGlobals)
 	return blockColumn(rows)
@@ -240,8 +244,9 @@ func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
 	read := append([]barEntry{}, m.readEntries(kind, cat)...)
 	if m.connect != nil {
 		// Prepend "connections" so width-trimming (which drops trailing entries) never drops
-		// it first — it stays discoverable on a narrow bar (008 US7, FR-020).
-		read = append([]barEntry{{key: glyph(m.keys.AddConn[0]), label: "connections", role: roleRead}}, read...)
+		// it first — it stays discoverable on a narrow bar (008 US7, FR-020). Opened via `c`
+		// (011 US4 removed the standalone `n`).
+		read = append([]barEntry{{key: glyph(m.keys.Context[0]), label: "connections", role: roleRead}}, read...)
 	}
 	// Globals (help/quit) always survive; fit the read entries into the remaining width.
 	globals := dimCellStyle.Render(" · ") + barGlobals

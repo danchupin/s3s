@@ -45,6 +45,11 @@ var (
 	metaValStyle = lipgloss.NewStyle().Foreground(colText)
 
 	accentStyle = lipgloss.NewStyle().Foreground(colAccent)
+	// keyStyle renders advertised hotkey glyphs bold so the key stands out from its label
+	// (011 FR-022/FR-023). Bold is an SGR attribute, not a color, so it is the key cue; the
+	// leading-token position of every key ("d download") is the redundant non-color cue that
+	// survives NO_COLOR (FR-024).
+	keyStyle = accentStyle.Bold(true)
 
 	// footer segment styles (one hue per parameter type)
 	segCtxStyle      = lipgloss.NewStyle().Bold(true).Foreground(colOK)
@@ -218,6 +223,23 @@ func padLine(s string, w int) string {
 // left resource label and a centered, highlighted selection label. Body lines are
 // padded to the inner width and to at least minRows rows.
 func boxView(left, center, body string, width, minRows int) string {
+	return boxViewWith(left, center, body, width, minRows, titleStyle)
+}
+
+// boxViewFocus is boxView with an active/inactive title style for the multi-pane zones
+// (011 US2/T006): the focused zone's title is the accent (active) style, an unfocused zone's
+// title is dim — the deterministic active-zone indicator (FR-007).
+func boxViewFocus(left, center, body string, width, minRows int, active bool) string {
+	st := titleStyle
+	if !active {
+		st = dimCellStyle
+	}
+	return boxViewWith(left, center, body, width, minRows, st)
+}
+
+// boxViewWith renders the bordered box with the given title style (shared by boxView and
+// boxViewFocus).
+func boxViewWith(left, center, body string, width, minRows int, titleSt lipgloss.Style) string {
 	inner := width - 2
 	if inner < 1 {
 		inner = 1
@@ -260,7 +282,7 @@ func boxView(left, center, body string, width, minRows int) string {
 			leftDashes = 0
 		}
 	}
-	topInner := ruleStyle.Render("─ ") + titleStyle.Render(left) + ruleStyle.Render(" "+strings.Repeat("─", leftDashes))
+	topInner := ruleStyle.Render("─ ") + titleSt.Render(left) + ruleStyle.Render(" "+strings.Repeat("─", leftDashes))
 	if centerPlain != "" {
 		topInner += selRowStyle.Render(centerPlain)
 	}
@@ -334,7 +356,7 @@ func footerHints(c hintCtx) string {
 func renderHintRow(hs []hint, more bool) (string, int) {
 	parts := make([]string, 0, len(hs))
 	for _, h := range hs {
-		parts = append(parts, accentStyle.Render(h.key)+" "+dimCellStyle.Render(h.label))
+		parts = append(parts, keyStyle.Render(h.key)+" "+dimCellStyle.Render(h.label))
 	}
 	s := strings.Join(parts, dimCellStyle.Render(" · "))
 	if more {

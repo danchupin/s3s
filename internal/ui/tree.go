@@ -74,7 +74,7 @@ func (m App) onTreeKey(key string, _ tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.SortDir):
 		return m.toggleSortDir()
 	case matches(key, m.keys.Context):
-		return m.openContextSwitch()
+		return m.openContexts()
 	case matches(key, m.keys.Enter):
 		e := m.selected()
 		if e == nil {
@@ -175,6 +175,9 @@ func (m App) openObject(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
 	m.meta = nil
 	m.prev = nil
 	m.prevOff = 0
+	// Remember the browse mode to restore on Esc (011 US2): modeBuckets when opened from the
+	// objects zone (multi-pane), modeTree from the Single-tier full-screen level.
+	m.objReturn = m.mode
 	m.mode = modeObject
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(

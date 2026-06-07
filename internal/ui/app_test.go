@@ -33,6 +33,8 @@ func finishSwitch(m App, resolve Resolver, target string) App {
 
 func keyMsgFor(s string) tea.KeyPressMsg {
 	switch s {
+	case "tab":
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "up":
 		return tea.KeyPressMsg{Code: tea.KeyUp}
 	case "down":

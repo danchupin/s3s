@@ -114,41 +114,46 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 010-pinned-buckets (scoped connections; 4 user stories) — IMPLEMENTED (33/33 tasks;
-go test + fmt + vet + lint(0) + check-readonly green; ui coverage 77.5%, config 79.1%).
-008/007/006/005/004/003/002/001 — complete.
+Active feature: 011-two-pane-hotkeys (three-zone master-detail browse + hotkey mnemonic review; 4
+user stories) — IMPLEMENTED (46/47 tasks; only T044 manual smoke pending. go test ./... + fmt + vet +
+lint(0) + check-readonly green; ui coverage 78.1%). Reuse m.level/treeSel (Design B): bucketLoadGen
+debounce → objects zone; focusZone (zoneBuckets|zoneObjects) + Tab toggle; boxViewFocus active/dim;
+3-zone Full tier (browseDetailsView adaptive); AddConn 'n' REMOVED → 'c' opens connections manager;
+keyStyle bold glyphs. 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/010-pinned-buckets/plan.md. Artifacts (specs/010-pinned-buckets/): spec.md (US1 browse
-pinned w/o ListBuckets P1, US2 in-UI +add bucket per-connection P1, US3 form buckets field P2, US4
-honest test error P3; FR-001..016, SC-001..006), research.md (R1..R9), data-model.md, quickstart.md,
-contracts/ (config-schema, pinned-bucket-list, add-bucket, conn-form-buckets-field, conn-test-and-error),
-checklists/requirements.md 16/16. Constitution v1.0.0; no amendment. Changes span internal/config +
-internal/ui + cmd/s3s (NOT just ui); check-readonly STAYS green (no new write-S3 symbols; only a
-test-only read knob on storage.Fake).
+Plan: specs/011-two-pane-hotkeys/plan.md. Artifacts (specs/011-two-pane-hotkeys/): spec.md (US1 live
+bucket-contents pane P1, US2 cross-pane focus nav P1, US3 preserve adaptive details pane P2, US4
+hotkey mnemonic review + bold glyphs P2; FR-001..027 incl. FR-002a/006a-e, SC-001..010, 8
+clarifications), research.md (R1..R10), data-model.md, quickstart.md, contracts/ (keymap-contract,
+two-pane-layout, lazy-load-cache), checklists/ (requirements 16/16, lazy-load 28/28). Constitution
+v1.0.0; NO amendment (touches I+II+III; IV N/A justified — no storage-contract change). check-readonly
+STAYS green (no new write-S3 symbol, no new storage method; only a test-only read counter on Fake).
 
-PROBLEM: bucket-scoped creds (no s3:ListAllMyBuckets) → ListBuckets 403 dead-ends s3s 3 ways (test
-probe, mislabeled "unreachable", browser can't reach a bucket). Verified Avito case: domain-style
-`<bucket>.bucket.avito-sd` resolves per provisioned bucket, apex `bucket.avito-sd` is unlistable.
+GOAL: split browse into Miller-columns — buckets │ objects │ details. Highlighting a bucket lazily
+loads its first level into the OBJECTS zone (no Enter); details zone (feature 006) preserved as
+adaptive 3rd zone (bucket-meta when bucket focused, object-meta+preview when object focused). Focus
+crosses: Tab=symmetric toggle, →/l/Enter-on-bucket cross IN, ←/h/Esc ascend-or-return (FR-009 precedence:
+clear-search → ascend → return-to-buckets). Tiers: Full ≥130 (3 zones) / Dual 100-129 (buckets│objects,
+details collapses) / Single ≤99 (today's single-column stack UNCHANGED, Enter-on-bucket still drills).
 
-Clarified (2026-06-07): add-bucket UX = "+ add bucket" row (mirror "+ add connection"); affordance
-SCOPED-ONLY — shown iff pins exist OR list-all failed/denied/empty, HIDDEN when list-all succeeds
-(no footgun hiding buckets on a working connection).
-
-Key approach (canonical names): config.Cluster.Buckets []string `yaml:"buckets,omitempty"` (R1 — on
-Cluster not Context); NewConnection.Buckets + AddConnection maps it; NEW config.AppendBucket(ctx,
-bucket) trial-validate-persist + logs connection.bucket-add (R8). ui.Backend.PinnedBuckets +
-App.pinnedBuckets seeded in New()/contextResolvedMsg. loadBuckets(ctx,st,gen,pinned): pins non-empty
-→ synthesize []storage.Bucket{{Name}} (zero date), NO ListBuckets call (R2). bucketsView injects
-"+ add bucket" row at render when scoped (R3/R4); onBucketsKey Enter on it → modeAddBucket +
-bucketAddForm{name textField,err}; submit → Connector.AddBucket → addBucketCmd/addBucketMsg{gen,
-buckets,err}/onAddBucket (mirror saveConnCmd/connSavedMsg/onConnSaved) → update pins + reload.
-connForm: NEW buckets textField at fldBuckets=5 (shifts fldPathStyle→6/fldReadOnly→7/count→8); label
-"buckets"; focusField returns &f.buckets; draft() parseBuckets (split comma/space,trim,drop,dedupe
-order-stable); validateForm optional. connSeam.Test: d.Buckets non-empty → ListLevel(d.Buckets[0],
-MaxKeys:1) else ListBuckets (R6). onConnTested: nil OR ErrAccessDenied → save (R7/FR-009); else
-m.err=msg.err + m.form.err = errorText()+" — press Enter again to save anyway" (drop hardcoded
-"unreachable"); clear m.err on esc/save. storage.Fake test knobs: FailListBuckets bool +
-AccessDeniedBuckets (R9, read-only, check-readonly green). Tests white-box package ui (deliver/press/
-viewOf + fakeConnector; assert 0 ListBuckets calls via Fake counter); config temp-file round-trip +
-AppendBucket; textfield_test for buckets parse; NO integration (no storage contract change).
+Key approach (canonical Design B — reuse m.level/treeSel, see research.md R6 reconciliation): objects
+zone REUSES m.level (content) + treeSel (cursor) — NO separate objLevel. Load REUSES loadLevel→levelMsg
+→onLevel + cache.Key{ctx,bucket,Prefix:"",Search:""} via levelKeyFor (shared cache w/ tree view). NEW
+state = ONLY App.focusZone (zoneBuckets|zoneObjects, default zoneBuckets) + App.bucketLoadGen (debounce
+counter). Scrolling buckets → bucketLoadGen debounce tick (paneDebounce 180ms ≤200ms, mirror
+afterSelectionMove/onPaneTick) → settle: beginLoad+loadLevel into m.level, reset treeSel=0 (as enterLevel);
+superseded load dropped by m.gen guard in onLevel, superseded tick by bucketLoadGen. CROSSING NEVER LOADS
+(m.level already loaded lazily); load only on folder-drill inside objects. Lazy: startup loadBuckets =
+NAMES only, 0 object listings (FR-002a/SC-010). First page = DefaultMaxKeys 1000 (SAME as enterLevel →
+shared-cache invariant); paging via fetchNextPage. Errors NOT cached (failure=errMsg, onLevel Puts only on
+levelMsg) → revisit re-attempts (FR-006c). In-flight dedup via the gen guard (FR-006d). Layout: listWithPane
+→ 3 boxes via JoinHorizontal, paneW math reused, boxView active(accent)/dim per focusZone; windowBounds
+stateless reflow; footer never scrolls (boxView minRows cap). Focus: Update dispatch branches on focusZone
+(zoneBuckets→bucketSel, zoneObjects→treeSel) for →/←/Esc/Tab/Enter; Tab=symmetric toggle.
+Hotkeys: defaultKeys REMOVES AddConn 'n' (app.go:604 dispatch gone; "+ add connection" row connections.go:103
+stays sole affordance); y/ctrl+o kept; ALL advertised keys rendered Bold (today accentStyle fg-only — add
+.Bold(true)) in keyGlyph/formatKeys/hintbar/helpLines; NO_COLOR keeps non-color cue; single keymap source
+→ dispatch+hintbar+help never drift. Tests: white-box package ui (deliver/press/viewOf) + storage.Fake
+NEW read list-call counter (assert 0 obj-listings at startup, ≤1 per fast-scroll, 0 on revisit, re-attempt
+after denied); NO integration (no storage contract change).
 <!-- SPECKIT END -->
