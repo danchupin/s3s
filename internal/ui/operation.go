@@ -22,7 +22,7 @@ const (
 	phaseDest                   // destination-key entry (copy / move)
 )
 
-// confirmTier is the strength of confirmation an operation requires (FR-005).
+// confirmTier is the strength of confirmation an operation requires.
 type confirmTier int
 
 const (
@@ -58,10 +58,10 @@ type operation struct {
 	expect    string    // typed tier: the exact string the operator must type
 	input     textField // typed tier: the operator's entry (caret + paste, 008 US3)
 	overwrite bool      // target already exists in the loaded level (advisory) — clobber warning
-	bulkKeys  []string  // marked object keys for a bulk_* operation (005 US3)
+	bulkKeys  []string  // marked object keys for a bulk_* operation
 	phase     opPhase
 	progress  opProgress
-	ticks     int // spinner ticks elapsed while phaseRunning — gates the progress bar (007 FR-035)
+	ticks     int // spinner ticks elapsed while phaseRunning — gates the progress bar
 }
 
 // UI-local hint sentinels (rendered as secret-free status lines).
@@ -71,7 +71,7 @@ var (
 )
 
 // startCreateFolder begins a create-folder intent at the current tree level. On a
-// read-only context it issues no command and shows the read-only hint (FR-003).
+// read-only context it issues no command and shows the read-only hint.
 func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -89,7 +89,7 @@ func (m App) startCreateFolder() (tea.Model, tea.Cmd) {
 }
 
 // startRemoveObject begins a single-object delete (typed tier — destructive). Only
-// valid on an object selection; refused on a read-only context (FR-001/FR-012).
+// valid on an object selection; refused on a read-only context.
 func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -100,7 +100,7 @@ func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 		return m, nil // delete targets an object; a folder uses recursive delete (D)
 	}
 	m.err = nil
-	// Single-object delete is the BINARY tier (007 FR-024): a centered y/N popup, no
+	// Single-object delete is the BINARY tier: a centered y/N popup, no
 	// typed identifier (only container-removal — recursive/bucket/connection — types).
 	m.op = &operation{
 		kind:   "delete_object",
@@ -116,7 +116,7 @@ func (m App) startRemoveObject() (tea.Model, tea.Cmd) {
 
 // startRemoveBucket begins a whole-bucket delete (typed tier — type the exact bucket
 // name) on the selected bucket. Only valid in the bucket list; refused read-only. The
-// backend requires the bucket be EMPTY (007 FR-024b).
+// backend requires the bucket be EMPTY.
 func (m App) startRemoveBucket() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -140,7 +140,7 @@ func (m App) startRemoveBucket() (tea.Model, tea.Cmd) {
 }
 
 // startUpload opens the local file browser to pick an upload source for the current
-// level. Refused on a read-only context (FR-002/FR-012).
+// level. Refused on a read-only context.
 func (m App) startUpload() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -158,7 +158,7 @@ func (m App) startUpload() (tea.Model, tea.Cmd) {
 
 // startCopy / startMove begin a destination-key entry for the selected object.
 // Copy is reversible (simple confirm unless overwrite); move removes the source and
-// is always typed (FR-004/FR-006).
+// is always typed.
 func (m App) startCopy() (tea.Model, tea.Cmd) { return m.startCopyMove("copy") }
 func (m App) startMove() (tea.Model, tea.Cmd) { return m.startCopyMove("move") }
 func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
@@ -183,7 +183,7 @@ func (m App) startCopyMove(kind string) (tea.Model, tea.Cmd) {
 }
 
 // startRecursiveDelete begins a recursive prefix delete (typed tier — highest risk).
-// Only valid on a folder/common-prefix selection (FR-008/FR-012).
+// Only valid on a folder/common-prefix selection.
 func (m App) startRecursiveDelete() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -246,7 +246,7 @@ func (m App) onNameKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // submitName validates the typed folder name and advances to the simple confirm, or
-// surfaces a hint. Collision is an advisory check against the loaded level (FR-010).
+// surfaces a hint. Collision is an advisory check against the loaded level.
 func (m App) submitName() (tea.Model, tea.Cmd) {
 	name := strings.TrimSpace(m.op.name)
 	if name == "" {
@@ -290,7 +290,7 @@ func (m App) onDestKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // submitDest validates the destination key (non-empty, no control chars, != source)
-// and routes to the confirmation phase with the correct tier (FR-013).
+// and routes to the confirmation phase with the correct tier.
 func (m App) submitDest() (tea.Model, tea.Cmd) {
 	dst := m.op.dstKey
 	if strings.TrimSpace(dst) == "" || dst == m.op.srcKey || hasControl(dst) {
@@ -298,7 +298,7 @@ func (m App) submitDest() (tea.Model, tea.Cmd) {
 		return m, nil // stay in the dest phase
 	}
 	// Bulk copy: dst is a destination PREFIX (normalized to a trailing "/"); copy is
-	// reversible, so dispatch directly without a confirmation (005 US3).
+	// reversible, so dispatch directly without a confirmation.
 	if m.op.kind == "bulk_copy" {
 		if !strings.HasSuffix(dst, "/") {
 			dst += "/"
@@ -308,7 +308,7 @@ func (m App) submitDest() (tea.Model, tea.Cmd) {
 	}
 	m.op.target = dst
 	m.op.overwrite = m.levelHasKey(dst)
-	// Move and overwrite are now the BINARY tier (007 FR-024): a centered y/N popup, not
+	// Move and overwrite are now the BINARY tier: a centered y/N popup, not
 	// a typed identifier. Only container-removal (recursive/bucket/connection) types.
 	m.op.tier = confirmSimple
 	m.op.phase = phaseConfirm
@@ -352,11 +352,11 @@ func hasControl(s string) bool {
 }
 
 // dispatchOp logs the intent and runs the mutation off the event loop under a fresh
-// generation (FR-006/FR-008/FR-014). Streaming ops (upload, recursive delete) set up
+// generation. Streaming ops (upload, recursive delete) set up
 // a progress channel consumed by a waitForProgress command.
 func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 	op := m.op
-	// Download and bulk-download are READS (US1/US3) — no Mutator, work read-only.
+	// Download and bulk-download are READS — no Mutator, work read-only.
 	if op.kind == "download" {
 		return m.dispatchDownload(op)
 	}
@@ -364,7 +364,7 @@ func (m App) dispatchOp() (tea.Model, tea.Cmd) {
 		return m.dispatchBulk(op)
 	}
 	// Connection delete is a CONFIG mutation via the injected Connector, not an S3 call —
-	// it does not touch the storage Mutator (007 US5).
+	// it does not touch the storage Mutator.
 	if op.kind == "delete_connection" {
 		if m.connect == nil {
 			m.op = nil
@@ -436,13 +436,13 @@ func (m App) onOperationProgress(msg operationProgressMsg) (tea.Model, tea.Cmd) 
 	return m, waitForProgress(m.opCh, m.gen)
 }
 
-// onOperationDone applies the terminal outcome (FR-007/FR-011/FR-016).
+// onOperationDone applies the terminal outcome.
 func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.gen {
 		return m, nil // superseded — drop
 	}
 	// Download is a read: it changes nothing remote, so it reports a notice and skips
-	// the post-mutation refresh (005 US1).
+	// the post-mutation refresh.
 	isDownload := m.op != nil && m.op.kind == "download"
 	dlDest := ""
 	if isDownload {
@@ -458,7 +458,7 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	if isBucket {
 		bucketName = m.op.bucket
 	}
-	// US6 (FR-015/FR-016): a copy/move/bulk-copy whose destination prefix differs from the
+	// US6: a copy/move/bulk-copy whose destination prefix differs from the
 	// current view leaves that level cached-stale. Precisely invalidate the SOURCE and
 	// DESTINATION prefix keys (same bucket — copy/move are single-bucket) so a later
 	// navigation shows fresh contents. Same-level mutations are covered by refresh() below.
@@ -495,7 +495,7 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		return m, nil
 	case isBulk:
-		// Truthful per-batch summary; the selection is consumed (005 FR-018/FR-019).
+		// Truthful per-batch summary; the selection is consumed.
 		m.sel = nil
 		done, failed := 0, 0
 		if msg.summary != nil {
@@ -511,7 +511,7 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.refresh()
 	case msg.err != nil && errors.Is(msg.err, context.Canceled):
-		// Indeterminate outcome: never success (FR-004/FR-007).
+		// Indeterminate outcome: never success.
 		if isDownload {
 			m.notice = "cancelled — partial download removed"
 			return m, nil
@@ -525,7 +525,7 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 		m.notice = "downloaded to " + dlDest
 		return m, nil
 	case msg.err != nil && errors.Is(msg.err, storage.ErrMovePartial):
-		// No data loss: copied to the destination, source remains (FR-007).
+		// No data loss: copied to the destination, source remains.
 		m.notice = "moved partially: copied to destination, source still present"
 		return m.refresh()
 	case msg.err != nil:
@@ -567,7 +567,7 @@ func (m App) opPromptLine(w int) string {
 		input := truncate(sanitizeLabel(op.dstKey), max(1, w-len(label)-len(suffix)))
 		return accentStyle.Render(label) + objCellStyle.Render(input) + style.Render(suffix)
 	case phaseConfirm:
-		// Typed-identifier tier → the prominent inline form (007 FR-023a). Binary tier is
+		// Typed-identifier tier → the prominent inline form. Binary tier is
 		// rendered as a centered popup by View() (confirmPopupView), so the footer line is
 		// empty for it.
 		if op.tier == confirmTyped {

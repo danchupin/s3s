@@ -5,11 +5,11 @@ import (
 	"strings"
 )
 
-// Progress feedback for long operations (007 US6): a Claude-Code-style determinate bar
+// Progress feedback for long operations: a Claude-Code-style determinate bar
 // (filled/empty track + trailing percent) rendered inline in the footer status zone. An
 // operation with an unknown total falls back to an indeterminate activity indicator (no
 // fabricated percent, FR-037). The bar appears only after a brief "taking a while"
-// threshold so fast operations never flash it (FR-035/SC-013).
+// threshold so fast operations never flash it.
 
 // progressThreshold is how many spinner ticks must elapse during phaseRunning before the
 // determinate bar is shown. Fast operations complete before this and show no bar.
@@ -17,7 +17,7 @@ const progressThreshold = 2
 
 // determinate returns the completion fraction (0..1) and whether progress is known. It
 // is unknown (indeterminate) when no total is set — e.g. a recursive delete that has not
-// enumerated its objects up front (FR-037).
+// enumerated its objects up front.
 func (p opProgress) determinate() (float64, bool) {
 	if p.total <= 0 {
 		return 0, false

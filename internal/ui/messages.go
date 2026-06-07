@@ -54,10 +54,10 @@ type operationProgressMsg struct {
 
 // operationDoneMsg delivers the terminal outcome of a mutating operation. It
 // carries the generation it was dispatched under so a superseded/cancelled result
-// is dropped (FR-007). A non-nil err (including context.Canceled) means the
+// is dropped. A non-nil err (including context.Canceled) means the
 // operation is NOT a success. For recursive delete, summary holds the deleted/failed
 // counts; partial==true marks a non-clean outcome (recursive Failed>0 or a partial
-// move) that must never be reported as a clean success (FR-011).
+// move) that must never be reported as a clean success.
 type operationDoneMsg struct {
 	gen     int
 	err     error
@@ -66,27 +66,27 @@ type operationDoneMsg struct {
 }
 
 // searchFireMsg fires after the search debounce window elapses; it carries the
-// search generation so only the latest keystroke triggers a request (FR-017a).
+// search generation so only the latest keystroke triggers a request.
 type searchFireMsg struct {
 	searchGen int
 	term      string
 }
 
-// usageProgressMsg delivers one running-totals tick during a du scan (005 US2/FR-011).
+// usageProgressMsg delivers one running-totals tick during a du scan.
 type usageProgressMsg struct {
 	gen int
 	p   storage.UsageProgress
 }
 
 // usageDoneMsg delivers the terminal du report (or error). A cancelled scan carries a
-// partial report with Complete=false (005 FR-011).
+// partial report with Complete=false.
 type usageDoneMsg struct {
 	gen    int
 	report storage.UsageReport
 	err    error
 }
 
-// paneMetaMsg / panePreviewMsg deliver the debounced details-pane loads (006 US2).
+// paneMetaMsg / panePreviewMsg deliver the debounced details-pane loads.
 // They carry the selection key + pane generation and DO NOT set modeObject (distinct
 // from the Enter object view). A msg whose gen ≠ paneGen is dropped (scrolled past).
 type paneMetaMsg struct {
@@ -102,7 +102,7 @@ type panePreviewMsg struct {
 }
 
 // connTestedMsg / connSavedMsg deliver the off-loop connection test/save results
-// (006 US4). connSavedMsg carries the updated context-name list on success.
+// connSavedMsg carries the updated context-name list on success.
 type connTestedMsg struct{ err error }
 
 type connSavedMsg struct {
@@ -110,7 +110,7 @@ type connSavedMsg struct {
 	err   error
 }
 
-// addBucketMsg delivers the off-loop "+ add bucket" persist result (010 US2). Like
+// addBucketMsg delivers the off-loop "+ add bucket" persist result. Like
 // connSavedMsg it carries no gen (a config mutation, not a load): the subsequent bucket-list
 // reload it triggers carries the fresh gen. buckets is the connection's updated pinned list.
 type addBucketMsg struct {
@@ -118,7 +118,7 @@ type addBucketMsg struct {
 	err     error
 }
 
-// connDeletedMsg delivers the off-loop connection-delete result (007 US5). Carries the
+// connDeletedMsg delivers the off-loop connection-delete result. Carries the
 // updated context-name list on success and the gen it was dispatched under.
 type connDeletedMsg struct {
 	gen   int

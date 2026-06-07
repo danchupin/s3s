@@ -12,14 +12,14 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Download streams a full object to a local file (005 US1). It is a READ — usable in
-// read-only contexts and against production (FR-002): it never mutates the remote, only
+// Download streams a full object to a local file. It is a READ — usable in
+// read-only contexts and against production: it never mutates the remote, only
 // writes locally. The transfer goes to "<dest>.partial" and is atomically renamed on
 // success; a cancel/failure removes the partial so a half-file never looks complete
-// (FR-004/FR-006). Reuses the operation/progress/cancel machinery.
+// Reuses the operation/progress/cancel machinery.
 
 // startDownload begins a download of the selected object. If a local file already
-// exists at the destination it confirms an overwrite first (FR-005); otherwise it
+// exists at the destination it confirms an overwrite first; otherwise it
 // dispatches immediately.
 func (m App) startDownload() (tea.Model, tea.Cmd) {
 	e := m.selected()
@@ -51,7 +51,7 @@ func (m App) startDownload() (tea.Model, tea.Cmd) {
 }
 
 // downloadDir resolves the default local destination directory: the S3S_DOWNLOAD_DIR
-// env var, else the config downloadDir, else the current working directory (005 FR-007).
+// env var, else the config downloadDir, else the current working directory.
 func (m App) downloadDir() string {
 	if d := os.Getenv("S3S_DOWNLOAD_DIR"); d != "" {
 		return d
@@ -83,7 +83,7 @@ func (m App) dispatchDownload(op *operation) (tea.Model, tea.Cmd) {
 
 // countingDownloadWriter forwards bytes to the destination file and reports live byte
 // progress on ch (best-effort, non-blocking). It reuses opProgress.uploaded as the
-// transferred-bytes counter (FR-003).
+// transferred-bytes counter.
 type countingDownloadWriter struct {
 	w       io.Writer
 	written int64
@@ -104,7 +104,7 @@ func (c *countingDownloadWriter) Write(p []byte) (int, error) {
 }
 
 // downloadCmd streams the object body to "<dest>.partial", renames to dest on success,
-// and removes the partial on cancel/failure (FR-004/FR-006). A read — takes a
+// and removes the partial on cancel/failure. A read — takes a
 // storage.Storage, not a Mutator.
 func downloadCmd(ctx context.Context, st storage.Storage, bucket, key, destPath string, total int64, ch chan progressEvent, gen int) tea.Cmd {
 	return func() tea.Msg {

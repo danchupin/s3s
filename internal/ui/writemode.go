@@ -4,16 +4,17 @@ import (
 	"log/slog"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
-// Runtime read-only↔write toggle with loud, always-on signalling (005 US5). The
+// Runtime read-only↔write toggle with loud, always-on signalling. The
 // guard is dynamic (App.activeStore); this file owns the arm/disarm UX and logging.
 // Arming takes a deliberate confirm; disarming is instant — asymmetric friction so
-// it is easy to get safe and harder to get dangerous (FR-026).
+// it is easy to get safe and harder to get dangerous.
 
 // toggleWrite handles the write-toggle key. On a readonly:true context it refuses
-// (FR-028). While armed it disarms instantly (no confirm). While disarmed it opens a
-// simple arm confirmation (FR-025/FR-026).
+// While armed it disarms instantly (no confirm). While disarmed it opens a
+// simple arm confirmation.
 func (m App) toggleWrite() (tea.Model, tea.Cmd) {
 	switch {
 	case m.ctxReadOnly:
@@ -33,7 +34,7 @@ func (m App) toggleWrite() (tea.Model, tea.Cmd) {
 }
 
 // onArmConfirmKey resolves the pending arm confirmation: y/Enter arms write, anything
-// else cancels and stays read-only (FR-026).
+// else cancels and stays read-only.
 func (m App) onArmConfirmKey(key string) (tea.Model, tea.Cmd) {
 	m.armConfirm = false
 	switch key {
@@ -47,14 +48,20 @@ func (m App) onArmConfirmKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// armConfirmLine renders the arm confirmation prompt in the status line (FR-026).
-func (m App) armConfirmLine() string {
-	return accentStyle.Render("arm WRITE mode? mutations will be enabled") +
-		dimCellStyle.Render("  (y / N)")
+// armConfirmPopupView renders the write-arm confirmation as a PROMINENT centered popup (012
+// US4, FR-014), reusing the shared confirm-popup surface so it is impossible to miss — not a
+// faint status line. The badge stays visible; cancel is the default; disarming never
+// reaches this surface (it is instant, FR-016).
+func (m App) armConfirmPopupView(w, h int) string {
+	inner := writeBadge(m.writable()) + "  " + titleStyle.Render("arm WRITE mode") + "\n\n" +
+		objCellStyle.Render("mutations will be enabled") + "\n\n" +
+		accentStyle.Render("y") + dimCellStyle.Render(" arm · ") +
+		accentStyle.Render("n/Esc") + dimCellStyle.Render(" cancel (default)")
+	return lipgloss.Place(w, h, lipgloss.Center, lipgloss.Center, popupBoxStyle.Render(inner))
 }
 
 // logWriteState records a read-only↔write transition as a security-relevant event
-// (005 FR-032). Secrets are never involved here.
+// Secrets are never involved here.
 func logWriteState(armed bool, ctx string) {
 	state := "read-only"
 	if armed {

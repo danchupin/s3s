@@ -25,8 +25,8 @@ check-readonly` STAYS green (no new write-S3 symbol, no storage method).
 
 ## Phase 1: Setup
 
-- [ ] T001 Verify baseline green before changes: `go test ./...`, `make fmt vet lint check-readonly` — record current `internal/ui` coverage as the floor.
-- [ ] T002 [P] Create the shared white-box test file `internal/ui/spec012_test.go` (`package ui`) with a header comment and imports; new failing tests below land here unless a more specific existing `_test.go` is named.
+- [X] T001 Verify baseline green before changes: `go test ./...`, `make fmt vet lint check-readonly` — record current `internal/ui` coverage as the floor.
+- [X] T002 [P] Create the shared white-box test file `internal/ui/spec012_test.go` (`package ui`) with a header comment and imports; new failing tests below land here unless a more specific existing `_test.go` is named.
 
 ---
 
@@ -34,8 +34,8 @@ check-readonly` STAYS green (no new write-S3 symbol, no storage method).
 
 **Purpose**: shared plumbing several stories build on. No story label.
 
-- [ ] T003 [P] Add `Reveal` (default `["i"]`) and `Tab` (default `["tab"]`) fields to `keyMap` + `defaultKeys`, and ensure `keyGlyph`/`glyph()` cover them, in `internal/ui/keys.go`. (Blocks US1 reveal, US5 single-source, US6 Tab.)
-- [ ] T004 [P] Add a right-aligned label slot to `boxViewWith` (and the `boxView`/`boxViewFocus` callers) in `internal/ui/styles.go`; the centered-label width budget must subtract the right slot. (Blocks US2 mode chip, US3 breadcrumb center label.)
+- [X] T003 [P] Add `Reveal` (default `["i"]`) and `Tab` (default `["tab"]`) fields to `keyMap` + `defaultKeys`, and ensure `keyGlyph`/`glyph()` cover them, in `internal/ui/keys.go`. (Blocks US1 reveal, US5 single-source, US6 Tab.)
+- [X] T004 [P] Add a right-aligned label slot to `boxViewWith` (and the `boxView`/`boxViewFocus` callers) in `internal/ui/styles.go`; the centered-label width budget must subtract the right slot. (Blocks US2 mode chip, US3 breadcrumb center label.)
 
 **Checkpoint**: keymap + border renderer ready; build still green.
 
@@ -47,12 +47,12 @@ check-readonly` STAYS green (no new write-S3 symbol, no storage method).
 shows + copies the full identifier. **Independent test**: long bucket/key fully visible or revealable;
 `i` opens the popup and emits the clipboard cmd.
 
-- [ ] T005 [P] [US1] Failing tests `TestBucketsColumnGrowsWithSlack`, `TestBucketsColumnCappedAtMax` in `internal/ui/lazyload_test.go`.
-- [ ] T006 [P] [US1] Failing tests `TestActiveRowWrapsWhenTruncated`, `TestActiveRowFallsBackToRevealWhenTooTall`, `TestActiveRowWrapNoFooterClip` in `internal/ui/spec012_test.go`.
-- [ ] T007 [P] [US1] Failing tests `TestRevealShowsFullValue`, `TestRevealEmitsClipboardCmd`, `TestRevealAllZones`, `TestRevealFooterNotClipped`, `TestRevealDismiss` in `internal/ui/spec012_test.go`.
-- [ ] T008 [US1] Implement bucket-column auto-grow into measured objects-zone slack (per tier, bounded by max + slack; visible-window measurement only) in `listWithPane`, `internal/ui/app.go`.
-- [ ] T009 [US1] Implement automatic active-row wrap (selected row only, multi-line within the `rows` budget; pre-measure → truncation+reveal fallback so `boxView` `minRows` cap holds) as a `renderTable` variant in `internal/ui/styles.go`; dispatch wrap only in Dual/Full tiers.
-- [ ] T010 [US1] Create `internal/ui/reveal.go`: `revealState` + centered render (reuse `confirmPopupView`/`popupBoxStyle`/`metaRow`) + `tea.SetClipboard(value)` copy cmd; wire the `Reveal` key in the level/key dispatch and overlay the popup in `View()` (`internal/ui/app.go`), suppressed while `op != nil`/`armConfirm`.
+- [X] T005 [P] [US1] Failing tests `TestBucketsColumnGrowsWithSlack`, `TestBucketsColumnCappedAtMax` in `internal/ui/lazyload_test.go`.
+- [X] T006 [P] [US1] Failing tests `TestActiveRowWrapsWhenTruncated`, `TestActiveRowFallsBackToRevealWhenTooTall`, `TestActiveRowWrapNoFooterClip` in `internal/ui/spec012_test.go`.
+- [X] T007 [P] [US1] Failing tests `TestRevealShowsFullValue`, `TestRevealEmitsClipboardCmd`, `TestRevealAllZones`, `TestRevealFooterNotClipped`, `TestRevealDismiss` in `internal/ui/spec012_test.go`.
+- [X] T008 [US1] Implement bucket-column auto-grow into measured objects-zone slack (per tier, bounded by max + slack; visible-window measurement only) in `listWithPane`, `internal/ui/app.go`.
+- [X] T009 [US1] Implement automatic active-row wrap (selected row only, multi-line within the `rows` budget; pre-measure → truncation+reveal fallback so `boxView` `minRows` cap holds) as a `renderTable` variant in `internal/ui/styles.go`; dispatch wrap only in Dual/Full tiers.
+- [X] T010 [US1] Create `internal/ui/reveal.go`: `revealState` + centered render (reuse `confirmPopupView`/`popupBoxStyle`/`metaRow`) + `tea.SetClipboard(value)` copy cmd; wire the `Reveal` key in the level/key dispatch and overlay the popup in `View()` (`internal/ui/app.go`), suppressed while `op != nil`/`armConfirm`.
 
 **Checkpoint**: US1 tests green; no identifier permanently hidden; footer never clipped.
 
@@ -63,11 +63,11 @@ shows + copies the full identifier. **Independent test**: long bucket/key fully 
 **Goal**: clean badge, symmetric enable/disable labels, and a border-mounted RO/WRITE mode chip on the
 primary list box. **Independent test**: badge space uncolored; chip flips accent↔neutral; labels symmetric.
 
-- [ ] T011 [P] [US2] Failing tests `TestBadgeDoesNotColorAdjacentSpace`, `TestEnableWriteLabelWhenDisarmed`, `TestDisarmCueWhenArmed`, `TestReadonlyContextCue` in `internal/ui/writemode_test.go`.
-- [ ] T012 [P] [US2] Failing tests `TestModeChipWriteAccent`, `TestModeChipReadonlyNeutral`, `TestModeChipOnPrimaryBox`, `TestModeChipNoColor` in `internal/ui/spec012_test.go`.
-- [ ] T013 [US2] Fix the badge whitespace coloring in `footerIdentityCompact` (separator space `dimCellStyle`, tag text only carries state color) in `internal/ui/styles.go`.
-- [ ] T014 [US2] Symmetric write affordance labels sourced from `m.keys.WriteToggle` ("enable write" disarmed / "→ read-only" armed / context-forbidden cue) in `writeColumn`, `internal/ui/commandbar.go`.
-- [ ] T015 [US2] Render the `WRITE`/`RO` mode chip via the `boxViewWith` right slot on the PRIMARY list box (leftmost in multi-zone, sole box in Single); wire the box callers in `View()` (`internal/ui/app.go`); NO_COLOR-safe text.
+- [X] T011 [P] [US2] Failing tests `TestBadgeDoesNotColorAdjacentSpace`, `TestEnableWriteLabelWhenDisarmed`, `TestDisarmCueWhenArmed`, `TestReadonlyContextCue` in `internal/ui/writemode_test.go`.
+- [X] T012 [P] [US2] Failing tests `TestModeChipWriteAccent`, `TestModeChipReadonlyNeutral`, `TestModeChipOnPrimaryBox`, `TestModeChipNoColor` in `internal/ui/spec012_test.go`.
+- [X] T013 [US2] Fix the badge whitespace coloring in `footerIdentityCompact` (separator space `dimCellStyle`, tag text only carries state color) in `internal/ui/styles.go`.
+- [X] T014 [US2] Symmetric write affordance labels sourced from `m.keys.WriteToggle` ("enable write" disarmed / "→ read-only" armed / context-forbidden cue) in `writeColumn`, `internal/ui/commandbar.go`.
+- [X] T015 [US2] Render the `WRITE`/`RO` mode chip via the `boxViewWith` right slot on the PRIMARY list box (leftmost in multi-zone, sole box in Single); wire the box callers in `View()` (`internal/ui/app.go`); NO_COLOR-safe text.
 
 **Checkpoint**: US2 tests green; write state glanceable at the frame edge.
 
@@ -79,11 +79,11 @@ primary list box. **Independent test**: badge space uncolored; chip flips accent
 **Independent test**: in the objects zone, mark/sort/sortdir/context + all per-item actions + the delete
 chord run identically; no silent dead key; marks clear on bucket/level change. **Depends on**: T003 (Tab).
 
-- [ ] T016 [P] [US6] Failing tests `TestMarkObjectsInObjectsZone`, `TestSortCycleInObjectsZone`, `TestSortDirInObjectsZone`, `TestContextFromObjectsZone` in `internal/ui/focus_test.go`.
-- [ ] T017 [P] [US6] Failing tests `TestObjectsZoneActionsParity` (download/analyze/delete+chord/copy/move/upload/newfolder/refresh, write-gated), `TestNoDeadKeyInObjectsZone`, `TestMarksClearOnBucketChange` in `internal/ui/focus_test.go`.
-- [ ] T018 [US6] Factor a shared `onLevelKey(focusZone)` from `onTreeKey` (`internal/ui/tree.go`); have `onTreeKey` and `onObjectsKey` (`internal/ui/app.go`) delegate to it, adding the Mark/Sort/SortDir/Context branches and the default `dispatchChord`/`dispatchActionKey` fallthrough.
-- [ ] T019 [US6] Make `selKind()` (`internal/ui/app.go`) and `actionCatalog()` (`internal/ui/hintbar.go`) treat `(mode==modeBuckets && focusZone==zoneObjects)` as a level context — return `selObject`/`selFolder` and the OBJECT catalog (not `selNone`/bucket catalog).
-- [ ] T020 [US6] Clear `m.sel` in `loadObjectsLevel` (`internal/ui/app.go`) so marks are level-scoped; make context-switch from the objects zone restore focus to the bucket list via prevMode (not `objReturn`).
+- [X] T016 [P] [US6] Failing tests `TestMarkObjectsInObjectsZone`, `TestSortCycleInObjectsZone`, `TestSortDirInObjectsZone`, `TestContextFromObjectsZone` in `internal/ui/focus_test.go`.
+- [X] T017 [P] [US6] Failing tests `TestObjectsZoneActionsParity` (download/analyze/delete+chord/copy/move/upload/newfolder/refresh, write-gated), `TestNoDeadKeyInObjectsZone`, `TestMarksClearOnBucketChange` in `internal/ui/focus_test.go`.
+- [X] T018 [US6] Factor a shared `onLevelKey(focusZone)` from `onTreeKey` (`internal/ui/tree.go`); have `onTreeKey` and `onObjectsKey` (`internal/ui/app.go`) delegate to it, adding the Mark/Sort/SortDir/Context branches and the default `dispatchChord`/`dispatchActionKey` fallthrough.
+- [X] T019 [US6] Make `selKind()` (`internal/ui/app.go`) and `actionCatalog()` (`internal/ui/hintbar.go`) treat `(mode==modeBuckets && focusZone==zoneObjects)` as a level context — return `selObject`/`selFolder` and the OBJECT catalog (not `selNone`/bucket catalog).
+- [X] T020 [US6] Clear `m.sel` in `loadObjectsLevel` (`internal/ui/app.go`) so marks are level-scoped; make context-switch from the objects zone restore focus to the bucket list via prevMode (not `objReturn`).
 
 **Checkpoint**: US6 tests green; the two-pane browser is fully operable from the objects zone. Unblocks US7, US8.
 
@@ -96,10 +96,10 @@ previews live, commits on Enter, and hands focus to the filtered pane. **Indepen
 `/` narrows the level (exactly one `ListLevel` call), bucket list unaffected; Enter commits + moves focus;
 re-open pre-fills; Esc/clear lifecycle. **Depends on**: US6 (objects-zone dispatch).
 
-- [ ] T021 [P] [US7] Failing tests `TestFilterScopesToObjectsLevel` (assert `Fake.ListLevelCalls == before+1`), `TestBucketFilterStillLocal` (no `ListLevel` call) in `internal/ui/lazyload_test.go`.
-- [ ] T022 [P] [US7] Failing tests `TestFilterInputCommitMovesFocus`, `TestFilterReopenPrefilled`, `TestFilterEscRevertsToCommitted`, `TestFilterClearRestoresLevel`, `TestFilterLivePreviewDebounced` in `internal/ui/spec012_test.go`.
-- [ ] T023 [US7] Make `afterFilterEdit`, the Esc/clear branch, and `searchActive()` focus-aware in `internal/ui/search.go` (+ `internal/ui/app.go`): objects-zone `/` runs the server `LevelQuery.Search` (current prefix); bucket-zone `/` stays the instant local filter.
-- [ ] T024 [US7] Build the prominent filter input surface (reuse the shared field/box style in `internal/ui/styles.go`): live debounced preview; Enter commits → closes input → moves focus to the filtered pane + shows the `filter: <term>` indicator; re-open pre-filled; Esc cancels to last committed state — in `internal/ui/search.go` (+ `statusLine` yields in `internal/ui/app.go`).
+- [X] T021 [P] [US7] Failing tests `TestFilterScopesToObjectsLevel` (assert `Fake.ListLevelCalls == before+1`), `TestBucketFilterStillLocal` (no `ListLevel` call) in `internal/ui/lazyload_test.go`.
+- [X] T022 [P] [US7] Failing tests `TestFilterInputCommitMovesFocus`, `TestFilterReopenPrefilled`, `TestFilterEscRevertsToCommitted`, `TestFilterClearRestoresLevel`, `TestFilterLivePreviewDebounced` in `internal/ui/spec012_test.go`.
+- [X] T023 [US7] Make `afterFilterEdit`, the Esc/clear branch, and `searchActive()` focus-aware in `internal/ui/search.go` (+ `internal/ui/app.go`): objects-zone `/` runs the server `LevelQuery.Search` (current prefix); bucket-zone `/` stays the instant local filter.
+- [X] T024 [US7] Build the prominent filter input surface (reuse the shared field/box style in `internal/ui/styles.go`): live debounced preview; Enter commits → closes input → moves focus to the filtered pane + shows the `filter: <term>` indicator; re-open pre-filled; Esc cancels to last committed state — in `internal/ui/search.go` (+ `statusLine` yields in `internal/ui/app.go`).
 
 **Checkpoint**: US7 tests green; filtering is fluid and correctly scoped.
 
@@ -111,9 +111,9 @@ re-open pre-fills; Esc/clear lifecycle. **Depends on**: US6 (objects-zone dispat
 when long, revealable. **Independent test**: drill/ascend updates it; long path elides middle keeping
 bucket+deepest. **Depends on**: T004 (box slot / center-label budget).
 
-- [ ] T025 [P] [US3] Failing tests `TestBreadcrumbFullPath`, `TestBreadcrumbUpdatesOnDrill`, `TestBreadcrumbMiddleElision`, `TestBreadcrumbEmptyPrefix`, `TestBreadcrumbRevealable` in `internal/ui/spec012_test.go`.
-- [ ] T026 [P] [US3] Add `elideMiddle(path, maxW)` (sibling of `truncate`) in `internal/ui/styles.go`.
-- [ ] T027 [US3] Prepend `ctxName` in `breadcrumb()`; render it as the objects-zone center label (`objectsZoneTitle`) in Dual/Full and the box title (`resourceTitle`) in Single; append the `(search: …)` marker after elision — in `internal/ui/app.go`.
+- [X] T025 [P] [US3] Failing tests `TestBreadcrumbFullPath`, `TestBreadcrumbUpdatesOnDrill`, `TestBreadcrumbMiddleElision`, `TestBreadcrumbEmptyPrefix`, `TestBreadcrumbRevealable` in `internal/ui/spec012_test.go`.
+- [X] T026 [P] [US3] Add `elideMiddle(path, maxW)` (sibling of `truncate`) in `internal/ui/styles.go`.
+- [X] T027 [US3] Prepend `ctxName` in `breadcrumb()`; render it as the objects-zone center label (`objectsZoneTitle`) in Dual/Full and the box title (`resourceTitle`) in Single; append the `(search: …)` marker after elision — in `internal/ui/app.go`.
 
 **Checkpoint**: US3 tests green; the user always sees where they are.
 
@@ -125,8 +125,8 @@ bucket+deepest. **Depends on**: T004 (box slot / center-label budget).
 disarm stays instant. **Independent test**: `w` opens a centered popup with consequence+keys; badge/chip
 visible; disarm has no popup.
 
-- [ ] T028 [P] [US4] Failing tests `TestArmConfirmationIsCenteredPopup`, `TestArmConfirmBadgeAndChipStayVisible`, `TestDisarmIsInstantNoPopup` in `internal/ui/writemode_test.go`.
-- [ ] T029 [US4] Add `armConfirmPopupView` (reuse `confirmPopupView`) in `internal/ui/writemode.go`; overlay it in `View()` and make the `statusLine` `armConfirm` branch yield to it in `internal/ui/app.go`; keep disarm instant (`toggleWrite`/`onArmConfirmKey` unchanged; `slog` event preserved).
+- [X] T028 [P] [US4] Failing tests `TestArmConfirmationIsCenteredPopup`, `TestArmConfirmBadgeAndChipStayVisible`, `TestDisarmIsInstantNoPopup` in `internal/ui/writemode_test.go`.
+- [X] T029 [US4] Add `armConfirmPopupView` (reuse `confirmPopupView`) in `internal/ui/writemode.go`; overlay it in `View()` and make the `statusLine` `armConfirm` branch yield to it in `internal/ui/app.go`; keep disarm instant (`toggleWrite`/`onArmConfirmKey` unchanged; `slog` event preserved).
 
 **Checkpoint**: US4 tests green; arming is unmissable.
 
@@ -138,9 +138,9 @@ visible; disarm has no popup.
 **Independent test**: rebind any action key → every surface shows the new key; zero `^x`/`d/x/y`/`"esc"`
 literals.
 
-- [ ] T030 [P] [US5] Failing tests `TestNoCaretLiteralsInAnyView`, `TestRebindPropagatesAllSurfaces` (rebind → assert across `View().Content`, `helpView`, `commandBarView`, `paneView`, `statusLine`) in `internal/ui/keys_bold_test.go`.
-- [ ] T031 [US5] Replace hardcoded key literals with `glyph()`/`formatKeys()` + bold across `internal/ui/pane.go` (`^x`), `internal/ui/app.go` (`d/x/y`, filebrowser/search/spinner hints), `internal/ui/keys.go` (help `d/x/y`), `internal/ui/confirmview.go`, `internal/ui/connections.go`, `internal/ui/operation.go`, `internal/ui/filebrowser.go`, `internal/ui/commandbar.go` (`↵`).
-- [ ] T032 [US5] Make `onConfirmKey` dispatch via `matches(key, m.keys.Back)` (both tiers) in `internal/ui/confirm.go`; replace literal `"tab"` with `matches(key, m.keys.Tab)` in `internal/ui/connections.go` field-nav and the focus toggle in `internal/ui/app.go`.
+- [X] T030 [P] [US5] Failing tests `TestNoCaretLiteralsInAnyView`, `TestRebindPropagatesAllSurfaces` (rebind → assert across `View().Content`, `helpView`, `commandBarView`, `paneView`, `statusLine`) in `internal/ui/keys_bold_test.go`.
+- [X] T031 [US5] Replace hardcoded key literals with `glyph()`/`formatKeys()` + bold across `internal/ui/pane.go` (`^x`), `internal/ui/app.go` (`d/x/y`, filebrowser/search/spinner hints), `internal/ui/keys.go` (help `d/x/y`), `internal/ui/confirmview.go`, `internal/ui/connections.go`, `internal/ui/operation.go`, `internal/ui/filebrowser.go`, `internal/ui/commandbar.go` (`↵`).
+- [X] T032 [US5] Make `onConfirmKey` dispatch via `matches(key, m.keys.Back)` (both tiers) in `internal/ui/confirm.go`; replace literal `"tab"` with `matches(key, m.keys.Tab)` in `internal/ui/connections.go` field-nav and the focus toggle in `internal/ui/app.go`.
 
 **Checkpoint**: US5 tests green; `grep -rn '\^x\|d/x/y\|"esc"\|"tab"' internal/ui/*.go | grep -v _test.go` returns only keymap/glyph definitions.
 
@@ -152,8 +152,8 @@ literals.
 reachable everywhere. **Independent test**: bar shows `s name↑`, cycles to `modified`, updates; works in
 the objects zone. **Depends on**: US6 (sort reachable in objects zone).
 
-- [ ] T033 [P] [US8] Failing tests `TestSortIndicatorInCommandBar`, `TestSortCycleReachesModified`, `TestSortBarWidthFitsNarrow` in `internal/ui/sort_test.go`.
-- [ ] T034 [US8] Add the sort `barEntry` (`"s "+sortIndicator()`) as the first read-block entry in `readEntries` (`internal/ui/commandbar.go`); remove the duplicate sort indicator from the box title so the title carries only the breadcrumb (`internal/ui/app.go`).
+- [X] T033 [P] [US8] Failing tests `TestSortIndicatorInCommandBar`, `TestSortCycleReachesModified`, `TestSortBarWidthFitsNarrow` in `internal/ui/sort_test.go`.
+- [X] T034 [US8] Add the sort `barEntry` (`"s "+sortIndicator()`) as the first read-block entry in `readEntries` (`internal/ui/commandbar.go`); remove the duplicate sort indicator from the box title so the title carries only the breadcrumb (`internal/ui/app.go`).
 
 **Checkpoint**: US8 tests green; sort is discoverable and reachable.
 
@@ -165,9 +165,9 @@ the objects zone. **Depends on**: US6 (sort reachable in objects zone).
 spec-citation noise from the code. **Independent test**: no duplicated hint on screen; every action still
 advertised once; no actionable affordance lost.
 
-- [ ] T035 [P] [US9] Failing tests `TestNoDuplicateOnScreenHints`, `TestEveryActionAdvertisedOnce` in `internal/ui/spec012_test.go`.
-- [ ] T036 [US9] Remove redundant on-screen annotations (hints duplicating the command bar / restating the obvious) while keeping ≥1 advertisement per action, all keymap-sourced — in `internal/ui/pane.go`, `internal/ui/app.go`, `internal/ui/hintbar.go`.
-- [ ] T037 [US9] Code-comment cleanup (non-behavioural): strip US/FR/review citation noise from `internal/ui/*.go`, keeping WHY/gotcha comments, machine directives (`//go:build`, `//nolint`, `//go:generate`) and minimal godoc on exported symbols; verify `make fmt vet lint check-readonly` stays green.
+- [X] T035 [P] [US9] Failing tests `TestNoDuplicateOnScreenHints`, `TestEveryActionAdvertisedOnce` in `internal/ui/spec012_test.go`.
+- [X] T036 [US9] Remove redundant on-screen annotations (hints duplicating the command bar / restating the obvious) while keeping ≥1 advertisement per action, all keymap-sourced — in `internal/ui/pane.go`, `internal/ui/app.go`, `internal/ui/hintbar.go`.
+- [X] T037 [US9] Code-comment cleanup (non-behavioural): strip US/FR/review citation noise from `internal/ui/*.go`, keeping WHY/gotcha comments, machine directives (`//go:build`, `//nolint`, `//go:generate`) and minimal godoc on exported symbols; verify `make fmt vet lint check-readonly` stays green.
 
 **Checkpoint**: US9 tests green; surface and source are decluttered without losing affordances.
 
@@ -175,9 +175,9 @@ advertised once; no actionable affordance lost.
 
 ## Phase 12: Polish & cross-cutting
 
-- [ ] T038 [P] NO_COLOR edge tests for every new cue (badge, mode chip, arm popup, breadcrumb elision marker, reveal popup) in `internal/ui/spec012_test.go`.
-- [ ] T039 [P] Footer/command-bar visibility tests across tiers (60×10, 120×8, 140×12) for all new surfaces in `internal/ui/tier_test.go`.
-- [ ] T040 Run the full gate: `go test ./...`, `make fmt vet lint check-readonly`; confirm `internal/ui` coverage ≥ the T001 floor and `check-readonly` green. Design-system gate (FR-018/FR-020): assert no new `lipgloss.NewStyle()`/`lipgloss.Color()` was introduced outside `styles.go` (and the `commandbar.go` `roleStyle` map) — every new surface reuses an existing palette role/component.
+- [X] T038 [P] NO_COLOR edge tests for every new cue (badge, mode chip, arm popup, breadcrumb elision marker, reveal popup) in `internal/ui/spec012_test.go`.
+- [X] T039 [P] Footer/command-bar visibility tests across tiers (60×10, 120×8, 140×12) for all new surfaces in `internal/ui/tier_test.go`.
+- [X] T040 Run the full gate: `go test ./...`, `make fmt vet lint check-readonly`; confirm `internal/ui` coverage ≥ the T001 floor and `check-readonly` green. Design-system gate (FR-018/FR-020): assert no new `lipgloss.NewStyle()`/`lipgloss.Color()` was introduced outside `styles.go` (and the `commandbar.go` `roleStyle` map) — every new surface reuses an existing palette role/component.
 - [ ] T041 Manual quickstart smoke (`specs/012-ui-visibility-write-clarity/quickstart.md`) on a real terminal: reveal+OSC52 paste, mode chip, filter input + focus handoff, objects-zone parity, breadcrumb elision.
 
 ---

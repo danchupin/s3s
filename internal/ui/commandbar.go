@@ -6,21 +6,21 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-// Three-block command bar (007 US1): info · read · write, laid out as side-by-side
+// Three-block command bar: info · read · write, laid out as side-by-side
 // columns. The write block is ALWAYS shown — dimmed in a read-only context (reversing
 // 006 FR-004), active (caution) when armed — so the operator sees the full capability
-// map even read-only (FR-006/FR-007/FR-008). Below blockColMin the columns collapse to a
+// map even read-only. Below blockColMin the columns collapse to a
 // compact wrapped row that still lists the write entries (dimmed) and keeps the badge
-// (FR-016). Colors reuse the existing palette only — no new hue (FR-013).
+// Colors reuse the existing palette only — no new hue.
 
 // blockColMin is the minimum width at which the three blocks render as columns; below
-// it the bar collapses to a compact single row (FR-016).
+// it the bar collapses to a compact single row.
 const blockColMin = 100
 
-// styleRole maps a bar entry to a palette role. Roles reuse existing tokens (FR-013);
+// styleRole maps a bar entry to a palette role. Roles reuse existing tokens;
 // no new hue is introduced. roleWriteDimmed (faint) and roleWriteInapplicable (plain dim)
 // are deliberately DISTINCT so an inactive-because-read-only entry reads differently from
-// a not-applicable-to-this-selection one (FR-018). The role is the single source of an
+// a not-applicable-to-this-selection one. The role is the single source of an
 // entry's visible state — there is no separate state enum to keep in sync.
 type styleRole int
 
@@ -66,15 +66,17 @@ var barGlobals = keyStyle.Render("?") + " " + dimCellStyle.Render("help") +
 // actions. A read action inapplicable to the current selection is marked (still shown),
 // never hidden. kind and cat are passed in (computed ONCE per render by the caller) to
 // avoid re-deriving the selection (re-sorts the level) and rebuilding the catalog of
-// closures (review #9).
+// closures.
 func (m App) readEntries(kind selKind, cat []action) []barEntry {
 	searchLabel := "search"
 	if m.mode == modeBuckets {
 		searchLabel = "filter"
 	}
 	out := []barEntry{
-		{key: "↵", label: "open", role: roleRead},
-		{key: "/", label: searchLabel, role: roleRead},
+		// Sort affordance + current field/direction, advertised in the bar.
+		{key: glyph(firstBind(m.keys.Sort)), label: m.sortIndicator(), role: roleRead},
+		{key: glyph(firstBind(m.keys.Enter)), label: "open", role: roleRead},
+		{key: glyph(firstBind(m.keys.Search)), label: searchLabel, role: roleRead},
 	}
 	for _, a := range cat {
 		if a.writeOnly {
@@ -86,7 +88,7 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 		}
 		out = append(out, barEntry{key: glyph(a.binds[0]), label: m.actionLabel(a), role: role})
 	}
-	// Reset affordance (008 US8, FR-021): shown only when a filter term is applied AND the
+	// Reset affordance: shown only when a filter term is applied AND the
 	// input is closed (not while typing — that mode shows its own Enter/Esc hints).
 	if m.searchActive() && !m.searching {
 		out = append(out, barEntry{key: glyph(m.keys.Back[0]), label: "clear", role: roleRead})
@@ -95,11 +97,11 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 }
 
 // writeEntries builds the write block: every write action, ALWAYS shown. The role is
-// dimmed when the context is read-only (FR-007), inapplicable for the wrong selection
-// (FR-018), else active (FR-008). Dangerous actions display their chord glyph (FR-026).
+// dimmed when the context is read-only, inapplicable for the wrong selection
+// , else active. Dangerous actions display their chord glyph.
 func (m App) writeEntries(kind selKind, cat []action) []barEntry {
 	writable := m.writable()
-	// US9 (FR-022): the duplicate-"delete" problem only exists when the catalog has the delete
+	// US9: the duplicate-"delete" problem only exists when the catalog has the delete
 	// PAIR (object + recursive, tree mode). Suppress an inapplicable delete ONLY then — never
 	// when "delete" is the lone write action (bucket mode), so the write group is never emptied
 	// (preserves 007 FR-016: the write block always shows the capability, dimmed when N/A).
@@ -136,9 +138,9 @@ func (m App) writeEntries(kind selKind, cat []action) []barEntry {
 }
 
 // infoFields builds the info block: identity (with the loud arm badge), cluster, user,
-// region, and the s3s version (FR-003) — plus the add-connection affordance is appended
+// region, and the s3s version — plus the add-connection affordance is appended
 // by the renderer. ctx carries the [RW]/[RO] badge so the bar always shows write state
-// (FR-020) without a separate identity line.
+// without a separate identity line.
 func (m App) infoFields() []infoField {
 	return []infoField{
 		{label: "cluster", value: m.info.Cluster, style: segClusterStyle},
@@ -152,14 +154,14 @@ func (m App) infoFields() []infoField {
 // of the whole string).
 func entryStyled(e barEntry) string {
 	st := roleStyle[e.role]
-	// Bold the KEY glyph (011 FR-023) while the label stays the role style — the key
+	// Bold the KEY glyph while the label stays the role style — the key
 	// keeps its role color but gains emphasis, distinct from its label.
 	return st.Bold(true).Render(e.key) + st.Render(" "+e.label)
 }
 
 // commandBarView renders the three-block command bar (or the collapsed compact row on a
 // narrow terminal). The selection kind AND the action catalog are derived ONCE here and
-// threaded into the builders (review #9), and the narrow path returns early WITHOUT
+// threaded into the builders, and the narrow path returns early WITHOUT
 // building the wide columns it would discard.
 func (m App) commandBarView(w int) string {
 	kind := m.selKind()
@@ -177,7 +179,7 @@ func (m App) commandBarView(w int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, info, "  ", read, "  ", write)
 }
 
-// infoColumn renders the info block as a column. No heading (008 US5, FR-013) — the column
+// infoColumn renders the info block as a column. No heading — the column
 // + inter-column gap carry the grouping; the identity line leads.
 func (m App) infoColumn() string {
 	rows := []string{footerIdentityCompact(40, m.ctxName, "", m.writable())} // ● ctx [badge]
@@ -198,7 +200,7 @@ func (m App) infoColumn() string {
 	return blockColumn(rows)
 }
 
-// entryColumn renders a column from its entries — no heading (008 US5, FR-013).
+// entryColumn renders a column from its entries — no heading.
 func entryColumn(entries []barEntry) string {
 	rows := make([]string, 0, len(entries))
 	for _, e := range entries {
@@ -209,11 +211,20 @@ func entryColumn(entries []barEntry) string {
 
 // writeColumn renders the write block as a column. With no WRITE heading, the read-only cue
 // is a literal "w to arm" lead row (amber, NO_COLOR-safe) shown only when not writable — the
-// defined surface preserving the read-only state cue (008 US5, FR-014).
+// defined surface preserving the read-only state cue.
 func (m App) writeColumn(kind selKind, cat []action) string {
 	var rows []string
-	if !m.writable() {
-		rows = append(rows, warnStyle.Render("w to arm"))
+	// Symmetric, always-present toggle cue sourced from the keymap: a clear
+	// "enable write" when disarmed, a "→ read-only" disarm cue when armed, and an explicit
+	// unavailable cue on a read-only context — so the toggle key and current state never vanish.
+	wkey := glyph(firstBind(m.keys.WriteToggle))
+	switch {
+	case m.armed:
+		rows = append(rows, warnStyle.Render(wkey+" → read-only"))
+	case m.ctxReadOnly:
+		rows = append(rows, dimCellStyle.Render("read-only context"))
+	default:
+		rows = append(rows, warnStyle.Render(wkey+" enable write"))
 	}
 	for _, e := range m.writeEntries(kind, cat) {
 		rows = append(rows, entryStyled(e))
@@ -238,20 +249,19 @@ func blockColumn(rows []string) string {
 // collapsedBarView is the compact fallback (narrow terminal): three rows — identity +
 // badge, a read row, and a write row — each width-fit by DROPPING trailing entries (never
 // by clipping styled text mid-escape, which would corrupt the line). The write row keeps
-// at least one entry + a "…" so the write block is never dropped entirely (FR-016).
+// at least one entry + a "…" so the write block is never dropped entirely.
 func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
 	identity := footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable())
 	read := append([]barEntry{}, m.readEntries(kind, cat)...)
 	if m.connect != nil {
 		// Prepend "connections" so width-trimming (which drops trailing entries) never drops
-		// it first — it stays discoverable on a narrow bar (008 US7, FR-020). Opened via `c`
-		// (011 US4 removed the standalone `n`).
+		// it first — it stays discoverable on a narrow bar. Opened via `c`.
 		read = append([]barEntry{{key: glyph(m.keys.Context[0]), label: "connections", role: roleRead}}, read...)
 	}
 	// Globals (help/quit) always survive; fit the read entries into the remaining width.
 	globals := dimCellStyle.Render(" · ") + barGlobals
 	readRow := fitEntries(read, max(1, w-lipgloss.Width(globals)), 0) + globals
-	writeRow := fitEntries(m.writeEntries(kind, cat), w, 1) // keep ≥1 write entry (FR-016)
+	writeRow := fitEntries(m.writeEntries(kind, cat), w, 1) // keep ≥1 write entry
 	return identity + "\n" + readRow + "\n" + writeRow
 }
 

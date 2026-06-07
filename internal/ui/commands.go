@@ -18,12 +18,12 @@ import (
 // spinnerInterval is the spinner animation tick.
 const spinnerInterval = 120 * time.Millisecond
 
-// searchDebounce coalesces keystrokes into at most one in-flight request (FR-017a).
+// searchDebounce coalesces keystrokes into at most one in-flight request.
 const searchDebounce = 300 * time.Millisecond
 
 // logOpErr records a backend operation error to the file log (Constitution V).
 // Cancellations are routine (superseded loads) and logged at debug, not error.
-// Only the classified error and non-secret identifiers are logged (FR-021).
+// Only the classified error and non-secret identifiers are logged.
 func logOpErr(op string, err error, attrs ...any) {
 	if errors.Is(err, context.Canceled) {
 		slog.Debug(op+" cancelled", attrs...)
@@ -107,7 +107,7 @@ func loadPreview(ctx context.Context, st storage.Storage, bucket, key string, co
 
 // createFolderCmd creates an empty folder off the event loop, logging the outcome
 // (Constitution V). The mutation.start record is emitted by the caller before
-// dispatch; this records mutation.done with the classified outcome (FR-008).
+// dispatch; this records mutation.done with the classified outcome.
 func createFolderCmd(ctx context.Context, mut storage.Mutator, bucket, prefix string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		err := mut.CreateFolder(ctx, bucket, prefix)
@@ -118,7 +118,6 @@ func createFolderCmd(ctx context.Context, mut storage.Mutator, bucket, prefix st
 
 // removeObjectCmd deletes a single object. A not-found result is benign (the object
 // was already gone) and reported as a clean done so the refresh shows it absent
-// (US1 edge case, FR-001).
 func removeObjectCmd(ctx context.Context, mut storage.Mutator, bucket, key string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		err := mut.RemoveObject(ctx, bucket, key)
@@ -130,7 +129,7 @@ func removeObjectCmd(ctx context.Context, mut storage.Mutator, bucket, key strin
 	}
 }
 
-// removeBucketCmd deletes a whole (empty) bucket (007 FR-024b). A non-empty bucket
+// removeBucketCmd deletes a whole (empty) bucket. A non-empty bucket
 // surfaces ErrBucketNotEmpty as the outcome so the UI shows the "purge first" notice.
 func removeBucketCmd(ctx context.Context, mut storage.Mutator, bucket string, gen int) tea.Cmd {
 	return func() tea.Msg {
@@ -140,7 +139,7 @@ func removeBucketCmd(ctx context.Context, mut storage.Mutator, bucket string, ge
 	}
 }
 
-// copyKeyCmd server-side copies an object to a new key (FR-004).
+// copyKeyCmd server-side copies an object to a new key.
 func copyKeyCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		err := mut.CopyKey(ctx, bucket, srcKey, dstKey)
@@ -150,7 +149,7 @@ func copyKeyCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey
 }
 
 // moveObjectCmd moves/renames an object (copy then delete source). ErrMovePartial is
-// surfaced as a partial outcome — never a clean success (FR-006/FR-007).
+// surfaced as a partial outcome — never a clean success.
 func moveObjectCmd(ctx context.Context, mut storage.Mutator, bucket, srcKey, dstKey string, gen int) tea.Cmd {
 	return func() tea.Msg {
 		err := mut.MoveObject(ctx, bucket, srcKey, dstKey)
@@ -184,7 +183,7 @@ func waitForProgress(ch chan progressEvent, gen int) tea.Cmd {
 
 // countingReader wraps the upload source and reports bytes read onto ch (best-effort,
 // non-blocking so a fast read never stalls on the UI). It feeds the upload's live
-// byte progress (FR-010).
+// byte progress.
 //
 // It MUST stay seekable: SigV4 signs the upload by reading the body to compute the
 // x-amz-content-sha256 hash, then Seek(0)s and reads again to send. Hiding the
@@ -219,7 +218,7 @@ func (c *countingReader) Seek(offset int64, whence int) (int64, error) {
 }
 
 // uploadCmd opens the local file and streams it to the backend off the event loop,
-// emitting byte progress and a terminal outcome on ch (FR-002/FR-010). A bad source
+// emitting byte progress and a terminal outcome on ch. A bad source
 // (missing/unreadable) fails before any backend call.
 func uploadCmd(ctx context.Context, mut storage.Mutator, bucket, key, localPath string, size int64, ch chan progressEvent, gen int) tea.Cmd {
 	return func() tea.Msg {
@@ -243,7 +242,6 @@ func uploadCmd(ctx context.Context, mut storage.Mutator, bucket, key, localPath 
 
 // recursiveDeleteCmd deletes a prefix subtree best-effort off the event loop,
 // streaming deleted/failed progress and a terminal partial-aware outcome on ch
-// (FR-008/FR-009/FR-011).
 func recursiveDeleteCmd(ctx context.Context, mut storage.Mutator, bucket, prefix string, ch chan progressEvent, gen int) tea.Cmd {
 	return func() tea.Msg {
 		go func() {
@@ -265,13 +263,13 @@ func recursiveDeleteCmd(ctx context.Context, mut storage.Mutator, bucket, prefix
 }
 
 // logMutationStart records the intent of a mutation BEFORE execution (Constitution
-// V). Only non-secret identifiers are logged (FR-008, SC-005).
+// V). Only non-secret identifiers are logged.
 func logMutationStart(action string, attrs ...any) {
 	slog.Info("mutation.start", append([]any{"action", action}, attrs...)...)
 }
 
 // logMutationDone records the terminal outcome of a mutation. A context
-// cancellation is an indeterminate outcome, never "ok" (FR-007).
+// cancellation is an indeterminate outcome, never "ok".
 func logMutationDone(action string, err error, attrs ...any) {
 	base := append([]any{"action", action}, attrs...)
 	switch {
@@ -289,7 +287,7 @@ func spinnerTick() tea.Cmd {
 	return tea.Tick(spinnerInterval, func(time.Time) tea.Msg { return spinnerTickMsg{} })
 }
 
-// debounceSearch fires searchFireMsg after the debounce window (FR-017a).
+// debounceSearch fires searchFireMsg after the debounce window.
 func debounceSearch(searchGen int, term string) tea.Cmd {
 	return tea.Tick(searchDebounce, func(time.Time) tea.Msg {
 		return searchFireMsg{searchGen: searchGen, term: term}
@@ -298,7 +296,6 @@ func debounceSearch(searchGen int, term string) tea.Cmd {
 
 // paneDebounce coalesces fast selection movement: the details-pane fetch fires only
 // after the selection settles, so scrolling never triggers a per-row backend call
-// (006 US2, FR-009).
 const paneDebounce = 180 * time.Millisecond
 
 // paneTickMsg fires after the pane debounce window; it carries the pane generation +
@@ -315,7 +312,7 @@ func paneTickCmd(gen int, key string) tea.Cmd {
 	})
 }
 
-// bucketTickMsg fires after the bucket-scroll debounce window (011 US1, FR-003). It carries
+// bucketTickMsg fires after the bucket-scroll debounce window. It carries
 // the bucket-load generation + the bucket name it was scheduled for, so a tick for a bucket
 // the cursor has scrolled past is ignored (mirrors paneTickMsg).
 type bucketTickMsg struct {
@@ -324,7 +321,7 @@ type bucketTickMsg struct {
 }
 
 // bucketTickCmd schedules a debounced objects-zone load for (gen, bucket) — the highlighted
-// bucket's first level is fetched only once the bucket selection settles (011 FR-003).
+// bucket's first level is fetched only once the bucket selection settles.
 func bucketTickCmd(gen int, bucket string) tea.Cmd {
 	return tea.Tick(paneDebounce, func(time.Time) tea.Msg {
 		return bucketTickMsg{gen: gen, bucket: bucket}

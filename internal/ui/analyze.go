@@ -11,7 +11,7 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// du analytics (005 US2). A read: recursively aggregates a prefix into total
+// du analytics. A read: recursively aggregates a prefix into total
 // size/count + a ranked immediate-child breakdown (storage.UsageOf), rendered in
 // modeUsage with live progress, cancel, and drill-down. Works read-only.
 
@@ -117,7 +117,7 @@ func (m App) onUsageDone(msg usageDoneMsg) (tea.Model, tea.Cmd) {
 	m.usageCh = nil
 	if msg.err != nil && !errorsIsCanceled(msg.err) {
 		m.err = msg.err
-		m.mode = m.usageReturn // back to wherever analyze was launched from (FR-013)
+		m.mode = m.usageReturn // back to wherever analyze was launched from
 		return m, nil
 	}
 	rep := msg.report
@@ -148,7 +148,7 @@ func (m App) onUsageKey(key string) (tea.Model, tea.Cmd) {
 	case matches(key, m.keys.Bottom):
 		m.usageSel = max(0, n-1)
 	case matches(key, m.keys.Enter):
-		// Drill into the selected sub-prefix to locate the exact consumer (FR-013).
+		// Drill into the selected sub-prefix to locate the exact consumer.
 		if m.usage != nil && m.usageSel >= 0 && m.usageSel < n {
 			c := m.usage.Children[m.usageSel]
 			if c.IsDir {
@@ -176,7 +176,7 @@ func (m App) usageTitle() string {
 }
 
 // usageView renders the totals header plus the ranked immediate-child breakdown with a
-// size bar and share-of-parent (005 FR-009/FR-012).
+// size bar and share-of-parent.
 func (m App) usageView(w, rows int) string {
 	if m.usage == nil {
 		// Still scanning — show running totals so the wait reads as intentional.

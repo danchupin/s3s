@@ -46,9 +46,9 @@ var (
 
 	accentStyle = lipgloss.NewStyle().Foreground(colAccent)
 	// keyStyle renders advertised hotkey glyphs bold so the key stands out from its label
-	// (011 FR-022/FR-023). Bold is an SGR attribute, not a color, so it is the key cue; the
+	// Bold is an SGR attribute, not a color, so it is the key cue; the
 	// leading-token position of every key ("d download") is the redundant non-color cue that
-	// survives NO_COLOR (FR-024).
+	// survives NO_COLOR.
 	keyStyle = accentStyle.Bold(true)
 
 	// footer segment styles (one hue per parameter type)
@@ -63,16 +63,16 @@ var (
 	noticeStyle = lipgloss.NewStyle().Foreground(colOK) // success notices (green) — distinct from errStyle red
 	emptyStyle  = lipgloss.NewStyle().Faint(true).Foreground(colDim)
 
-	// 006 visual backbone — new surfaces REUSE the tokens above (FR-031/FR-032): no new
+	// 006 visual backbone — new surfaces REUSE the tokens above: no new
 	// hue is introduced. The hint bar advertises action keys (accent) + labels (dim);
 	// the pane reuses the metadata key/value styles; the command bar/form reuse accent
-	// for the active cue and dim for the rest, keeping the screen calm (FR-037/FR-038).
+	// for the active cue and dim for the rest, keeping the screen calm.
 	hintLabelStyle  = dimCellStyle                              // contextual hint label (pane cues)
 	formActiveStyle = lipgloss.NewStyle().Foreground(colAccent) // focused form field label
 	formErrStyle    = errStyle                                  // form/test error line
 )
 
-// NOTE on NO_COLOR (FR-034/FR-041/FR-042): every color-carried meaning also has a
+// NOTE on NO_COLOR: every color-carried meaning also has a
 // redundant non-color cue — the `▶` selection gutter, the `✓` multi-select mark, the
 // `[RW]`/`[RO]` badge TEXT, and the `error:`/`loading…` prefixes — so the UI stays legible
 // when lipgloss strips color under NO_COLOR.
@@ -136,6 +136,26 @@ func truncate(s string, w int) string {
 	return b.String()
 }
 
+// elideMiddle fits a "/"-separated path into display width w by dropping the MIDDLE segments
+// (keeping the first segment and the deepest), joined by an ellipsis; it falls back to
+// end-truncation when even first+deepest will not fit.
+func elideMiddle(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	parts := strings.Split(s, "/")
+	if len(parts) <= 2 {
+		return truncate(s, w)
+	}
+	if cand := parts[0] + "/…/" + parts[len(parts)-1]; lipgloss.Width(cand) <= w {
+		return cand
+	}
+	return truncate(s, w)
+}
+
 // pad truncates then right-pads s to width w.
 func pad(s string, w int) string {
 	s = truncate(s, w)
@@ -192,6 +212,60 @@ func renderTable(width int, cols []column, rows [][]string, dirFlags []bool, sel
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// renderTableActive is renderTable with automatic active-row wrap: when the
+// selected row's NAME is truncated and spareRows blank rows are available below the window,
+// the full name is wrapped onto up to spareRows dim continuation lines so the highlighted
+// item is always readable without exceeding the box height. spareRows<=0 disables the wrap
+// (the reveal popup is the fallback for a full screen).
+func renderTableActive(width int, cols []column, rows [][]string, dirFlags []bool, sel, spareRows int) string {
+	base := renderTable(width, cols, rows, dirFlags, sel)
+	if spareRows <= 0 || sel < 0 || sel >= len(rows) || len(rows[sel]) == 0 {
+		return base
+	}
+	widths := layoutWidths(width, cols)
+	name := sanitizeLabel(rows[sel][0])
+	if lipgloss.Width(name) <= widths[0] {
+		return base // not truncated — nothing to reveal
+	}
+	cont := wrapValue(name, max(1, clampW(width)-2), spareRows)
+	if len(cont) == 0 {
+		return base
+	}
+	var b strings.Builder
+	b.WriteString(base)
+	for _, line := range cont {
+		b.WriteString("\n  " + dimCellStyle.Render(line))
+	}
+	return b.String()
+}
+
+// wrapValue splits s into chunks of display width w, at most maxLines chunks.
+func wrapValue(s string, w, maxLines int) []string {
+	if w < 1 {
+		w = 1
+	}
+	var lines []string
+	var cur strings.Builder
+	curW := 0
+	for _, ch := range s {
+		cw := lipgloss.Width(string(ch))
+		if curW+cw > w {
+			lines = append(lines, cur.String())
+			if len(lines) >= maxLines {
+				return lines
+			}
+			cur.Reset()
+			curW = 0
+		}
+		cur.WriteRune(ch)
+		curW += cw
+	}
+	if cur.Len() > 0 && len(lines) < maxLines {
+		lines = append(lines, cur.String())
+	}
+	return lines
+}
+
 // windowBounds returns the [off,end) slice of n items that keeps sel visible
 // within rows lines (bottom-anchored scrolling).
 func windowBounds(n, sel, rows int) (int, int) {
@@ -223,23 +297,41 @@ func padLine(s string, w int) string {
 // left resource label and a centered, highlighted selection label. Body lines are
 // padded to the inner width and to at least minRows rows.
 func boxView(left, center, body string, width, minRows int) string {
-	return boxViewWith(left, center, body, width, minRows, titleStyle)
+	return boxViewWith(left, center, "", body, width, minRows, titleStyle)
 }
 
 // boxViewFocus is boxView with an active/inactive title style for the multi-pane zones
-// (011 US2/T006): the focused zone's title is the accent (active) style, an unfocused zone's
-// title is dim — the deterministic active-zone indicator (FR-007).
+// : the focused zone's title is the accent (active) style, an unfocused zone's
+// title is dim — the deterministic active-zone indicator.
 func boxViewFocus(left, center, body string, width, minRows int, active bool) string {
-	st := titleStyle
-	if !active {
-		st = dimCellStyle
-	}
-	return boxViewWith(left, center, body, width, minRows, st)
+	return boxViewWith(left, center, "", body, width, minRows, focusTitleStyle(active))
 }
 
-// boxViewWith renders the bordered box with the given title style (shared by boxView and
-// boxViewFocus).
-func boxViewWith(left, center, body string, width, minRows int, titleSt lipgloss.Style) string {
+// boxViewChip is boxView with a right-aligned chip inset into the top border — the
+// border-mounted mode label. chip is an already-styled string; "" omits it.
+func boxViewChip(left, center, chip, body string, width, minRows int) string {
+	return boxViewWith(left, center, chip, body, width, minRows, titleStyle)
+}
+
+// boxViewFocusChip combines the focus title style with the right-border chip — used by the
+// PRIMARY list box, which carries the read/write mode chip.
+func boxViewFocusChip(left, center, chip, body string, width, minRows int, active bool) string {
+	return boxViewWith(left, center, chip, body, width, minRows, focusTitleStyle(active))
+}
+
+func focusTitleStyle(active bool) lipgloss.Style {
+	if active {
+		return titleStyle
+	}
+	return dimCellStyle
+}
+
+// boxViewWith renders the bordered box with the given title style (shared by the boxView
+// family). An optional right-aligned chip (already styled) is inset into the top border
+// before the closing corner; when the border is too narrow it drops the
+// centered label before the chip (the chip is safety-critical), and the chip only as a last
+// resort.
+func boxViewWith(left, center, chip, body string, width, minRows int, titleSt lipgloss.Style) string {
 	inner := width - 2
 	if inner < 1 {
 		inner = 1
@@ -256,7 +348,7 @@ func boxViewWith(left, center, body string, width, minRows int, titleSt lipgloss
 		lines = lines[:minRows]
 	}
 
-	// Top border: "╭─ left ─── «center» ───╮". Cap the left title so a long key or
+	// Top border: "╭─ left ─── «center» ─── ‹chip› ─╮". Cap the left title so a long key or
 	// prefix can't overflow the border line and break the layout.
 	leftCap := inner - 4
 	if center != "" {
@@ -264,29 +356,45 @@ func boxViewWith(left, center, body string, width, minRows int, titleSt lipgloss
 	}
 	left = truncate(left, max(1, leftCap))
 	leftPlain := "─ " + left + " "
+	wl := lipgloss.Width(leftPlain)
+
+	// Right chip rendered as " ‹chip› ─" just before the corner.
+	chipRender, wchip := "", 0
+	if chip != "" {
+		wchip = lipgloss.Width(chip) + 3 // " " + chip + " ─"
+		chipRender = ruleStyle.Render(" ") + chip + ruleStyle.Render(" ─")
+	}
+
 	centerPlain := ""
 	if center != "" {
-		centerPlain = " " + truncate(center, max(0, inner-lipgloss.Width(leftPlain)-4)) + " "
+		centerPlain = " " + truncate(center, max(0, inner-wl-wchip-4)) + " "
 	}
-	wl := lipgloss.Width(leftPlain)
 	wc := lipgloss.Width(centerPlain)
-	leftDashes := (inner-wc)/2 - wl
-	if leftDashes < 1 {
-		leftDashes = 1
+
+	avail := inner - wl - wc - wchip
+	if avail < 0 && center != "" { // drop the center label before the chip
+		centerPlain, wc = "", 0
+		avail = inner - wl - wchip
 	}
-	rightDashes := inner - wl - leftDashes - wc
-	if rightDashes < 0 {
-		rightDashes = 0
-		leftDashes = inner - wl - wc
-		if leftDashes < 0 {
-			leftDashes = 0
-		}
+	if avail < 0 { // extreme narrow: drop the chip too
+		chipRender = ""
+		avail = inner - wl - wc
 	}
-	topInner := ruleStyle.Render("─ ") + titleSt.Render(left) + ruleStyle.Render(" "+strings.Repeat("─", leftDashes))
+	if avail < 0 {
+		avail = 0
+	}
+	leftDashes := avail / 2
+	if center == "" && chip == "" {
+		leftDashes = avail // single gap: fill after the left label
+	}
+	rightDashes := avail - leftDashes
+
+	topInner := ruleStyle.Render("─ ") + titleSt.Render(left) + ruleStyle.Render(" ") +
+		ruleStyle.Render(strings.Repeat("─", leftDashes))
 	if centerPlain != "" {
 		topInner += selRowStyle.Render(centerPlain)
 	}
-	topInner += ruleStyle.Render(strings.Repeat("─", rightDashes))
+	topInner += ruleStyle.Render(strings.Repeat("─", rightDashes)) + chipRender
 
 	var b strings.Builder
 	b.WriteString(ruleStyle.Render("╭") + topInner + ruleStyle.Render("╮") + "\n")
@@ -383,14 +491,13 @@ func dropLowestPrio(hs []hint) []hint {
 }
 
 // writeBadgeStyle is the loud, high-contrast WRITE indicator: bold white on bright
-// red, impossible to miss or confuse with read-only (005 FR-027). Used wherever the
+// red, impossible to miss or confuse with read-only. Used wherever the
 // arm state is shown — the footer identity row AND every alt-screen overlay.
 var writeBadgeStyle = lipgloss.NewStyle().Bold(true).
 	Foreground(lipgloss.Color("231")).Background(lipgloss.Color("196"))
 
 // writeBadge renders the arm-state badge: a loud "[RW]" while writable, a calm "[RO]"
 // otherwise. Kept short so it is never the first thing dropped on a narrow width
-// (005 FR-027, write-toggle-contract C3).
 func writeBadge(writable bool) string {
 	if writable {
 		return writeBadgeStyle.Render("[RW]")
@@ -399,16 +506,16 @@ func writeBadge(writable bool) string {
 }
 
 // footerIdentityCompact renders the single identity row: ● ctx [RW|RO], plus · cluster
-// if it fits (FR-007/FR-008). Endpoint/region/user/version are NOT shown here — they
+// if it fits. Endpoint/region/user/version are NOT shown here — they
 // move to the help surface. The [RW] tag is rendered loud (writeBadgeStyle) so an armed
-// session is unmistakable (005 FR-027).
+// session is unmistakable.
 func footerIdentityCompact(width int, ctx, cluster string, writable bool) string {
 	tag, dotStyle, tagStyle := "[RO]", roStyle, dimCellStyle
 	if writable {
 		tag, dotStyle, tagStyle = "[RW]", accentStyle, writeBadgeStyle
 	}
 	name := truncate(ctx, max(1, width-len(tag)-4))
-	head := dotStyle.Render("●") + " " + segCtxStyle.Render(name) + tagStyle.Render(" "+tag)
+	head := dotStyle.Render("●") + " " + segCtxStyle.Render(name) + dimCellStyle.Render(" ") + tagStyle.Render(tag)
 	used := lipgloss.Width("● " + name + " " + tag)
 	if cluster != "" && used+lipgloss.Width(" · "+cluster) <= width {
 		head += dimCellStyle.Render(" · ") + segClusterStyle.Render(cluster)

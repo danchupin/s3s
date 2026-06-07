@@ -7,10 +7,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// Command bar (006 US3). `:` opens a one-line input (modeCommand) that jumps to a view
+// Command bar. `:` opens a one-line input (modeCommand) that jumps to a view
 // or runs an action, mirroring k9s. The registry is the long-tail companion to the
-// single-key direct actions (US1): frequent actions are keys; everything is reachable
-// (and discoverable) here. `:` and `/` are distinct modes and never coexist (FR-019).
+// single-key direct actions: frequent actions are keys; everything is reachable
+// (and discoverable) here. `:` and `/` are distinct modes and never coexist.
 
 // command is one entry in the `:` registry.
 type command struct {
@@ -19,7 +19,7 @@ type command struct {
 	invoke  func(App) (tea.Model, tea.Cmd)
 }
 
-// commandRegistry returns the available commands (FR-016/FR-017).
+// commandRegistry returns the available commands.
 func commandRegistry() []command {
 	return []command{
 		{name: "buckets", invoke: func(m App) (tea.Model, tea.Cmd) {
@@ -69,7 +69,7 @@ func (m App) startCommand() (tea.Model, tea.Cmd) {
 }
 
 // onCommandKey edits/dispatches the command bar input. Esc cancels with no effect; Enter
-// dispatches; every other printable key is text (FR-018).
+// dispatches; every other printable key is text.
 func (m App) onCommandKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch key {
 	case "esc":
@@ -93,7 +93,7 @@ func (m App) onCommandKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd) 
 
 // dispatchCommand resolves the typed input to a command (exact name/alias, else a unique
 // prefix) and invokes it; an unknown/ambiguous command yields a non-destructive notice and
-// takes no action (FR-018).
+// takes no action.
 func (m App) dispatchCommand() (tea.Model, tea.Cmd) {
 	in := strings.TrimSpace(strings.ToLower(m.cmdInput))
 	m.mode = m.prevMode

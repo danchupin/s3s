@@ -14,13 +14,13 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Bulk operations over a multi-select (005 US3). Each item reuses the proven
+// Bulk operations over a multi-select. Each item reuses the proven
 // single-object backend call; the run continues past per-item failures and reports a
-// truthful succeeded/failed summary (FR-018). Bulk download is a READ (works RO); bulk
+// truthful succeeded/failed summary. Bulk download is a READ (works RO); bulk
 // delete/copy require the armed write state. Recursive folder deletion is NOT here.
 
 // startBulkDownload pulls every marked object, recreating its key hierarchy as local
-// subdirectories under the download dir (FR-015a). A read — no write needed.
+// subdirectories under the download dir. A read — no write needed.
 func (m App) startBulkDownload() (tea.Model, tea.Cmd) {
 	keys := m.selectedKeys()
 	if len(keys) == 0 {
@@ -32,7 +32,7 @@ func (m App) startBulkDownload() (tea.Model, tea.Cmd) {
 }
 
 // startBulkDelete deletes every marked object behind a typed confirmation on the count
-// (FR-017); requires write.
+// ; requires write.
 func (m App) startBulkDelete() (tea.Model, tea.Cmd) {
 	if !m.writable() {
 		m.err = storage.ErrReadOnly
@@ -43,7 +43,7 @@ func (m App) startBulkDelete() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	m.err = nil
-	// Selected-group (bulk) delete is the BINARY tier (007 FR-024): a centered y/N popup,
+	// Selected-group (bulk) delete is the BINARY tier: a centered y/N popup,
 	// not a typed count. Only container-removal (recursive/bucket/connection) types.
 	m.op = &operation{
 		kind: "bulk_delete", bucket: m.bucket, parent: m.prefix, bulkKeys: keys,
@@ -130,7 +130,7 @@ func bulkCmd(ctx context.Context, st storage.Storage, kind, bucket, parent, dstP
 }
 
 // downloadOne streams one object to a local file mirroring its key path under parent
-// (FR-015a), via a temp file + atomic rename.
+// , via a temp file + atomic rename.
 func downloadOne(ctx context.Context, st storage.Storage, bucket, key, parent, dlDir string) error {
 	rel := filepath.FromSlash(strings.TrimPrefix(key, parent))
 	// An S3 key is arbitrary bytes and may contain "..": refuse anything that would

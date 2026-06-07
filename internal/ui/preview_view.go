@@ -13,7 +13,7 @@ import (
 func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 	switch {
 	case matches(key, m.keys.Back):
-		m.mode = m.objReturn // restore the browse mode we opened from (011 US2)
+		m.mode = m.objReturn // restore the browse mode we opened from
 		m.meta = nil
 		m.prev = nil
 		m.prevOff = 0
@@ -79,7 +79,7 @@ func vrule(n int) string {
 	return strings.Join(lines, "\n")
 }
 
-// contentPane renders the object content within width w / rows (FR-014/015/016).
+// contentPane renders the object content within width w / rows.
 func (m App) contentPane(w, rows int) string {
 	if m.prev == nil {
 		if m.loading {
@@ -119,7 +119,7 @@ func (m App) renderTextPreview(p *preview.Payload, w, rows int) string {
 }
 
 // textPreviewLines windows raw text content from offset off, truncating each of up to rows
-// lines to width w. Shared by the full-screen object view and the details pane (006 US2),
+// lines to width w. Shared by the full-screen object view and the details pane,
 // so text windowing/sanitization stays consistent.
 func textPreviewLines(data []byte, off, w, rows int) string {
 	if rows < 1 {

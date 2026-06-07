@@ -276,8 +276,9 @@ func TestStatusSearchPending(t *testing.T) { // S2 / FR-016
 	m := treeApp(f, true)
 	m.searching = true
 	m.searchInput = "ar"
-	if s := m.statusLine(120); !strings.Contains(s, "searching") {
-		t.Errorf("tree search input should show a pending indicator; got %q", s)
+	// 012 FR-039/FR-040: the prominent filter input names the pane and marks the live preview.
+	if s := m.statusLine(120); !strings.Contains(s, "filter") || !strings.Contains(s, "live") {
+		t.Errorf("object filter input should show a prominent live indicator; got %q", s)
 	}
 }
 
