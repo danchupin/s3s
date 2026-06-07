@@ -422,9 +422,11 @@ func (m App) onConnSaved(msg connSavedMsg) (tea.Model, tea.Cmd) {
 	m.form = nil
 	m.err = nil // a stale test error must not bleed into the bucket-list footer (010 US4)
 	m.notice = "connection saved: " + name
-	// First run (no active context yet): enter the just-added connection directly instead of
-	// dropping to the manager list, so a fresh install lands in the browser (009).
-	if m.ctxName == "" && m.resolve != nil {
+	// Enter the just-saved connection so the user lands in its bucket list — where a scoped
+	// connection (no pinned buckets, list-all denied) shows the "+ add bucket" row. This makes
+	// "create the connection, then choose buckets" a single flow (010), and unifies first-run
+	// (009) with subsequent adds. Switching disabled (resolve == nil, e.g. tests) → manager.
+	if m.resolve != nil {
 		return m.applyContext(name)
 	}
 	m.mode = modeConnections
