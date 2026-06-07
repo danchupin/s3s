@@ -86,7 +86,7 @@ func matches(key string, binds []string) bool {
 var keyGlyph = map[string]string{
 	"up": "↑", "down": "↓", "left": "←", "right": "→",
 	"enter": "Enter", "esc": "Esc", "home": "Home", "end": "End", "ctrl+c": "Ctrl+C",
-	"ctrl+x": "^x", "ctrl+o": "^o",
+	"ctrl+x": "Ctrl+X", "ctrl+o": "Ctrl+O",
 }
 
 func glyph(k string) string {

@@ -61,7 +61,7 @@ func runForm(m App) App {
 func TestConnFormRequiresName(t *testing.T) {
 	m := connApp(&fakeConnector{}, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{endpoint: "http://h:9000"}
+	m.form = &connForm{endpoint: textField{Value: "http://h:9000"}}
 	mm, _ := m.submitConnForm()
 	m = mm.(App)
 	if m.form == nil || !strings.Contains(m.form.err, "name") {
@@ -72,7 +72,7 @@ func TestConnFormRequiresName(t *testing.T) {
 func TestConnFormRejectsDuplicate(t *testing.T) {
 	m := connApp(&fakeConnector{}, []string{"ctx", "prod"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "prod", endpoint: "http://h:9000"}
+	m.form = &connForm{name: textField{Value: "prod"}, endpoint: textField{Value: "http://h:9000"}}
 	mm, _ := m.submitConnForm()
 	if mm.(App).form.err == "" || !strings.Contains(mm.(App).form.err, "already exists") {
 		t.Errorf("duplicate name should be rejected; err=%q", mm.(App).form.err)
@@ -82,7 +82,7 @@ func TestConnFormRejectsDuplicate(t *testing.T) {
 func TestConnFormRejectsBadEndpoint(t *testing.T) {
 	m := connApp(&fakeConnector{}, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "not-a-url"}
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "not-a-url"}}
 	mm, _ := m.submitConnForm()
 	if !strings.Contains(mm.(App).form.err, "absolute URL") {
 		t.Errorf("bad endpoint should be rejected; err=%q", mm.(App).form.err)
@@ -95,7 +95,7 @@ func TestConnSaveSuccessUpdatesContexts(t *testing.T) {
 	conn := &fakeConnector{names: []string{"ctx", "newc"}}
 	m := connApp(conn, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "http://h:9000", accessKey: "AK", secret: "SK"}
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}, accessKey: textField{Value: "AK"}, secret: textField{Value: "SK"}}
 	m = runForm(m)
 
 	if !conn.tested || conn.savedName != "newc" {
@@ -116,7 +116,7 @@ func TestConnTestFailOffersSaveAnyway(t *testing.T) {
 	conn := &fakeConnector{testErr: errors.New("dial tcp: timeout"), names: []string{"ctx", "newc"}}
 	m := connApp(conn, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "http://h:9000", accessKey: "AK", secret: "SK"}
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}, accessKey: textField{Value: "AK"}, secret: textField{Value: "SK"}}
 	m = runForm(m)
 
 	// First submit: test fails → offer "save anyway", NOT saved yet.
@@ -137,7 +137,7 @@ func TestConnSaveErrorShownInForm(t *testing.T) {
 	conn := &fakeConnector{saveErr: errors.New("config: write denied")}
 	m := connApp(conn, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "http://h:9000", accessKey: "AK", secret: "SK"}
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}, accessKey: textField{Value: "AK"}, secret: textField{Value: "SK"}}
 	m = runForm(m)
 	if m.form == nil || !strings.Contains(m.form.err, "save failed") {
 		t.Errorf("a save error should surface in the form; form=%+v", m.form)
@@ -148,7 +148,7 @@ func TestConnSaveErrorShownInForm(t *testing.T) {
 func TestCtrlCQuitsFromForm(t *testing.T) {
 	m := connApp(&fakeConnector{}, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "x"}
+	m.form = &connForm{name: textField{Value: "x"}}
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("ctrl+c in the connection form should quit")
@@ -162,7 +162,7 @@ func TestCtrlCQuitsFromForm(t *testing.T) {
 func TestConnFormRequiresCredentials(t *testing.T) {
 	m := connApp(&fakeConnector{}, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "http://h:9000"} // no access key / secret
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}} // no access key / secret
 	mm, _ := m.submitConnForm()
 	if !strings.Contains(mm.(App).form.err, "access key") {
 		t.Errorf("missing access key should block save; err=%q", mm.(App).form.err)
@@ -174,7 +174,7 @@ func TestEditAfterFailedTestRetests(t *testing.T) {
 	conn := &fakeConnector{testErr: errors.New("timeout"), names: []string{"ctx", "newc"}}
 	m := connApp(conn, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{name: "newc", endpoint: "http://h:9000", accessKey: "AK", secret: "SK"}
+	m.form = &connForm{name: textField{Value: "newc"}, endpoint: textField{Value: "http://h:9000"}, accessKey: textField{Value: "AK"}, secret: textField{Value: "SK"}}
 	m = runForm(m) // first submit: test fails → save-anyway offered
 	if !m.form.tested || m.form.testOK {
 		t.Fatal("precondition: form should be in failed-test state")
@@ -184,6 +184,145 @@ func TestEditAfterFailedTestRetests(t *testing.T) {
 	m.formAppend("9")
 	if m.form.tested {
 		t.Error("editing a field after a failed test must re-arm the reachability test")
+	}
+}
+
+// --- 008 US1: discoverable connection delete ---
+
+func TestConnDeleteHintVisibleForNonActive(t *testing.T) {
+	m := connApp(&fakeConnector{}, []string{"ctx", "other"})
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 1 // "other" — non-active
+	view := m.connectionsView(80, 12)
+	if !strings.Contains(view, "delete") {
+		t.Errorf("non-active selection must show a delete hint; view:\n%s", view)
+	}
+	if !strings.Contains(view, glyph(m.keys.DeleteChord[0])) {
+		t.Errorf("delete hint must show the chord glyph %q; view:\n%s", glyph(m.keys.DeleteChord[0]), view)
+	}
+}
+
+func TestConnDeleteHintAbsentOnAddRow(t *testing.T) {
+	m := connApp(&fakeConnector{}, []string{"ctx", "other"})
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = len(m.contexts) // the "+ add connection" row
+	view := m.connectionsView(80, 12)
+	if strings.Contains(view, "delete") {
+		t.Errorf("the +add row must NOT show a delete hint; view:\n%s", view)
+	}
+}
+
+func TestConnDeleteHintAbsentForActive(t *testing.T) {
+	m := connApp(&fakeConnector{}, []string{"ctx", "other"})
+	m.ctxName = "ctx"
+	mm, _ := m.openConnections()
+	m = mm.(App)
+	m.connSel = 0 // active "ctx"
+	view := m.connectionsView(80, 12)
+	if strings.Contains(view, "delete") {
+		t.Errorf("the active connection must NOT show a delete hint; view:\n%s", view)
+	}
+}
+
+// --- 008 US3: usable text entry (paste + caret) ---
+
+func formApp() App {
+	m := connApp(&fakeConnector{}, []string{"ctx"})
+	m.mode = modeConnForm
+	m.form = &connForm{pathStyle: true}
+	return m
+}
+
+func TestConnFormPasteIntoField(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldEndpoint
+	m = deliver(m, tea.PasteMsg{Content: "https://h:9000\n"}) // trailing newline (clipboard)
+	if m.form.endpoint.Value != "https://h:9000" {
+		t.Errorf("paste should land whole, newline stripped; got %q", m.form.endpoint.Value)
+	}
+	if m.mode != modeConnForm {
+		t.Errorf("paste must not submit the form; mode=%v", m.mode)
+	}
+}
+
+func TestConnFormCaretMidFieldInsert(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldName
+	m = typeStr(m, "htps")
+	m = press(m, "left")
+	m = press(m, "left")
+	m = press(m, "t") // insert between 'ht' and 'ps'
+	if m.form.name.Value != "https" {
+		t.Errorf("mid-field insert at caret: got %q, want https", m.form.name.Value)
+	}
+}
+
+func TestConnFormBackspaceAtCaret(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldName
+	m = typeStr(m, "abcd")
+	m = press(m, "left") // caret between c and d
+	m = press(m, "backspace")
+	if m.form.name.Value != "abd" {
+		t.Errorf("backspace at caret should remove char before caret: got %q, want abd", m.form.name.Value)
+	}
+}
+
+func TestConnFormSecretMaskedAndDrafted(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldSecret
+	m = deliver(m, tea.PasteMsg{Content: "S3CR3Tkey"})
+	view := m.connFormView(80)
+	if strings.Contains(view, "S3CR3Tkey") {
+		t.Errorf("secret must render masked, not in the clear:\n%s", view)
+	}
+	if !strings.Contains(view, "•") {
+		t.Errorf("secret field should render bullets; view:\n%s", view)
+	}
+	if got := string(m.form.draft().Secret); got != "S3CR3Tkey" {
+		t.Errorf("draft must carry the secret value for save; got %q", got)
+	}
+}
+
+func TestConnFormCaretNoOpOnToggleRow(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldPathStyle
+	before := m.form.pathStyle
+	m = press(m, "left")  // no caret on a toggle row
+	m = press(m, "right") // no panic / no change
+	m = deliver(m, tea.PasteMsg{Content: "junk"})
+	if m.form.pathStyle != before {
+		t.Errorf("caret/paste on a toggle row must not flip it")
+	}
+	m = press(m, "space") // space still toggles
+	if m.form.pathStyle == before {
+		t.Errorf("space must still toggle the boolean row")
+	}
+}
+
+// --- 008 US4: secret + per-field guidance ---
+
+func TestConnFormSecretGuidance(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldSecret
+	view := m.connFormView(100)
+	if !strings.Contains(view, "keychain") {
+		t.Errorf("secret guidance must name keychain storage; view:\n%s", view)
+	}
+	if !strings.Contains(view, "config file") {
+		t.Errorf("secret guidance must note other sources are config-file-only; view:\n%s", view)
+	}
+}
+
+func TestConnFormPerFieldGuidance(t *testing.T) {
+	m := formApp()
+	for _, fld := range []int{fldName, fldEndpoint, fldAccessKey} {
+		m.form.cursor = fld
+		if m.connFieldHint(fld) == "" {
+			t.Errorf("field %d should have a focused-field expectation hint", fld)
+		}
 	}
 }
 

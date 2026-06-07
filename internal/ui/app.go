@@ -297,6 +297,17 @@ func (m *App) levelKey() cache.Key {
 	return cache.Key{Context: m.ctxName, Bucket: m.bucket, Prefix: m.prefix, Search: m.search}
 }
 
+// levelKeyFor is the cache coordinate for an arbitrary (bucket, prefix) in the active
+// context, with an empty search — used to invalidate a level other than the current view
+// after a cross-prefix mutation (008 US6).
+func (m App) levelKeyFor(bucket, prefix string) cache.Key {
+	return cache.Key{Context: m.ctxName, Bucket: bucket, Prefix: prefix, Search: ""}
+}
+
+// invalidateLevel drops a single cached level so the next navigation to it re-fetches
+// (008 US6 / FR-016). Precise — never a whole-cache clear.
+func (m App) invalidateLevel(key cache.Key) { m.cache.Invalidate(key) }
+
 // Update is the single message dispatcher.
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
@@ -403,8 +414,55 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchFireMsg:
 		return m.onSearchFire(msg)
 
+	case tea.PasteMsg:
+		return m.onPaste(msg.Content)
+
 	case tea.KeyPressMsg:
 		return m.onKey(msg)
+	}
+	return m, nil
+}
+
+// sanitizePaste collapses a clipboard payload to a single line (008 US3): trailing
+// newlines are dropped (clipboards often append one) and any interior newline becomes a
+// space, so a paste never breaks a single-line field or submits a form prematurely.
+func sanitizePaste(s string) string {
+	s = strings.TrimRight(s, "\r\n")
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
+}
+
+// onPaste routes a bracketed-paste payload to the active text surface (008 US3, FR-005):
+// the search/command input, the add-connection form's focused field, the typed-confirm input,
+// or an operation's destination-key / new-folder name entry. No-op when no text surface is
+// focused. The caret-aware surfaces (connForm, typed-confirm) insert at the caret; the plain
+// append-style surfaces (search/command/dest-key/name) append, matching their keystroke path.
+func (m App) onPaste(content string) (tea.Model, tea.Cmd) {
+	text := sanitizePaste(content)
+	if text == "" {
+		return m, nil
+	}
+	switch {
+	case m.searching:
+		m.searchInput += text
+		return m.afterFilterEdit()
+	case m.mode == modeCommand:
+		m.cmdInput += text
+		return m, nil
+	case m.mode == modeConnForm && m.form != nil:
+		m.formAppend(text)
+		return m, nil
+	case m.op != nil && m.op.phase == phaseConfirm && m.op.tier == confirmTyped:
+		m.op.input.Insert(text)
+		return m, nil
+	case m.op != nil && m.op.phase == phaseDest:
+		m.op.dstKey += text
+		return m, nil
+	case m.op != nil && m.op.phase == phaseName:
+		m.op.name += text
+		return m, nil
 	}
 	return m, nil
 }

@@ -4,6 +4,8 @@ import (
 	"errors"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/danchupin/s3s/internal/storage"
 )
 
@@ -31,7 +33,7 @@ func typeStr(m App, s string) App {
 // dispatches (FR-005/SC-003).
 func TestTypedConfirmExactMatchDispatches(t *testing.T) {
 	m := typeStr(typedApp(), "prod")
-	if m.op == nil || m.op.input != "prod" {
+	if m.op == nil || m.op.input.Value != "prod" {
 		t.Fatalf("typed input not captured: %+v", m.op)
 	}
 	m2, cmd := pressCmd(m, "enter")
@@ -60,6 +62,29 @@ func TestTypedConfirmMismatchAborts(t *testing.T) {
 		if !errors.Is(m.err, errConfirmMismatch) {
 			t.Errorf("entry %q: want errConfirmMismatch, got %v", entry, m.err)
 		}
+	}
+}
+
+// TestTypedConfirmPaste: a bracketed paste lands in the typed-confirm input (008 US3).
+func TestTypedConfirmPaste(t *testing.T) {
+	m := typedApp()
+	m = deliver(m, tea.PasteMsg{Content: "prod"})
+	if m.op == nil || m.op.input.Value != "prod" {
+		t.Fatalf("paste should fill the typed-confirm input; op=%+v", m.op)
+	}
+	m2, cmd := pressCmd(m, "enter")
+	if cmd == nil || m2.op == nil || m2.op.phase != phaseRunning {
+		t.Errorf("pasted exact match should dispatch; op=%+v cmd=%v", m2.op, cmd)
+	}
+}
+
+// TestTypedConfirmCaretInsert: caret movement inserts mid-string (008 US3, FR-006).
+func TestTypedConfirmCaretInsert(t *testing.T) {
+	m := typeStr(typedApp(), "prod")
+	m = press(m, "home")
+	m = press(m, "X") // insert at start
+	if m.op.input.Value != "Xprod" {
+		t.Errorf("Home+insert should prepend; got %q, want Xprod", m.op.input.Value)
 	}
 }
 

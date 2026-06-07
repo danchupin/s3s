@@ -120,7 +120,7 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 		if a.dangerous {
 			// Bare dangerous key never triggers; require the chord (FR-021). Nudge only.
 			if m.writable() {
-				m.notice = "press " + glyph(firstBind(a.chordKeys)) + " to " + a.label + " (Ctrl chord required)"
+				m.notice = "press " + glyph(firstBind(a.chordKeys)) + " to " + a.label
 			} else {
 				m.err = storage.ErrReadOnly
 			}

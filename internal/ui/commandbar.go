@@ -86,6 +86,11 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 		}
 		out = append(out, barEntry{key: glyph(a.binds[0]), label: m.actionLabel(a), role: role})
 	}
+	// Reset affordance (008 US8, FR-021): shown only when a filter term is applied AND the
+	// input is closed (not while typing — that mode shows its own Enter/Esc hints).
+	if m.searchActive() && !m.searching {
+		out = append(out, barEntry{key: glyph(m.keys.Back[0]), label: "clear", role: roleRead})
+	}
 	return out
 }
 
@@ -94,9 +99,24 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 // (FR-018), else active (FR-008). Dangerous actions display their chord glyph (FR-026).
 func (m App) writeEntries(kind selKind, cat []action) []barEntry {
 	writable := m.writable()
+	// US9 (FR-022): the duplicate-"delete" problem only exists when the catalog has the delete
+	// PAIR (object + recursive, tree mode). Suppress an inapplicable delete ONLY then — never
+	// when "delete" is the lone write action (bucket mode), so the write group is never emptied
+	// (preserves 007 FR-016: the write block always shows the capability, dimmed when N/A).
+	deletePair := 0
+	for _, a := range cat {
+		if a.writeOnly && a.label == "delete" {
+			deletePair++
+		}
+	}
 	var out []barEntry
 	for _, a := range cat {
 		if !a.writeOnly {
+			continue
+		}
+		// Show only the selection-applicable delete so the write group never carries two
+		// identical "delete" labels — applied only when the delete pair is present.
+		if deletePair > 1 && a.label == "delete" && a.avail != nil && !a.avail(m, kind) {
 			continue
 		}
 		key := glyph(a.binds[0])
@@ -145,7 +165,7 @@ func (m App) commandBarView(w int) string {
 		return m.collapsedBarView(w, kind, cat)
 	}
 	info := m.infoColumn()
-	read := entryColumn(blockTitleStyle.Render("READ"), m.readEntries(kind, cat))
+	read := entryColumn(m.readEntries(kind, cat))
 	write := m.writeColumn(kind, cat)
 	natural := lipgloss.Width(info) + lipgloss.Width(read) + lipgloss.Width(write) + 4
 	if natural > w {
@@ -154,13 +174,10 @@ func (m App) commandBarView(w int) string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, info, "  ", read, "  ", write)
 }
 
-// blockTitleStyle renders a calm (dim, bold) block heading.
-var blockTitleStyle = lipgloss.NewStyle().Bold(true).Foreground(colDim)
-
-// infoColumn renders the info block as a titled column.
+// infoColumn renders the info block as a column. No heading (008 US5, FR-013) — the column
+// + inter-column gap carry the grouping; the identity line leads.
 func (m App) infoColumn() string {
-	rows := []string{blockTitleStyle.Render("INFO")}
-	rows = append(rows, footerIdentityCompact(40, m.ctxName, "", m.writable())) // ● ctx [badge]
+	rows := []string{footerIdentityCompact(40, m.ctxName, "", m.writable())} // ● ctx [badge]
 	for _, f := range m.infoFields() {
 		val := f.value
 		if val == "" {
@@ -169,30 +186,35 @@ func (m App) infoColumn() string {
 		rows = append(rows, dimCellStyle.Render(pad(f.label, 7))+" "+f.style.Render(val))
 	}
 	if m.connect != nil {
-		rows = append(rows, accentStyle.Render(glyph(m.keys.AddConn[0]))+" "+dimCellStyle.Render("new conn"))
+		// "connections" (not "new conn"): the entry opens the manager where one switches,
+		// adds, or deletes — so the switch affordance is discoverable (008 US7, FR-019).
+		rows = append(rows, accentStyle.Render(glyph(m.keys.AddConn[0]))+" "+dimCellStyle.Render("connections"))
 	}
 	rows = append(rows, barGlobals)
 	return blockColumn(rows)
 }
 
-// entryColumn renders a column from a pre-rendered title and its entries. Shared by the
-// read and write blocks (writeColumn supplies a title that carries the read-only cue).
-func entryColumn(title string, entries []barEntry) string {
-	rows := []string{title}
+// entryColumn renders a column from its entries — no heading (008 US5, FR-013).
+func entryColumn(entries []barEntry) string {
+	rows := make([]string, 0, len(entries))
 	for _, e := range entries {
 		rows = append(rows, entryStyled(e))
 	}
 	return blockColumn(rows)
 }
 
-// writeColumn renders the write block as a titled column. The title gains a "(w to arm)"
-// cue when read-only so the inactive state survives NO_COLOR (FR-015).
+// writeColumn renders the write block as a column. With no WRITE heading, the read-only cue
+// is a literal "w to arm" lead row (amber, NO_COLOR-safe) shown only when not writable — the
+// defined surface preserving the read-only state cue (008 US5, FR-014).
 func (m App) writeColumn(kind selKind, cat []action) string {
-	title := blockTitleStyle.Render("WRITE")
+	var rows []string
 	if !m.writable() {
-		title += warnStyle.Render("  (w to arm)")
+		rows = append(rows, warnStyle.Render("w to arm"))
 	}
-	return entryColumn(title, m.writeEntries(kind, cat))
+	for _, e := range m.writeEntries(kind, cat) {
+		rows = append(rows, entryStyled(e))
+	}
+	return blockColumn(rows)
 }
 
 // blockColumn pads each row of a block to the block's max width and joins them.
@@ -217,7 +239,9 @@ func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
 	identity := footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable())
 	read := append([]barEntry{}, m.readEntries(kind, cat)...)
 	if m.connect != nil {
-		read = append(read, barEntry{key: glyph(m.keys.AddConn[0]), label: "new conn", role: roleRead})
+		// Prepend "connections" so width-trimming (which drops trailing entries) never drops
+		// it first — it stays discoverable on a narrow bar (008 US7, FR-020).
+		read = append([]barEntry{{key: glyph(m.keys.AddConn[0]), label: "connections", role: roleRead}}, read...)
 	}
 	// Globals (help/quit) always survive; fit the read entries into the remaining width.
 	globals := dimCellStyle.Render(" · ") + barGlobals

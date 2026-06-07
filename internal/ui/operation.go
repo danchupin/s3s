@@ -55,10 +55,10 @@ type operation struct {
 	localSize int64  // upload source size (progress total)
 	target    string // resolved identifier acted on; for confirm + logging
 	tier      confirmTier
-	expect    string   // typed tier: the exact string the operator must type
-	input     string   // typed tier: the operator's entry
-	overwrite bool     // target already exists in the loaded level (advisory) — clobber warning
-	bulkKeys  []string // marked object keys for a bulk_* operation (005 US3)
+	expect    string    // typed tier: the exact string the operator must type
+	input     textField // typed tier: the operator's entry (caret + paste, 008 US3)
+	overwrite bool      // target already exists in the loaded level (advisory) — clobber warning
+	bulkKeys  []string  // marked object keys for a bulk_* operation (005 US3)
 	phase     opPhase
 	progress  opProgress
 	ticks     int // spinner ticks elapsed while phaseRunning — gates the progress bar (007 FR-035)
@@ -457,6 +457,28 @@ func (m App) onOperationDone(msg operationDoneMsg) (tea.Model, tea.Cmd) {
 	bucketName := ""
 	if isBucket {
 		bucketName = m.op.bucket
+	}
+	// US6 (FR-015/FR-016): a copy/move/bulk-copy whose destination prefix differs from the
+	// current view leaves that level cached-stale. Precisely invalidate the SOURCE and
+	// DESTINATION prefix keys (same bucket — copy/move are single-bucket) so a later
+	// navigation shows fresh contents. Same-level mutations are covered by refresh() below.
+	if m.op != nil {
+		// A partial move still copied to the destination (source remains) — its dest level is
+		// now stale too, so invalidate on ErrMovePartial as well as on clean success.
+		copyMoveOK := msg.err == nil || errors.Is(msg.err, storage.ErrMovePartial)
+		switch m.op.kind {
+		case "copy", "move":
+			if copyMoveOK {
+				m.invalidateLevel(m.levelKeyFor(m.op.bucket, parentPrefix(m.op.srcKey)))
+				m.invalidateLevel(m.levelKeyFor(m.op.bucket, parentPrefix(m.op.target)))
+			}
+		case "bulk_copy":
+			if msg.err == nil {
+				// bulk dstKey is the destination PREFIX itself (not a key), source is op.parent.
+				m.invalidateLevel(m.levelKeyFor(m.op.bucket, m.op.parent))
+				m.invalidateLevel(m.levelKeyFor(m.op.bucket, m.op.dstKey))
+			}
+		}
 	}
 	m.loading = false
 	m.op = nil

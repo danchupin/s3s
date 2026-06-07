@@ -78,3 +78,26 @@ func TestHelpCloseHint(t *testing.T) { // H1, obligation 4 (FR-012)
 		t.Error("help must state how to close it")
 	}
 }
+
+// --- 008 US2: chord labels spell out the modifier (FR-004) ---
+
+func TestChordGlyphSpelledOut(t *testing.T) {
+	if got := glyph("ctrl+x"); got != "Ctrl+X" {
+		t.Errorf("glyph(ctrl+x) = %q, want Ctrl+X", got)
+	}
+	if got := glyph("ctrl+o"); got != "Ctrl+O" {
+		t.Errorf("glyph(ctrl+o) = %q, want Ctrl+O", got)
+	}
+}
+
+func TestNoCaretChordInRenderedBar(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	selectObject(&m, "a.txt")
+	m.width = 140
+	bar := m.commandBarView(140)
+	if strings.Contains(bar, "^x") || strings.Contains(bar, "^o") {
+		t.Errorf("rendered command bar must not use caret shorthand; got:\n%s", bar)
+	}
+}
