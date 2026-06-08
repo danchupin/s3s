@@ -162,29 +162,29 @@ func TestObjectSearchSupersedes(t *testing.T) {
 	}
 }
 
-// T018 / 015 US5: the always-visible strip reflects the full lifecycle — placeholder → active
-// edit (input + hints) → committed echo (no hints) → reopen pre-filled → Esc revert → clear.
-func TestFilterStripLifecycle(t *testing.T) {
+// 015 US5: the always-visible bucket FORM reflects the full lifecycle — placeholder → live edit →
+// committed term → reopen pre-filled → Esc revert → clear.
+func TestFilterFormLifecycle(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("alpha")
 	f.Seed("beta")
 	m := dualApp(f) // focus buckets
 
-	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
-		t.Errorf("idle strip should show the placeholder; got %q", s)
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "/ to filter") {
+		t.Errorf("idle form should show the placeholder; got %q", s)
 	}
 
 	m = press(m, "/")
 	for _, r := range "alph" {
 		m = press(m, string(r))
 	}
-	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "alph") || !strings.Contains(s, "Enter apply") {
-		t.Errorf("active strip should show the live input + hints; got %q", s)
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "filter buckets") || !strings.Contains(s, "alph") {
+		t.Errorf("active form should show the live input; got %q", s)
 	}
 
 	m = press(m, "enter")
-	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "filter buckets: alph") || strings.Contains(s, "Enter apply") {
-		t.Errorf("committed idle strip should echo the term without hints; got %q", s)
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "alph") {
+		t.Errorf("committed form should show the term; got %q", s)
 	}
 
 	// Reopen pre-filled, edit, then Esc reverts to the committed term.
@@ -198,7 +198,7 @@ func TestFilterStripLifecycle(t *testing.T) {
 		t.Errorf("Esc should revert to the committed term, got %q", m.bucketFilter)
 	}
 
-	// Clear (empty + commit) → strip back to the placeholder.
+	// Clear (empty + commit) → form back to the placeholder.
 	m = press(m, "/")
 	for range "alph" {
 		m = press(m, "backspace")
@@ -207,12 +207,12 @@ func TestFilterStripLifecycle(t *testing.T) {
 	if m.bucketFilter != "" {
 		t.Fatalf("clearing should empty the bucket filter, got %q", m.bucketFilter)
 	}
-	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
-		t.Errorf("after clear the strip should return to the placeholder; got %q", s)
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "/ to filter") || strings.Contains(s, "alph") {
+		t.Errorf("after clear the form should return to the placeholder; got %q", s)
 	}
 }
 
-// T018 / 015 FR-016: switching context clears that level's filter and resets the strip.
+// 015 FR-016: switching context clears that level's filter and resets the form.
 func TestNavigateAwayClearsFilter(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("alpha")
@@ -245,7 +245,7 @@ func TestNavigateAwayClearsFilter(t *testing.T) {
 	if m.bucketFilter != "" {
 		t.Errorf("switching context must clear the bucket filter, got %q", m.bucketFilter)
 	}
-	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
-		t.Errorf("after a context switch the strip resets to the placeholder; got %q", s)
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "/ to filter") || strings.Contains(s, "alph") {
+		t.Errorf("after a context switch the form resets to the placeholder; got %q", s)
 	}
 }

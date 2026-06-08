@@ -433,6 +433,43 @@ func boxViewWith(left, center, filterChip, modeChip, body string, width, minRows
 	return b.String()
 }
 
+// filterFieldView renders a prominent, bordered single-line filter input field — the always-
+// visible filter "form" for one scope (015). The top border labels the scope ("filter buckets" /
+// "filter objects"). The FOCUSED field is drawn with the accent border + bold label (active); an
+// unfocused field is calmer (dim border/label) but still a clearly bordered box showing its
+// committed term. While editing, the live input + caret render; idle shows the committed term, or
+// a dim "/ to filter" placeholder. Always exactly 3 lines, each of display width w.
+func filterFieldView(pane, term, input string, w int, active, editing bool) string {
+	inner := w - 2
+	if inner < 1 {
+		inner = 1
+	}
+	border, labelSt := ruleStyle, dimCellStyle
+	if active {
+		border, labelSt = accentStyle, titleStyle
+	}
+	// Top border: ╭─ filter <pane> ───╮ (the label cap leaves room for ╭─ , a space, and ╮).
+	label := truncate("filter "+pane, max(1, inner-3))
+	dashes := inner - 3 - lipgloss.Width(label)
+	if dashes < 0 {
+		dashes = 0
+	}
+	top := border.Render("╭─ ") + labelSt.Render(label) + border.Render(" "+strings.Repeat("─", dashes)+"╮")
+
+	var body string
+	switch {
+	case editing:
+		body = " " + objCellStyle.Render(truncate(input, max(1, inner-2))) + accentStyle.Render("▏")
+	case term != "":
+		body = " " + objCellStyle.Render(truncate(term, max(1, inner-1)))
+	default:
+		body = " " + dimCellStyle.Render(truncate("/ to filter", max(1, inner-1)))
+	}
+	mid := border.Render("│") + padLine(body, inner) + border.Render("│")
+	bot := border.Render("╰" + strings.Repeat("─", inner) + "╯")
+	return top + "\n" + mid + "\n" + bot
+}
+
 // --- footer: compact identity + contextual, single-row hints ---
 //
 // The list modes (buckets/tree) render their hints via the 006 hint bar (hintBarView);

@@ -45,6 +45,22 @@ converged on a clear pattern, which this feature adopts:
 - Q: Object-scope match count, given the level total is often unknown (paginated server-side search)? → A: Show **"N matched"** for the object scope (matched count only, no total); the bucket scope (local) shows **matched / total**. No extra network requests.
 - Q: Where is the match count shown? → A: **On the per-pane indicator chip** (e.g. `filter: term · 12/40`) — baked into the border chip so it costs zero body rows and is always visible.
 
+### Session 2026-06-08 (design revision after first cut)
+
+The first implementation (one dim, focus-bound single-line strip with the term + count on a border
+chip) was rejected on review: the user asked for **two filter panels, both always visible**, and
+found the strip **too inconspicuous**. Revised decisions (supersede the strip/chip decisions above):
+
+- Q: One strip bound to focus, or one form per scope? → A: **One prominent bordered FORM per scope**
+  (`filter buckets` / `filter objects`), both shown at once in the two-pane browse (side by side
+  under their panes). The focused pane's form is drawn active (accent border/label + caret); the
+  other stays visible with its committed term — both filters are visible regardless of focus.
+- Q: Reserved chrome cost? → A: A fixed **3-line band** (a bordered input box) per filterable mode;
+  the LIST absorbs it, the footer is never sacrificed.
+- Q: Where does the match count go now? → A: On the **list box title** (`buckets[M/T]`, `…[N]`) — the
+  title already carries the count, so the form stays clean (no duplicate count, no narrow-border
+  degrade). Object scope stays `N` matched only (no total fetched); bucket stays `M/T` (local).
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - The active filter is always visible (Priority: P1)

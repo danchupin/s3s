@@ -13,12 +13,13 @@ The two are independent: applying or clearing one MUST NOT change the other.
 
 ## Simultaneous indicators
 
-In the two-pane browse layout (`listWithPane`), the bucket box carries the bucket chip and the
-objects box carries the object chip; each is term-gated (shown whenever its scope has a committed
-term) and **focus-agnostic** — moving focus between panes does not hide either committed chip.
+In the two-pane browse layout (`listWithPane`), the bucket box stacks the **bucket filter form**
+and the objects box stacks the **object filter form**; both forms render at once and are
+**focus-agnostic** — moving focus between panes does not hide either form or its committed term.
+The match count for each scope rides its list box title (`buckets[M/T]`, `…[N]`).
 
-The always-visible strip is bound to the **focused** scope (you type into one scope at a time);
-the non-focused scope's committed chip + count remain visible.
+You type into one scope at a time (the focused pane's form, which is drawn active with a caret);
+the non-focused scope's form keeps showing its committed term, and both title counts stay.
 
 ## Acceptance
 

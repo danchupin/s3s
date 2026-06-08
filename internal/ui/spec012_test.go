@@ -607,8 +607,8 @@ func TestCuesAreTextBased(t *testing.T) {
 	f.Seed("b", "a.txt")
 	m := dualApp(f)
 	m = press(m, "/") // open the filter input
-	// 015 FR-005: the filter input cue moved from statusLine to the always-visible strip.
-	if s := m.filterStripView(120); !strings.Contains(s, "filter") {
+	// 015 FR-005: the filter input cue moved from statusLine to the always-visible filter form.
+	if s := stripANSI(m.scopeFilterField(120)); !strings.Contains(s, "filter") {
 		t.Errorf("filter input cue must be text: %q", s)
 	}
 	if !strings.Contains((App{}).modeChip(), "RO") || !strings.Contains((App{armed: true}).modeChip(), "WRITE") {

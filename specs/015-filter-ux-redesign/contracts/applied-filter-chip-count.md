@@ -1,37 +1,36 @@
-# Contract: Count-Bearing, Term-Gated Indicator Chip
+# Contract: Filter term in the form, match count in the title
 
-## API (internal)
+> Design revision: the committed filter term is shown in the per-scope **form** (not a border
+> chip); the **match count** rides the list box **title** above the form. This keeps the boxed
+> form clean and avoids duplicating the count, which the list title already carries.
+
+## Where each piece lives
 
 ```go
-// app.go — filterChipText gains count params.
-func (m App) filterChipText(term string, matched, total int, hasTotal bool) string
-// "filter: <term> · M/T"  (hasTotal == true,  bucket scope)
-// "filter: <term> · N"    (hasTotal == false, object scope)
+// app.go — the form renders the term; the title renders the count.
+func (m App) bucketFilterField(w int) string   // label "filter buckets" + m.bucketFilter (term)
+func (m App) objectFilterField(w int) string   // label "filter objects" + m.search (term)
 
-func (m App) bucketFilterChip() string  // → filterChipText(m.bucketFilter, len(filteredBuckets()), len(m.buckets), true)
-func (m App) objectsFilterChip() string // → filterChipText(m.search, m.level.count(), 0, false)
+func (m App) resourceTitle() string             // buckets: "buckets[M/T]" (filtered/total, local)
+func (m App) objectsZoneTitle(w int) string     // objects: "…[N]"        (N matched; no total fetched)
 ```
 
 ## Rules
 
-- **Term-gated**: a scope's chip renders whenever that scope has a committed term, INDEPENDENT of
-  which pane is focused. In the two-pane layout both chips show at once (bucket chip on the bucket
-  box, object chip on the objects box).
-- **Hidden while editing that scope**: a scope's chip hides only while it is being actively edited
-  (`searching` on that scope) — its live term shows in the strip instead; the OTHER scope's chip
-  stays.
-- **Count**: bucket = matched/total (local, instant); object = matched only (no level total
-  fetched).
-- **Elision/degradation**: term elides first to fit `filterChipTermMax` + the ` · M/T` suffix;
-  under width pressure the whole filter chip drops (mode chip survives); the strip still shows the
-  active filter.
-- **NO_COLOR**: the chip is identifiable by text (`filter:` + term + count), not color alone.
+- **Term-in-form, focus-agnostic**: each scope's form shows its committed term whenever set,
+  INDEPENDENT of which pane is focused. In the two-pane layout both forms show their terms at once.
+- **Live while editing**: while a scope is being edited the form shows the live input + caret; the
+  list title's count narrows live per keystroke (bucket `M/T` is recomputed instantly).
+- **Count**: bucket title = `M/T` (matched/total, local, instant); object title = `N` matched only
+  (no level total fetched — paginated server-side, FR-013).
+- **Elision**: a long term elides with `…` inside the form; re-open `/` to see/edit the full term.
+- **NO_COLOR**: the form is identifiable by text (`filter buckets`/`filter objects` + the term) and
+  the count by the title text, not color alone.
 
 ## Acceptance
 
-1. A committed bucket filter `dev` over 12 buckets, 3 matching → chip `filter: dev · 3/12`.
-2. A committed object filter `log` with 8 loaded matches → chip `filter: log · 8`.
-3. Both filters committed → both chips visible simultaneously, regardless of focused pane.
-4. Focus moves to the other pane → both chips remain visible.
-5. Editing the bucket filter hides the bucket chip (term is live in the strip) but keeps the
-   object chip.
+1. A committed bucket filter `dev` over 12 buckets, 3 matching → bucket form shows `dev`, the box
+   title shows `buckets[3/12]`.
+2. A committed object filter `log` with 8 loaded matches → object form shows `log`, the title `…[8]`.
+3. Both filters committed → both forms show their terms simultaneously, regardless of focused pane.
+4. Editing one scope shows its live input in that form; the other scope's form keeps its term.
