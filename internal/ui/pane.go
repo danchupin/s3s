@@ -51,7 +51,7 @@ func (m App) paneBucket(w int) string {
 	var sb strings.Builder
 	sb.WriteString(metaRow("Bucket", sanitizeLabel(b.Name), w))
 	sb.WriteString(metaRow("Created", formatDate(b.CreationDate), w))
-	sb.WriteString("\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+" · "+keyHint(m.keys.Enter, "open")))
+	sb.WriteString("\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+sepDot+keyHint(m.keys.Enter, "open")))
 	return sb.String()
 }
 
@@ -68,7 +68,7 @@ func (m App) paneTree(w, rows int) string {
 	}
 	if e.isDir {
 		return metaRow("Folder", sanitizeLabel(e.label), w) +
-			"\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+" · "+keyHint(m.keys.DeleteChord, "delete")+" · "+keyHint(m.keys.Enter, "open"))
+			"\n" + hintLabelStyle.Render(keyHint(m.keys.Analyze, "analyze")+sepDot+keyHint(m.keys.DeleteChord, "delete")+sepDot+keyHint(m.keys.Enter, "open"))
 	}
 
 	// Object: once the debounced metadata arrives for THIS key, render the full shared

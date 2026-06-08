@@ -139,14 +139,17 @@ func TestRevealFooterNotClipped(t *testing.T) {
 
 // --- US2: write state legible + mode chip ---
 
-// T011: only the badge text carries the state color — not the adjacent space (FR-006).
+// T011→013: only the mode chip TEXT carries the state color — not an adjacent space (FR-006).
+// (The footer [RW]/[RO] tag was removed in 013 US1; the invariant now lives on the chip.)
 func TestBadgeDoesNotColorAdjacentSpace(t *testing.T) {
-	line := footerIdentityCompact(40, "ctx", "", true)
-	if strings.Contains(line, writeBadgeStyle.Render(" [RW]")) {
-		t.Error("the space before the badge must not carry the state color")
+	f := storage.NewFake()
+	f.Seed("b", "x")
+	chip := buildApp(f, true, false).modeChip()
+	if strings.Contains(chip, writeBadgeStyle.Render(" WRITE")) {
+		t.Error("a space adjacent to the chip must not carry the state color")
 	}
-	if !strings.Contains(line, writeBadgeStyle.Render("[RW]")) {
-		t.Errorf("badge text must carry the state color:\n%q", line)
+	if !strings.Contains(chip, writeBadgeStyle.Render("WRITE")) {
+		t.Errorf("chip text must carry the state color:\n%q", chip)
 	}
 }
 

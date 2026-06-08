@@ -1175,7 +1175,7 @@ func (m App) View() tea.View {
 	case modeContextSwitch:
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
-		body = boxView(m.resourceTitle(), m.objectKind(), m.objectView(w-2, rows), w, rows)
+		body = boxViewChip(m.resourceTitle(), m.objectKind(), "", m.modeChip(), m.objectView(w-2, rows), w, rows)
 	case modeUsage:
 		body = boxView(m.usageTitle(), "", m.usageView(w-2, dataRows), w, rows)
 	case modeConnections:
@@ -1253,7 +1253,7 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 	// tiers add the side pane. US1/US3 differentiate the Dual objects zone
 	// from the Full details zone; today both render the existing details pane.
 	if layoutTier(w) == tierSingle || !m.paneVisible {
-		return boxViewChip(title, sel, m.modeChip(), renderList(w-2, dataRows), w, rows)
+		return boxViewChip(title, sel, m.primaryFilterChip(), m.modeChip(), renderList(w-2, dataRows), w, rows)
 	}
 	paneW := w / 3
 	if paneW > 40 {
@@ -1267,23 +1267,23 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 	// so object names have room. The tree view keeps the wide list + thin details pane (006).
 	if m.mode == modeBuckets {
 		bucketW := m.bucketsColWidth(w, paneW)
-		bucketsBox := boxViewFocusChip(title, sel, m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
+		bucketsBox := boxViewFocusChip(title, sel, m.bucketFilterChip(), m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
 		// Full tier (≥130): a third, non-focusable details zone (006 pane, preserved per 011 US3)
 		// joins buckets│objects; it adapts to focus (bucket meta vs object meta+preview). Dual:
 		// the details zone collapses and the objects zone takes the rest.
 		if layoutTier(w) == tierFull && m.paneVisible {
 			detW := paneW
 			objW := w - bucketW - detW
-			objBox := boxViewFocus(m.objectsZoneTitle(objW), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+			objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", m.objectsFilterChip(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
 			detBox := boxView("details", "", m.browseDetailsView(detW-2, rows-2), detW, rows)
 			return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox, detBox)
 		}
 		objW := w - bucketW
-		objBox := boxViewFocus(m.objectsZoneTitle(objW), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+		objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", m.objectsFilterChip(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
 		return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox)
 	}
 	listW := w - paneW
-	listBody := boxViewChip(title, sel, m.modeChip(), renderList(listW-2, dataRows), listW, rows)
+	listBody := boxViewChip(title, sel, m.objectsFilterChip(), m.modeChip(), renderList(listW-2, dataRows), listW, rows)
 	paneBody := boxView("details", "", m.paneView(paneW-2, rows-2), paneW, rows)
 	return lipgloss.JoinHorizontal(lipgloss.Top, listBody, paneBody)
 }
@@ -1296,6 +1296,36 @@ func (m App) modeChip() string {
 		return writeBadgeStyle.Render("WRITE")
 	}
 	return roStyle.Render("RO")
+}
+
+// filterChipTermMax caps the term shown inside the applied-filter chip; boxViewWith drops a
+// chip whole when it can't fit (it does not elide chip text), so the term is capped here. The
+// full committed term remains recoverable by re-opening the filter input (`/`), which pre-fills it.
+const filterChipTermMax = 14
+
+// filterChipText renders the applied-filter chip for a committed (non-empty) term, hidden while
+// the typing input is open (013 US2 / applied-filter-contract F8). warnStyle reuses the typing-
+// input accent; the term is capped with an ellipsis.
+func (m App) filterChipText(term string) string {
+	if term == "" || m.searching {
+		return ""
+	}
+	return warnStyle.Render("filter: " + truncate(term, filterChipTermMax))
+}
+
+// bucketFilterChip is the applied-filter chip for the bucket list (local name filter).
+func (m App) bucketFilterChip() string { return m.filterChipText(m.bucketFilter) }
+
+// objectsFilterChip is the applied-filter chip for an object level (server-side prefix search).
+func (m App) objectsFilterChip() string { return m.filterChipText(m.search) }
+
+// primaryFilterChip is the applied-filter chip for the single primary list box: the bucket
+// filter in modeBuckets, the level search otherwise (modeTree).
+func (m App) primaryFilterChip() string {
+	if m.mode == modeBuckets {
+		return m.bucketFilterChip()
+	}
+	return m.objectsFilterChip()
 }
 
 // bucketsColWidth grows the bucket column to fit the longest bucket name when the objects
@@ -1351,9 +1381,8 @@ func (m App) objectsZoneTitle(w int) string {
 	if m.level != nil && m.bucket == b {
 		suffix = fmt.Sprintf("[%d]", m.level.count())
 	}
-	if m.bucket == b && m.search != "" {
-		suffix += " (" + sanitizeLabel(m.search) + "*)"
-	}
+	// The active filter term is shown on the objects box's border chip (013 US2), not appended
+	// to the breadcrumb title.
 	return elideMiddle(path, max(8, w-6-lipgloss.Width(suffix))) + suffix
 }
 
@@ -1379,7 +1408,7 @@ func (m App) footerBlock(w int) string {
 			multiContext: len(m.contexts) > 1,
 			width:        w,
 		})
-		lines = append(lines, footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable()), hintLine)
+		lines = append(lines, footerIdentityCompact(w, m.ctxName, m.info.Cluster), hintLine)
 	}
 	if s := m.statusLine(w); s != "" {
 		lines = append(lines, s)
@@ -1475,9 +1504,8 @@ func (m App) resourceTitle() string {
 		if m.level != nil && !m.level.complete {
 			more = "+"
 		}
-		if m.search != "" {
-			loc += fmt.Sprintf("/%s*", sanitizeLabel(m.search))
-		}
+		// The active filter term is shown on the level box's border chip (013 US2), not appended
+		// to the breadcrumb title.
 		return fmt.Sprintf("%s[%d%s]", loc, n, more) // sort now advertised in the command bar
 	case modeContextSwitch:
 		return fmt.Sprintf("contexts[%d]", len(m.contexts))

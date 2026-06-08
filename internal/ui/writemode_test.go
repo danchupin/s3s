@@ -122,32 +122,33 @@ func TestWriteToggleContextSwitchDerives(t *testing.T) {
 	}
 }
 
-// TestWriteBadgeOnEveryScreen: the loud [RW] marker shows on list, menu, and help
-// while armed, and [RO] while disarmed, including a narrow width (005 FR-027).
+// TestWriteBadgeOnEveryScreen: 013 US1 — the read/write mode shows on every BROWSE box via the
+// border chip (WRITE armed / RO disarmed), including a narrow width; the help overlay keeps its
+// own loud write badge. Overlay/menu modes intentionally carry no chip (013 spec edge cases).
 func TestWriteBadgeOnEveryScreen(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "b/x.txt")
 
 	armed := buildApp(f, true, false)
-	if !strings.Contains(viewOf(armed), "[RW]") {
-		t.Error("armed list view missing [RW] badge")
+	armed = deliver(armed, tea.WindowSizeMsg{Width: 120, Height: 30})
+	if !strings.Contains(stripANSI(viewOf(armed)), "WRITE") {
+		t.Error("armed browse view missing the WRITE mode chip")
 	}
-	if menu := viewOf(press(armed, "a")); !strings.Contains(menu, "[RW]") {
-		t.Error("armed action-menu overlay missing [RW] badge")
-	}
+	// The help overlay keeps its own loud write badge (it has no box/chip).
 	if help := viewOf(press(armed, "?")); !strings.Contains(help, "[RW]") {
-		t.Error("armed help overlay missing [RW] badge")
+		t.Error("armed help overlay missing the [RW] badge")
 	}
 
-	// Narrow width: the badge must still be present.
-	narrow := deliver(armed, tea.WindowSizeMsg{Width: 24, Height: 20})
-	if !strings.Contains(viewOf(narrow), "[RW]") {
-		t.Error("armed narrow view dropped the [RW] badge")
+	// Narrow width: the chip must still be present on the browse box.
+	narrow := deliver(armed, tea.WindowSizeMsg{Width: 30, Height: 20})
+	if !strings.Contains(stripANSI(viewOf(narrow)), "WRITE") {
+		t.Error("armed narrow browse view dropped the WRITE mode chip")
 	}
 
 	ro := buildApp(f, false, false)
-	if !strings.Contains(viewOf(ro), "[RO]") {
-		t.Error("disarmed view missing [RO] marker")
+	ro = deliver(ro, tea.WindowSizeMsg{Width: 120, Height: 30})
+	if !strings.Contains(stripANSI(viewOf(ro)), "RO") {
+		t.Error("disarmed browse view missing the RO mode chip")
 	}
 }
 

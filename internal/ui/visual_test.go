@@ -26,8 +26,8 @@ func TestNonColorCuesPresent(t *testing.T) {
 	if !strings.Contains(v, "✓") {
 		t.Errorf("a marked object should carry the ✓ glyph cue:\n%s", v)
 	}
-	if !strings.Contains(v, "[RW]") {
-		t.Errorf("an armed session should show the [RW] badge TEXT:\n%s", v)
+	if !strings.Contains(v, "WRITE") {
+		t.Errorf("an armed session should show the WRITE mode chip TEXT:\n%s", v)
 	}
 }
 
@@ -36,7 +36,7 @@ func TestBadgeIsReadOnlyTextWhenDisarmed(t *testing.T) {
 	f.Seed("b", "a.txt")
 	m := treeApp(f, false) // read-only
 	m.width, m.height = 120, 30
-	if v := viewOf(m); !strings.Contains(v, "[RO]") {
-		t.Errorf("a read-only session should show the [RO] badge text:\n%s", v)
+	if v := viewOf(m); !strings.Contains(v, "RO") {
+		t.Errorf("a read-only session should show the RO mode chip text:\n%s", v)
 	}
 }
