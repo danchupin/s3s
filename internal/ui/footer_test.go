@@ -102,7 +102,79 @@ func assertWidthSweep(t *testing.T, build func(w int) App, lo, hi, maxRows int) 
 		if fr := footerLineCount(m, w); fr > maxRows {
 			t.Fatalf("w=%d: footer rows=%d, want ≤%d", w, fr, maxRows)
 		}
+		// 015: the always-visible filter form fits — each of its 3 lines is within the width.
+		for _, fl := range strings.Split(m.scopeFilterField(w), "\n") {
+			if lipgloss.Width(fl) > w {
+				t.Fatalf("w=%d: filter-form line exceeds width (%d): %q", w, lipgloss.Width(fl), stripANSI(fl))
+			}
+		}
 	}
+}
+
+func lineCount(s string) int { return strings.Count(s, "\n") + 1 }
+
+// assertHeightSweep checks that as the terminal shrinks vertically, the footer AND the filter
+// form stay fully rendered and only the LIST gives up rows (015 layout-budget-contract). Within
+// the floor-free range the composed view fills EXACTLY the available height — proof that the
+// footer/form are never clipped and the list absorbs every row of loss.
+func assertHeightSweep(t *testing.T, build func() App, w int) {
+	t.Helper()
+	base := build()
+	base.width = w
+	footerH := strings.Count(base.footerBlock(w), "\n") + 1
+	loH := footerH + 8 // smallest height with no row-floor clamp (list inner ≥ 3 + form band 3 + 2)
+	for h := loH; h <= loH+24; h++ {
+		m := build()
+		m.width, m.height = w, h
+		view := m.View().Content
+		if lc := lineCount(view); lc != h {
+			t.Fatalf("w=%d h=%d: view fills %d lines, want exactly %d (footer/form must stay; list absorbs)", w, h, lc, h)
+		}
+		if !strings.Contains(view, m.footerBlock(w)) {
+			t.Fatalf("w=%d h=%d: footer clipped", w, h)
+		}
+		if !strings.Contains(stripANSI(view), "filter objects") {
+			t.Fatalf("w=%d h=%d: filter form clipped", w, h)
+		}
+	}
+}
+
+// 015 US2: the filter form fits at every width and keeps a usable input field (≥10 cols) even at
+// the narrowest supported width (FR-006).
+func TestFilterFormWidthSweepUsable(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "apple", "apricot")
+	const longTerm = "abcdefghijklmnopqrst" // 20 chars
+	build := func(w int) App {
+		m := treeApp(f, true)
+		m.width, m.height = w, 24
+		m.searching = true
+		m.searchInput = longTerm
+		return m
+	}
+	for w := 40; w <= 200; w++ {
+		field := build(w).scopeFilterField(w)
+		if lc := lineCount(field); lc != 3 {
+			t.Fatalf("w=%d: filter form must be exactly 3 lines, got %d", w, lc)
+		}
+		for _, fl := range strings.Split(field, "\n") {
+			if lipgloss.Width(fl) > w {
+				t.Fatalf("w=%d: form line overflows (%d): %q", w, lipgloss.Width(fl), stripANSI(fl))
+			}
+		}
+	}
+	// At the narrowest supported width the editable field keeps ≥10 visible columns: the first 10
+	// chars of the typed term stay visible (FR-006).
+	if narrow := stripANSI(build(40).scopeFilterField(40)); !strings.Contains(narrow, longTerm[:10]) {
+		t.Errorf("at w=40 the input field must keep ≥10 visible columns; got %q", narrow)
+	}
+}
+
+// 015 US2: shrinking the height never clips the footer or the filter form — only the list shrinks.
+func TestFilterFormHeightSweep(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt", "b.txt", "c.txt", "d.txt")
+	assertHeightSweep(t, func() App { return treeApp(f, true) }, 100)
 }
 
 func containsAny(s string, subs ...string) string {

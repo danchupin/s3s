@@ -99,11 +99,11 @@ func TestFooterModeTagRemoved(t *testing.T) {
 	}
 }
 
-// --- US2: applied-filter chip on the filtered pane ---
+// --- US1/US2: always-visible filter FORMS (015 redesign — boxed input under each pane) ---
 
-// T012: an objects-level filter, once committed, shows as a chip on the objects box; it is
-// hidden while typing and removed on clear; the chip is presentation-only (no backend load).
-func TestObjectsFilterChipCommitted(t *testing.T) {
+// 015: an object-level filter renders in the labeled object form — live while typing, the
+// committed term when idle, gone on clear.
+func TestObjectFilterFormCommitted(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "alpha.txt", "beta.txt")
 	m := dualApp(f)
@@ -113,34 +113,35 @@ func TestObjectsFilterChipCommitted(t *testing.T) {
 	for _, r := range "alpha" {
 		m = press(m, string(r))
 	}
-	if strings.Contains(stripANSI(viewOf(m)), "filter: alpha") {
-		t.Errorf("the filter chip must be hidden while the input is open:\n%s", stripANSI(viewOf(m)))
+	if s := stripANSI(m.objectFilterField(80)); !strings.Contains(s, "alpha") {
+		t.Errorf("the object form must show the live input while typing; got %q", s)
 	}
 
 	m = press(m, "enter")
 	if m.searching {
 		t.Fatal("enter should close the filter input")
 	}
-	// Complete the (filtered) level load so a later Back clears the search instead of just
-	// cancelling the in-flight load.
 	page, _ := f.ListLevel(context.Background(), storage.LevelQuery{Bucket: "b", Search: "alpha"})
 	m = deliver(m, levelMsg{gen: m.gen, key: m.levelKey(), page: page})
-	if !strings.Contains(stripANSI(viewOf(m)), "filter: alpha") {
-		t.Errorf("a committed objects filter must show a border chip:\n%s", stripANSI(viewOf(m)))
+	if s := stripANSI(m.objectFilterField(80)); !strings.Contains(s, "alpha") {
+		t.Errorf("a committed object filter must show its term in the form; got %q", s)
+	}
+	if v := stripANSI(viewOf(m)); !strings.Contains(v, "filter objects") {
+		t.Errorf("the object filter form must render in the view:\n%s", v)
 	}
 
 	m = press(m, "esc") // Back → objectsBack clears the search
 	if m.search != "" {
 		t.Fatalf("Back should clear the committed search, got %q", m.search)
 	}
-	if strings.Contains(stripANSI(viewOf(m)), "filter: alpha") {
-		t.Errorf("clearing the filter must remove the chip:\n%s", stripANSI(viewOf(m)))
+	if s := stripANSI(m.objectFilterField(80)); strings.Contains(s, "alpha") {
+		t.Errorf("clearing the filter must remove the term from the form; got %q", s)
 	}
 }
 
-// T013: a bucket-list filter, once committed, shows as a chip on the buckets box; reopening
-// and clearing the term removes it.
-func TestBucketFilterChipCommitted(t *testing.T) {
+// 015: a bucket-list filter renders in the labeled bucket form — live while typing, the committed
+// term when idle, gone on clear.
+func TestBucketFilterFormCommitted(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("alpha")
 	f.Seed("beta")
@@ -150,15 +151,22 @@ func TestBucketFilterChipCommitted(t *testing.T) {
 	for _, r := range "alph" {
 		m = press(m, string(r))
 	}
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "alph") {
+		t.Errorf("the bucket form must show the live input while typing; got %q", s)
+	}
+
 	m = press(m, "enter")
 	if m.bucketFilter != "alph" {
 		t.Fatalf("setup: committed bucket filter = %q, want \"alph\"", m.bucketFilter)
 	}
-	if !strings.Contains(stripANSI(viewOf(m)), "filter: alph") {
-		t.Errorf("a committed bucket filter must show a border chip:\n%s", stripANSI(viewOf(m)))
+	if s := stripANSI(m.bucketFilterField(40)); !strings.Contains(s, "filter buckets") || !strings.Contains(s, "alph") {
+		t.Errorf("a committed bucket filter must show its term in the form; got %q", s)
+	}
+	if v := stripANSI(viewOf(m)); !strings.Contains(v, "filter buckets") {
+		t.Errorf("the bucket filter form must render in the view:\n%s", v)
 	}
 
-	// Reopen and clear the term → chip gone.
+	// Reopen and clear the term → form back to the placeholder.
 	m = press(m, "/")
 	for range "alph" {
 		m = press(m, "backspace")
@@ -167,8 +175,105 @@ func TestBucketFilterChipCommitted(t *testing.T) {
 	if m.bucketFilter != "" {
 		t.Fatalf("clearing the term should empty the bucket filter, got %q", m.bucketFilter)
 	}
-	if strings.Contains(stripANSI(viewOf(m)), "filter: ") {
-		t.Errorf("clearing the filter must remove the chip:\n%s", stripANSI(viewOf(m)))
+	if s := stripANSI(m.bucketFilterField(40)); strings.Contains(s, "alph") {
+		t.Errorf("clearing the filter must remove the term from the form; got %q", s)
+	}
+}
+
+// 015 US1 (the user's core ask): BOTH filter forms render at once in the two-pane browse — the
+// bucket form and the object form, both with their committed terms, regardless of which pane has
+// focus.
+func TestBothFormsVisibleTogether(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("dev-a", "log1.txt", "log2.txt")
+	f.Seed("dev-b")
+	f.Seed("prod")
+	m := dualApp(f) // focus buckets, Dual tier (both panes render)
+
+	// Commit a bucket filter "dev".
+	m = press(m, "/")
+	for _, r := range "dev" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	if m.bucketFilter != "dev" {
+		t.Fatalf("setup: bucket filter = %q, want dev", m.bucketFilter)
+	}
+
+	// Cross into objects (highlighted bucket = dev-a) and commit an object filter "log".
+	m = crossToObjects(m, f, "dev-a")
+	m = press(m, "/")
+	for _, r := range "log" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	page, _ := f.ListLevel(context.Background(), storage.LevelQuery{Bucket: "dev-a", Search: "log"})
+	m = deliver(m, levelMsg{gen: m.gen, key: m.levelKey(), page: page})
+
+	if m.focusZone != zoneObjects {
+		t.Fatalf("setup: focus should be on objects, got %v", m.focusZone)
+	}
+	// BOTH forms render at once — focus is on objects, yet the bucket form stays put with its term.
+	v := stripANSI(viewOf(m))
+	if !strings.Contains(v, "filter buckets") {
+		t.Errorf("the bucket form must stay visible while focus is on objects:\n%s", v)
+	}
+	if !strings.Contains(v, "filter objects") {
+		t.Errorf("the object form must be visible at the same time:\n%s", v)
+	}
+	if got := stripANSI(m.bucketFilterField(40)); !strings.Contains(got, "dev") {
+		t.Errorf("the bucket form must keep its committed term 'dev'; got %q", got)
+	}
+	if got := stripANSI(m.objectFilterField(80)); !strings.Contains(got, "log") {
+		t.Errorf("the object form must show its committed term 'log'; got %q", got)
+	}
+}
+
+// 015 US4: the committed term lives in the FORM; the match count rides the box TITLE — bucket
+// "[M/T]" (local total), object "[N]" (no total fetched). The title count narrows live as you type.
+func TestFilterFormTermCountInTitle(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("dev-a")
+	f.Seed("dev-b")
+	f.Seed("prod")
+	m := dualApp(f)
+
+	m = press(m, "/")
+	for _, r := range "dev" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	if got := stripANSI(m.bucketFilterField(40)); !strings.Contains(got, "dev") {
+		t.Errorf("the bucket form must show the committed term; got %q", got)
+	}
+	if got := m.resourceTitle(); !strings.Contains(got, "[2/3]") {
+		t.Errorf("the bucket box title must carry the match count [2/3]; got %q", got)
+	}
+
+	// Object count rides the tree title ("[N]").
+	f2 := storage.NewFake()
+	f2.Seed("b", "log1.txt", "log2.txt", "data.txt")
+	mt := treeApp(f2, true)
+	mt.search = "log"
+	page, _ := f2.ListLevel(context.Background(), storage.LevelQuery{Bucket: "b", Search: "log"})
+	mt.level = &levelState{dirs: page.Dirs, objects: page.Objects, complete: true}
+	if got := stripANSI(mt.objectFilterField(80)); !strings.Contains(got, "log") {
+		t.Errorf("the object form must show the committed term; got %q", got)
+	}
+	if got := mt.resourceTitle(); !strings.Contains(got, "[2]") {
+		t.Errorf("the tree title must carry the object match count [2]; got %q", got)
+	}
+
+	// Live narrowing while typing: the title count updates per keystroke.
+	m2 := dualApp(f)
+	m2 = press(m2, "/")
+	m2 = press(m2, "d") // dev-a, dev-b, prod all contain 'd'
+	if n := len(m2.filteredBuckets()); n != 3 {
+		t.Errorf("typing 'd' should match 3 buckets live, got %d", n)
+	}
+	m2 = press(m2, "e") // "de" → dev-a, dev-b
+	if !strings.Contains(m2.resourceTitle(), "[2/3]") {
+		t.Errorf("the box title should show the live match count while typing; got %q", m2.resourceTitle())
 	}
 }
 
@@ -212,9 +317,9 @@ func TestFooterNoOverflowAfterWidening(t *testing.T) {
 	}
 }
 
-// --- Cross-cutting: NO_COLOR-safe chip text (SC-008, FR-006) ---
+// --- Cross-cutting: NO_COLOR-safe text (SC-008, FR-006) ---
 
-// T023: the mode chip and the applied-filter chip carry their state as TEXT.
+// T023: the mode chip and the filter FORM carry their state as TEXT (legible under NO_COLOR).
 func TestChipsTextNoColor(t *testing.T) {
 	if !strings.Contains((App{}).modeChip(), "RO") {
 		t.Error("read-only mode chip must contain the literal 'RO'")
@@ -224,9 +329,10 @@ func TestChipsTextNoColor(t *testing.T) {
 	if !strings.Contains(buildApp(f, true, false).modeChip(), "WRITE") {
 		t.Error("armed mode chip must contain the literal 'WRITE'")
 	}
+	// 015 SC-007: the filter form carries its label + term as TEXT, not color alone.
 	m := buildApp(f, false, false)
 	m.search = "needle"
-	if got := stripANSI(m.objectsFilterChip()); !strings.Contains(got, "filter: needle") {
-		t.Errorf("objects filter chip text = %q, want it to contain 'filter: needle'", got)
+	if got := stripANSI(m.objectFilterField(80)); !strings.Contains(got, "filter objects") || !strings.Contains(got, "needle") {
+		t.Errorf("object filter form text = %q, want 'filter objects' + 'needle'", got)
 	}
 }

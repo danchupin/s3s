@@ -1137,9 +1137,26 @@ func (m App) View() tea.View {
 
 	footer := m.footerBlock(w)
 	footerH := strings.Count(footer, "\n") + 1
-	// Inner box height = total minus the footer and the two border lines. The box
-	// body MUST NOT exceed this, or the footer (incl. the hints line) scrolls off.
-	rows := m.height - footerH - 2
+
+	// The command bar overlays the footer; its body is the underlying (prev) view.
+	bodyMode := m.mode
+	if m.mode == modeCommand {
+		bodyMode = m.prevMode
+	}
+
+	// The always-visible filter forms reserve a 3-line band (a bordered input box) in the
+	// filterable browse modes (modeBuckets/modeTree); listWithPane stacks the form(s) under the
+	// list box(es), so the band is subtracted from the LIST, never the footer (015 FR-005,
+	// layout-budget-contract). The upload file browser takes over the body — no form there.
+	filterFieldH := 0
+	if (m.op == nil || m.op.phase != phaseBrowse) && (bodyMode == modeBuckets || bodyMode == modeTree) {
+		filterFieldH = 3
+	}
+
+	// Inner box height = total minus the footer, the reserved filter-form band, and the two
+	// border lines. The box body MUST NOT exceed this, or the footer (incl. the hints line)
+	// scrolls off.
+	rows := m.height - footerH - filterFieldH - 2
 	if rows < 3 {
 		rows = 3
 	}
@@ -1156,12 +1173,6 @@ func (m App) View() tea.View {
 		v := tea.NewView(body + "\n" + footer)
 		v.AltScreen = true
 		return v
-	}
-
-	// The command bar overlays the footer; its body is the underlying (prev) view.
-	bodyMode := m.mode
-	if m.mode == modeCommand {
-		bodyMode = m.prevMode
 	}
 
 	var body string
@@ -1206,6 +1217,8 @@ func (m App) View() tea.View {
 		body = m.revealView(w, bodyH)
 	}
 
+	// The filter forms live inside body (listWithPane stacks them under the list boxes), so the
+	// composed view is simply body over the footer; the reserved band keeps the footer in place.
 	v := tea.NewView(body + "\n" + footer)
 	v.AltScreen = true
 	return v
@@ -1252,8 +1265,11 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 	// Single tier (or a user-collapsed pane) renders the full-width list; the Dual/Full
 	// tiers add the side pane. US1/US3 differentiate the Dual objects zone
 	// from the Full details zone; today both render the existing details pane.
+	// One-column layout (Single tier or a collapsed pane): the list box with the focused scope's
+	// filter form stacked beneath it (015 — the form replaces the old border filter chip).
 	if layoutTier(w) == tierSingle || !m.paneVisible {
-		return boxViewChip(title, sel, m.primaryFilterChip(), m.modeChip(), renderList(w-2, dataRows), w, rows)
+		box := boxViewChip(title, sel, "", m.modeChip(), renderList(w-2, dataRows), w, rows)
+		return lipgloss.JoinVertical(lipgloss.Left, box, m.scopeFilterField(w))
 	}
 	paneW := w / 3
 	if paneW > 40 {
@@ -1265,27 +1281,34 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 	// Miller-columns proportion for the bucket list: the buckets column is the
 	// NARROW one and the OBJECTS zone (the highlighted bucket's first level) takes the rest,
 	// so object names have room. The tree view keeps the wide list + thin details pane (006).
+	// Each list box carries its own always-visible filter form below it (015): the bucket and
+	// object forms sit side by side under their panes — both visible at once.
 	if m.mode == modeBuckets {
 		bucketW := m.bucketsColWidth(w, paneW)
-		bucketsBox := boxViewFocusChip(title, sel, m.bucketFilterChip(), m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
+		bucketsBox := boxViewFocusChip(title, sel, "", m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
+		bucketCol := lipgloss.JoinVertical(lipgloss.Left, bucketsBox, m.bucketFilterField(bucketW))
 		// Full tier (≥130): a third, non-focusable details zone (006 pane, preserved per 011 US3)
 		// joins buckets│objects; it adapts to focus (bucket meta vs object meta+preview). Dual:
 		// the details zone collapses and the objects zone takes the rest.
 		if layoutTier(w) == tierFull && m.paneVisible {
 			detW := paneW
 			objW := w - bucketW - detW
-			objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", m.objectsFilterChip(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+			objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", "", "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+			objCol := lipgloss.JoinVertical(lipgloss.Left, objBox, m.objectFilterField(objW))
 			detBox := boxView("details", "", m.browseDetailsView(detW-2, rows-2), detW, rows)
-			return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox, detBox)
+			// Top-aligned: the details box (no form) pads with blanks beside the forms.
+			return lipgloss.JoinHorizontal(lipgloss.Top, bucketCol, objCol, detBox)
 		}
 		objW := w - bucketW
-		objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", m.objectsFilterChip(), "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
-		return lipgloss.JoinHorizontal(lipgloss.Top, bucketsBox, objBox)
+		objBox := boxViewFocusChip(m.objectsZoneTitle(objW), "", "", "", m.objectsView(objW-2, dataRows), objW, rows, m.focusZone == zoneObjects)
+		objCol := lipgloss.JoinVertical(lipgloss.Left, objBox, m.objectFilterField(objW))
+		return lipgloss.JoinHorizontal(lipgloss.Top, bucketCol, objCol)
 	}
 	listW := w - paneW
-	listBody := boxViewChip(title, sel, m.objectsFilterChip(), m.modeChip(), renderList(listW-2, dataRows), listW, rows)
+	listBox := boxViewChip(title, sel, "", m.modeChip(), renderList(listW-2, dataRows), listW, rows)
+	listCol := lipgloss.JoinVertical(lipgloss.Left, listBox, m.objectFilterField(listW))
 	paneBody := boxView("details", "", m.paneView(paneW-2, rows-2), paneW, rows)
-	return lipgloss.JoinHorizontal(lipgloss.Top, listBody, paneBody)
+	return lipgloss.JoinHorizontal(lipgloss.Top, listCol, paneBody)
 }
 
 // modeChip is the border-mounted read/write mode label: a loud "WRITE" accent
@@ -1298,34 +1321,31 @@ func (m App) modeChip() string {
 	return roStyle.Render("RO")
 }
 
-// filterChipTermMax caps the term shown inside the applied-filter chip; boxViewWith drops a
-// chip whole when it can't fit (it does not elide chip text), so the term is capped here. The
-// full committed term remains recoverable by re-opening the filter input (`/`), which pre-fills it.
-const filterChipTermMax = 14
-
-// filterChipText renders the applied-filter chip for a committed (non-empty) term, hidden while
-// the typing input is open (013 US2 / applied-filter-contract F8). warnStyle reuses the typing-
-// input accent; the term is capped with an ellipsis.
-func (m App) filterChipText(term string) string {
-	if term == "" || m.searching {
-		return ""
-	}
-	return warnStyle.Render("filter: " + truncate(term, filterChipTermMax))
+// bucketFilterField builds the always-visible, prominent filter FORM for the bucket list (015):
+// a bordered, labeled input under the bucket box. Active (accent) while the bucket pane holds
+// focus; editing (live input + caret) while its scope is being typed. The committed term is the
+// local name filter; the match count rides the box title above ("buckets[M/T]").
+func (m App) bucketFilterField(w int) string {
+	return filterFieldView("buckets", m.bucketFilter, m.searchInput, w,
+		m.focusZone == zoneBuckets, m.searching && m.filterIsBucketList())
 }
 
-// bucketFilterChip is the applied-filter chip for the bucket list (local name filter).
-func (m App) bucketFilterChip() string { return m.filterChipText(m.bucketFilter) }
+// objectFilterField builds the always-visible, prominent filter FORM for an object level (015):
+// a bordered, labeled input under the objects box. Active in the full-screen tree or while the
+// objects pane holds focus; editing while its scope is typed. The match count rides the box
+// title above ("objects[N]"); the level total is not fetched (paginated, FR-013).
+func (m App) objectFilterField(w int) string {
+	return filterFieldView("objects", m.search, m.searchInput, w,
+		m.mode == modeTree || m.focusZone == zoneObjects, m.searching && !m.filterIsBucketList())
+}
 
-// objectsFilterChip is the applied-filter chip for an object level (server-side prefix search).
-func (m App) objectsFilterChip() string { return m.filterChipText(m.search) }
-
-// primaryFilterChip is the applied-filter chip for the single primary list box: the bucket
-// filter in modeBuckets, the level search otherwise (modeTree).
-func (m App) primaryFilterChip() string {
-	if m.mode == modeBuckets {
-		return m.bucketFilterChip()
+// scopeFilterField is the single filter form for the one-column layouts (Single tier or a
+// collapsed pane): the focused scope's field.
+func (m App) scopeFilterField(w int) string {
+	if m.filterIsBucketList() {
+		return m.bucketFilterField(w)
 	}
-	return m.objectsFilterChip()
+	return m.objectFilterField(w)
 }
 
 // bucketsColWidth grows the bucket column to fit the longest bucket name when the objects
@@ -1447,17 +1467,8 @@ func (m App) statusLine(w int) string {
 			return m.opPromptLine(w)
 		}
 	}
-	if m.searching {
-		// A prominent filter input: a left accent bar names the pane being filtered;
-		// the objects level previews live (debounced), the bucket list instantly.
-		pane, suffix := "objects", "  (live) · Enter apply · Esc cancel"
-		if m.filterIsBucketList() {
-			pane, suffix = "buckets", "  Enter apply · Esc cancel"
-		}
-		head := warnStyle.Render("▌ ") + accentStyle.Render("filter "+pane+": ")
-		input := truncate(m.searchInput, max(1, w-lipgloss.Width(head)-len(suffix)-1))
-		return head + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
-	}
+	// The filter input moved to the always-visible strip (015 FR-005); statusLine now carries
+	// only loading / notice / error / op-prompt, which coexist with an active filter.
 	if m.loading {
 		// Name what is loading; cancel is the back/escape key now.
 		what := "loading…"

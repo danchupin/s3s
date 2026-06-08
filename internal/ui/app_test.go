@@ -270,15 +270,90 @@ func TestStatusNamedLoading(t *testing.T) { // S1 / FR-015, FR-029
 	}
 }
 
-func TestStatusSearchPending(t *testing.T) { // S2 / FR-016
+func TestStatusSearchPending(t *testing.T) { // S2 / FR-016 — 015: the input now lives in the form
 	f := storage.NewFake()
 	f.Seed("b", "a.txt")
 	m := treeApp(f, true)
 	m.searching = true
 	m.searchInput = "ar"
-	// 012 FR-039/FR-040: the prominent filter input names the pane and marks the live preview.
-	if s := m.statusLine(120); !strings.Contains(s, "filter") || !strings.Contains(s, "live") {
-		t.Errorf("object filter input should show a prominent live indicator; got %q", s)
+	// 015 FR-005: the prominent filter input renders via the always-visible bordered form (no
+	// longer statusLine); the form is labeled per scope and shows the live input.
+	if s := stripANSI(m.objectFilterField(120)); !strings.Contains(s, "filter objects") || !strings.Contains(s, "ar") {
+		t.Errorf("object filter input should render in the labeled form; got %q", s)
+	}
+}
+
+// T006 / 015 FR-005: statusLine NEVER renders the filter input — it moved to the form. A status
+// message (notice/error) and an active filter coexist: the input is in the form, the status in
+// the footer's status line, neither clobbering the other.
+func TestStatusLineNeverHasFilterInput(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.searching = true
+	m.searchInput = "needle"
+	m.notice = "SENTINEL_NOTICE"
+	s := m.statusLine(120)
+	if strings.Contains(s, "needle") {
+		t.Errorf("statusLine must not render the filter input; got %q", s)
+	}
+	if !strings.Contains(s, "SENTINEL_NOTICE") {
+		t.Errorf("statusLine should keep showing the notice while a filter is active; got %q", s)
+	}
+	// And the input IS in the form, side by side with the status.
+	if !strings.Contains(m.objectFilterField(120), "needle") {
+		t.Errorf("the live input must render in the form; got %q", m.objectFilterField(120))
+	}
+}
+
+// 015 US1+US2: the filter forms are ALWAYS present in the filterable browse modes — even with no
+// committed filter and not editing — as bordered, labeled boxes with a "/ to filter" placeholder.
+// In the two-pane browse BOTH forms (buckets + objects) render at once.
+func TestFilterFormsAlwaysVisible(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+
+	mb := dualApp(f) // modeBuckets, two-pane
+	if mb.searching || mb.bucketFilter != "" {
+		t.Fatal("setup: the bucket scope should be idle with no committed filter")
+	}
+	v := stripANSI(viewOf(mb))
+	if !strings.Contains(v, "filter buckets") {
+		t.Errorf("the bucket filter form must be rendered:\n%s", v)
+	}
+	if !strings.Contains(v, "filter objects") {
+		t.Errorf("the object filter form must ALSO be rendered (two panels always visible):\n%s", v)
+	}
+	if !strings.Contains(v, "/ to filter") {
+		t.Errorf("an idle form must show the placeholder:\n%s", v)
+	}
+
+	mt := treeApp(f, false) // modeTree → object scope
+	mt.width, mt.height = 120, 30
+	if v := stripANSI(viewOf(mt)); !strings.Contains(v, "filter objects") || !strings.Contains(v, "/ to filter") {
+		t.Errorf("the object filter form must be rendered in the tree view:\n%s", v)
+	}
+}
+
+// 015 US2: non-filterable modes reserve NO form band — the cost is paid only where filtering
+// applies (the bucket list and the object tree).
+func TestNoFilterFormInNonFilterableModes(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+
+	mo := treeApp(f, false)
+	mo.width, mo.height = 100, 30
+	mo.mode = modeObject
+	md := storage.ObjectMetadata{Key: "a.txt", ContentType: "text/plain"}
+	mo.meta = &md
+	if v := stripANSI(viewOf(mo)); strings.Contains(v, "/ to filter") || strings.Contains(v, "filter objects") {
+		t.Errorf("modeObject must not render a filter form:\n%s", v)
+	}
+
+	mc := dualApp(f)
+	mc.mode = modeContextSwitch
+	if v := stripANSI(viewOf(mc)); strings.Contains(v, "/ to filter") || strings.Contains(v, "filter buckets") {
+		t.Errorf("modeContextSwitch must not render a filter form:\n%s", v)
 	}
 }
 
