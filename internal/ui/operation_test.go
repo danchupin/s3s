@@ -162,14 +162,12 @@ func TestStaleOperationDropped(t *testing.T) {
 	}
 }
 
-// TestFooterWriteTag: the compact identity row reflects write mode — [RW] when
-// writable, [RO] otherwise (FR-008).
+// TestFooterWriteTag: the compact identity row NO LONGER carries the [RW]/[RO] tag — the
+// read/write mode lives solely on the border mode chip now (013 US1, FR-001/FR-002).
 func TestFooterWriteTag(t *testing.T) {
-	if got := footerIdentityCompact(80, "ctx", "cl", true); !strings.Contains(got, "[RW]") {
-		t.Errorf("writable footer should show [RW]; got %q", got)
-	}
-	if got := footerIdentityCompact(80, "ctx", "cl", false); !strings.Contains(got, "[RO]") {
-		t.Errorf("read-only footer should show [RO]; got %q", got)
+	got := footerIdentityCompact(80, "ctx", "cl")
+	if strings.Contains(got, "[RW]") || strings.Contains(got, "[RO]") {
+		t.Errorf("identity row must not carry the duplicate [RW]/[RO] tag; got %q", got)
 	}
 }
 

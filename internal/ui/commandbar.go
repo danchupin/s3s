@@ -17,6 +17,10 @@ import (
 // it the bar collapses to a compact single row.
 const blockColMin = 100
 
+// colGap is the gap between the three command-bar columns (013 US3: widened 2→3 spaces). The
+// natural-width guard derives its reserve from len(colGap) so the two never drift.
+const colGap = "   "
+
 // styleRole maps a bar entry to a palette role. Roles reuse existing tokens;
 // no new hue is introduced. roleWriteDimmed (faint) and roleWriteInapplicable (plain dim)
 // are deliberately DISTINCT so an inactive-because-read-only entry reads differently from
@@ -60,7 +64,7 @@ type infoField struct {
 // changes per frame). Shared by the info column and the collapsed bar so the two never
 // drift.
 var barGlobals = keyStyle.Render("?") + " " + dimCellStyle.Render("help") +
-	dimCellStyle.Render(" · ") + keyStyle.Render("q") + " " + dimCellStyle.Render("quit")
+	barSep + keyStyle.Render("q") + " " + dimCellStyle.Render("quit")
 
 // readEntries builds the read block: open + search/filter, then the read (non-write)
 // actions. A read action inapplicable to the current selection is marked (still shown),
@@ -156,7 +160,7 @@ func entryStyled(e barEntry) string {
 	st := roleStyle[e.role]
 	// Bold the KEY glyph while the label stays the role style — the key
 	// keeps its role color but gains emphasis, distinct from its label.
-	return st.Bold(true).Render(e.key) + st.Render(" "+e.label)
+	return st.Bold(true).Render(e.key) + st.Render("  "+e.label)
 }
 
 // commandBarView renders the three-block command bar (or the collapsed compact row on a
@@ -172,17 +176,17 @@ func (m App) commandBarView(w int) string {
 	info := m.infoColumn()
 	read := entryColumn(m.readEntries(kind, cat))
 	write := m.writeColumn(kind, cat)
-	natural := lipgloss.Width(info) + lipgloss.Width(read) + lipgloss.Width(write) + 4
+	natural := lipgloss.Width(info) + lipgloss.Width(read) + lipgloss.Width(write) + 2*len(colGap)
 	if natural > w {
 		return m.collapsedBarView(w, kind, cat)
 	}
-	return lipgloss.JoinHorizontal(lipgloss.Top, info, "  ", read, "  ", write)
+	return lipgloss.JoinHorizontal(lipgloss.Top, info, colGap, read, colGap, write)
 }
 
 // infoColumn renders the info block as a column. No heading — the column
 // + inter-column gap carry the grouping; the identity line leads.
 func (m App) infoColumn() string {
-	rows := []string{footerIdentityCompact(40, m.ctxName, "", m.writable())} // ● ctx [badge]
+	rows := []string{footerIdentityCompact(40, m.ctxName, "")} // ● ctx (mode lives on the border chip)
 	for _, f := range m.infoFields() {
 		val := f.value
 		if val == "" {
@@ -251,7 +255,7 @@ func blockColumn(rows []string) string {
 // by clipping styled text mid-escape, which would corrupt the line). The write row keeps
 // at least one entry + a "…" so the write block is never dropped entirely.
 func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
-	identity := footerIdentityCompact(w, m.ctxName, m.info.Cluster, m.writable())
+	identity := footerIdentityCompact(w, m.ctxName, m.info.Cluster)
 	read := append([]barEntry{}, m.readEntries(kind, cat)...)
 	if m.connect != nil {
 		// Prepend "connections" so width-trimming (which drops trailing entries) never drops
@@ -259,7 +263,7 @@ func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
 		read = append([]barEntry{{key: glyph(m.keys.Context[0]), label: "connections", role: roleRead}}, read...)
 	}
 	// Globals (help/quit) always survive; fit the read entries into the remaining width.
-	globals := dimCellStyle.Render(" · ") + barGlobals
+	globals := barSep + barGlobals
 	readRow := fitEntries(read, max(1, w-lipgloss.Width(globals)), 0) + globals
 	writeRow := fitEntries(m.writeEntries(kind, cat), w, 1) // keep ≥1 write entry
 	return identity + "\n" + readRow + "\n" + writeRow
@@ -273,7 +277,7 @@ func fitEntries(entries []barEntry, w, keepMin int) string {
 	if len(entries) == 0 {
 		return ""
 	}
-	sep := dimCellStyle.Render(" · ")
+	sep := barSep
 	ell := dimCellStyle.Render(" …")
 	sepW, ellW := lipgloss.Width(sep), lipgloss.Width(ell)
 

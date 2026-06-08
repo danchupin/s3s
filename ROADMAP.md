@@ -51,6 +51,14 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## Core
 
+- [ ] **Sort spans only the loaded page, not the whole level.** The current sort
+  reorders just the objects already fetched into memory for the current level; with
+  token-paginated `ListLevel`, entries on later pages aren't part of the comparison, so
+  "sort by size/modified" gives a per-page ordering, not a true level-wide one. Decide an
+  approach: fetch-all-then-sort for bounded levels (with a cap / progress + cancel,
+  honouring the non-blocking-TUI principle), server-side ordering where the backend
+  supports it, or an explicit "sorted within loaded page" cue so the scope is honest.
+  Needs design — interacts with pagination, the level cache, and large prefixes.
 - [ ] **Use the authoritative content-type for preview classification.**
   `loadPreview` currently passes an empty content-type and relies on byte
   sniffing, even though `HeadObject` (loaded concurrently in the object view)

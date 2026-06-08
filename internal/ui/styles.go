@@ -297,26 +297,27 @@ func padLine(s string, w int) string {
 // left resource label and a centered, highlighted selection label. Body lines are
 // padded to the inner width and to at least minRows rows.
 func boxView(left, center, body string, width, minRows int) string {
-	return boxViewWith(left, center, "", body, width, minRows, titleStyle)
+	return boxViewWith(left, center, "", "", body, width, minRows, titleStyle)
 }
 
 // boxViewFocus is boxView with an active/inactive title style for the multi-pane zones
 // : the focused zone's title is the accent (active) style, an unfocused zone's
 // title is dim — the deterministic active-zone indicator.
 func boxViewFocus(left, center, body string, width, minRows int, active bool) string {
-	return boxViewWith(left, center, "", body, width, minRows, focusTitleStyle(active))
+	return boxViewWith(left, center, "", "", body, width, minRows, focusTitleStyle(active))
 }
 
-// boxViewChip is boxView with a right-aligned chip inset into the top border — the
-// border-mounted mode label. chip is an already-styled string; "" omits it.
-func boxViewChip(left, center, chip, body string, width, minRows int) string {
-	return boxViewWith(left, center, chip, body, width, minRows, titleStyle)
+// boxViewChip is boxView with up to two right-aligned chips inset into the top border:
+// the applied-filter chip (inboard) and the read/write mode chip (outboard, right-most).
+// Each is an already-styled string; "" omits that slot.
+func boxViewChip(left, center, filterChip, modeChip, body string, width, minRows int) string {
+	return boxViewWith(left, center, filterChip, modeChip, body, width, minRows, titleStyle)
 }
 
-// boxViewFocusChip combines the focus title style with the right-border chip — used by the
-// PRIMARY list box, which carries the read/write mode chip.
-func boxViewFocusChip(left, center, chip, body string, width, minRows int, active bool) string {
-	return boxViewWith(left, center, chip, body, width, minRows, focusTitleStyle(active))
+// boxViewFocusChip combines the focus title style with the border chips — used by the
+// browse list boxes (mode chip) and the per-pane applied-filter chip.
+func boxViewFocusChip(left, center, filterChip, modeChip, body string, width, minRows int, active bool) string {
+	return boxViewWith(left, center, filterChip, modeChip, body, width, minRows, focusTitleStyle(active))
 }
 
 func focusTitleStyle(active bool) lipgloss.Style {
@@ -327,11 +328,11 @@ func focusTitleStyle(active bool) lipgloss.Style {
 }
 
 // boxViewWith renders the bordered box with the given title style (shared by the boxView
-// family). An optional right-aligned chip (already styled) is inset into the top border
-// before the closing corner; when the border is too narrow it drops the
-// centered label before the chip (the chip is safety-critical), and the chip only as a last
-// resort.
-func boxViewWith(left, center, chip, body string, width, minRows int, titleSt lipgloss.Style) string {
+// family). Up to two already-styled chips are inset into the top border before the closing
+// corner — the applied-filter chip (inboard) and the mode chip (outboard, right-most). When
+// the border is too narrow it drops the centered label first, then the filter chip, and the
+// mode chip only as a last resort (the mode chip is safety-critical, FR-005/contract C3).
+func boxViewWith(left, center, filterChip, modeChip, body string, width, minRows int, titleSt lipgloss.Style) string {
 	inner := width - 2
 	if inner < 1 {
 		inner = 1
@@ -348,8 +349,31 @@ func boxViewWith(left, center, chip, body string, width, minRows int, titleSt li
 		lines = lines[:minRows]
 	}
 
-	// Top border: "╭─ left ─── «center» ─── ‹chip› ─╮". Cap the left title so a long key or
-	// prefix can't overflow the border line and break the layout.
+	// buildRight composes the right-border chips (filter inboard, mode right-most before the
+	// corner) and returns the rendered segment + its display width. Each present chip renders
+	// as " ‹chip›"; a trailing " ─" hugs the corner.
+	buildRight := func(includeFilter, includeMode bool) (string, int) {
+		var parts []string
+		if includeFilter && filterChip != "" {
+			parts = append(parts, filterChip)
+		}
+		if includeMode && modeChip != "" {
+			parts = append(parts, modeChip)
+		}
+		if len(parts) == 0 {
+			return "", 0
+		}
+		seg, w := "", 0
+		for _, c := range parts {
+			seg += ruleStyle.Render(" ") + c
+			w += 1 + lipgloss.Width(c)
+		}
+		seg += ruleStyle.Render(" ─")
+		return seg, w + 2
+	}
+
+	// Top border: "╭─ left ─── «center» ─── ‹filter› ‹mode› ─╮". Cap the left title so a long
+	// key or prefix can't overflow the border line and break the layout.
 	leftCap := inner - 4
 	if center != "" {
 		leftCap = inner * 2 / 3
@@ -358,33 +382,37 @@ func boxViewWith(left, center, chip, body string, width, minRows int, titleSt li
 	leftPlain := "─ " + left + " "
 	wl := lipgloss.Width(leftPlain)
 
-	// Right chip rendered as " ‹chip› ─" just before the corner.
-	chipRender, wchip := "", 0
-	if chip != "" {
-		wchip = lipgloss.Width(chip) + 3 // " " + chip + " ─"
-		chipRender = ruleStyle.Render(" ") + chip + ruleStyle.Render(" ─")
-	}
-
+	// Budget the center against the worst case (both chips present).
+	_, wBoth := buildRight(true, true)
 	centerPlain := ""
 	if center != "" {
-		centerPlain = " " + truncate(center, max(0, inner-wl-wchip-4)) + " "
+		centerPlain = " " + truncate(center, max(0, inner-wl-wBoth-4)) + " "
 	}
 	wc := lipgloss.Width(centerPlain)
 
+	// Degrade order: center → filter chip → mode chip (mode survives last).
+	includeFilter, includeMode := true, true
+	rightSeg, wchip := buildRight(includeFilter, includeMode)
 	avail := inner - wl - wc - wchip
-	if avail < 0 && center != "" { // drop the center label before the chip
+	if avail < 0 && centerPlain != "" {
 		centerPlain, wc = "", 0
 		avail = inner - wl - wchip
 	}
-	if avail < 0 { // extreme narrow: drop the chip too
-		chipRender = ""
-		avail = inner - wl - wc
+	if avail < 0 && includeFilter && filterChip != "" {
+		includeFilter = false
+		rightSeg, wchip = buildRight(includeFilter, includeMode)
+		avail = inner - wl - wc - wchip
+	}
+	if avail < 0 && includeMode && modeChip != "" {
+		includeMode = false
+		rightSeg, wchip = buildRight(includeFilter, includeMode)
+		avail = inner - wl - wc - wchip
 	}
 	if avail < 0 {
 		avail = 0
 	}
 	leftDashes := avail / 2
-	if center == "" && chip == "" {
+	if centerPlain == "" && rightSeg == "" {
 		leftDashes = avail // single gap: fill after the left label
 	}
 	rightDashes := avail - leftDashes
@@ -394,7 +422,7 @@ func boxViewWith(left, center, chip, body string, width, minRows int, titleSt li
 	if centerPlain != "" {
 		topInner += selRowStyle.Render(centerPlain)
 	}
-	topInner += ruleStyle.Render(strings.Repeat("─", rightDashes)) + chipRender
+	topInner += ruleStyle.Render(strings.Repeat("─", rightDashes)) + rightSeg
 
 	var b strings.Builder
 	b.WriteString(ruleStyle.Render("╭") + topInner + ruleStyle.Render("╮") + "\n")
@@ -466,10 +494,10 @@ func renderHintRow(hs []hint, more bool) (string, int) {
 	for _, h := range hs {
 		parts = append(parts, keyStyle.Render(h.key)+" "+dimCellStyle.Render(h.label))
 	}
-	s := strings.Join(parts, dimCellStyle.Render(" · "))
+	s := strings.Join(parts, barSep)
 	if more {
 		if s != "" {
-			s += dimCellStyle.Render(" · ")
+			s += barSep
 		}
 		s += dimCellStyle.Render("? more")
 	}
@@ -505,20 +533,24 @@ func writeBadge(writable bool) string {
 	return roStyle.Render("[RO]")
 }
 
-// footerIdentityCompact renders the single identity row: ● ctx [RW|RO], plus · cluster
-// if it fits. Endpoint/region/user/version are NOT shown here — they
-// move to the help surface. The [RW] tag is rendered loud (writeBadgeStyle) so an armed
-// session is unmistakable.
-func footerIdentityCompact(width int, ctx, cluster string, writable bool) string {
-	tag, dotStyle, tagStyle := "[RO]", roStyle, dimCellStyle
-	if writable {
-		tag, dotStyle, tagStyle = "[RW]", accentStyle, writeBadgeStyle
-	}
-	name := truncate(ctx, max(1, width-len(tag)-4))
-	head := dotStyle.Render("●") + " " + segCtxStyle.Render(name) + dimCellStyle.Render(" ") + tagStyle.Render(tag)
-	used := lipgloss.Width("● " + name + " " + tag)
-	if cluster != "" && used+lipgloss.Width(" · "+cluster) <= width {
-		head += dimCellStyle.Render(" · ") + segClusterStyle.Render(cluster)
+// barSep is the single, single-sourced footer / command-bar element separator (013 US3). The
+// dot already carries surrounding spaces, so the breathing room US3 adds lands on the actual
+// cram points — the key↔label gap (entryStyled) and the inter-column gap (colGap) — while this
+// stays compact so narrow widths keep advertising the affordances (e.g. "filter"). sepDot is its
+// raw form, used where a width is measured against it or it sits inside an already-styled span.
+const sepDot = " · "
+
+var barSep = dimCellStyle.Render(sepDot)
+
+// footerIdentityCompact renders the single identity row: ● ctx, plus · cluster if it fits.
+// The read/write mode is NOT shown here — 013 US1 removes the old [RW]/[RO] tag; the mode lives
+// solely on the border mode chip. Endpoint/region/user/version move to the help surface.
+func footerIdentityCompact(width int, ctx, cluster string) string {
+	name := truncate(ctx, max(1, width-4))
+	head := accentStyle.Render("●") + " " + segCtxStyle.Render(name)
+	used := lipgloss.Width("● " + name)
+	if cluster != "" && used+lipgloss.Width(sepDot+cluster) <= width {
+		head += barSep + segClusterStyle.Render(cluster)
 	}
 	return head
 }

@@ -118,44 +118,44 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 012-ui-visibility-write-clarity (UI legibility, hotkey parity, breadcrumbs, write-mode
-clarity; 9 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 011-two-pane-hotkeys
-— IMPLEMENTED. 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
+Active feature: 013-ui-mode-footer-filter (mode chip dedup, footer breathing room, applied-filter state;
+3 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 012-ui-visibility-write-clarity
+— IMPLEMENTED (#18). 011-two-pane-hotkeys — IMPLEMENTED. 010-pinned-buckets — IMPLEMENTED.
+008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/012-ui-visibility-write-clarity/plan.md. Artifacts: spec.md (US1 names-never-hidden P1, US2
-write-state legible+reversible P1, US3 breadcrumb P2, US4 prominent arm-confirm P2, US5 design-system P2,
-US6 objects-zone hotkey parity P1 REGRESSION, US7 filter current level + prominent input P1, US8 sort
-reachable+advertised P2, US9 declutter P2; FR-001..041, SC-001..015, 4 clarifications), research.md
-(R1..R10), data-model.md, quickstart.md, contracts/ (keymap, reveal-popup, level-filter, layout-visibility,
-writemode), checklists/requirements.md (16/16). Constitution v1.1.0 (ADDED VI UI Legibility + VII UI
-Consistency/Design System for this feature). check-readonly STAYS green (no new write-S3 symbol, no storage
-method; only a test-only read counter on Fake). NO integration (no storage-contract change; IV N/A justified).
+Plan: specs/013-ui-mode-footer-filter/plan.md. Artifacts: spec.md (US1 single read/write mode indicator P1,
+US2 applied-filter state visible P1, US3 footer/menu breathing room P2; FR-001..018, SC-001..008,
+2 clarifications), research.md (R1..R7, grounded file:line), data-model.md, quickstart.md, contracts/
+(border-chip, mode-indicator, applied-filter, footer-spacing, layout-visibility), checklists/requirements.md
+(16/16). Constitution v1.1.0 (VI UI Legibility + VII UI Consistency/Design System drive this feature; no
+amendment). check-readonly STAYS green (no new write-S3 symbol, no storage method). NO integration (no
+storage-contract change; IV N/A justified). All changes in internal/ui; no new file, no new package, no new
+keymap field, no new hue.
 
-GOAL: presentation/UX iteration on the two-pane browser. Make every resource identifier fully visible or
-revealable; make write mode legible+reversible; add a location breadcrumb; FIX the confirmed regressions
-where the objects zone (focusZone==zoneObjects) had dead hotkeys + wrong filter scope; surface sort; and
-single-source every hint. Border-mounted RO/WRITE mode chip (like Claude Code's ultracode chip) + a
-Claude-Code-style filter input that commits on Enter and hands focus to the filtered pane.
+GOAL: small presentation iteration continuing 012. (1) ONE read/write mode indicator: keep the border chip,
+remove the duplicate footer [RW]/[RO] tag. (2) Applied-filter state visible as a persistent border chip on the
+filtered pane. (3) Wider footer/command-bar spacing without breaking the no-wrap/no-scroll invariant. Two
+clarifications: filter indicator = border chip on the FILTERED pane (NOT footer, NOT breadcrumb title);
+write-state in non-list modes = a UNIVERSAL mode chip on every browse box (one render path).
 
-Key approach (grounded research.md R1-R10): (R3, regression) onObjectsKey (app.go:445-486) shipped with nav
-only — factor a shared onLevelKey from onTreeKey (tree.go:41-103) so both delegate; make selKind (app.go:60)
-+ actionCatalog (hintbar.go:44) treat (modeBuckets && zoneObjects) as a LEVEL context (object catalog +
-real selObject/selFolder, not bucket catalog/selNone); add the 5 missing branches (Mark/Sort/SortDir/Context
-+ dispatchChord/dispatchActionKey); FIX marks leak — clear m.sel in loadObjectsLevel. (R2/US7) `/` in objects
-zone reuses LevelQuery.Search server-side current-prefix filter (s3client.go:107 effPrefix=prefix+search,
-Delimiter:/) — afterFilterEdit/Esc/searchActive branch on focusZone; NEW prominent filter input commits on
-Enter → moves focus to filtered pane, re-open pre-fills, Esc cancels-to-committed, back/clear removes. (R1/US1)
-reveal.go NEW: 'i' opens centered popup (reuse confirmPopupView) showing full id + tea.SetClipboard OSC52
-copy; bucket col auto-grows into objects-zone slack + active-row wrap (renderTable variant, within minRows
-cap → footer safe; fall back to popup). (R5/US3) breadcrumb ctx→bucket→prefix in objects-zone center label /
-Single box title, elideMiddle keeps bucket+deepest. (R6+R7/US2/US4) badge space-color fix (styles.go:411);
-symmetric enable/disable labels from m.keys.WriteToggle; armConfirmPopupView (prominent, reuse
-confirmPopupView, badge+chip stay); NEW mode chip = right-aligned slot in boxViewWith top border
-(WRITE accent / RO neutral, NO_COLOR-safe, safety-redundant exception to dedup). (R8/US8) sort = first
-read-block barEntry "s name↑" (sortIndicator), drops via fitEntries; sortModified already exists. (R7-glyphs/
-US5/US9) +Reveal +Tab in keyMap; replace ~22 hardcoded hint literals (pane.go:71 ^x, app.go:1341/keys.go:152
-d/x/y, confirm.go literal "esc", connections/operation/filebrowser Enter/Esc/↑↓) with glyph()/formatKeys();
-confirm.go dispatch via m.keys.Back. Reuse-only styling (styles.go palette/roles, no new hue). Tests: white-
-box package ui (deliver/press/viewOf, dualApp/crossToObjects/treeApp/buildApp) + Fake.ListLevelCalls; failing-
-first per US (R10). Layout invariant: boxView minRows cap → footer never scrolls (FR-022) at every tier.
+Key approach (grounded research.md R1-R7): (R1/US1) the chip already rides buckets/tree boxes (app.go:1256/
+1270/1286); the ONLY browse box missing it is modeObject (app.go:1178 plain boxView) → swap to boxViewChip +
+m.modeChip(). (R2/US1) strip [RW]/[RO] from footerIdentityCompact (styles.go:512-524) → identity = ● ctx ·
+cluster; update 3 callers (app.go:1382, commandbar.go:185/254). Modal writeBadge (confirmview.go:36/69,
+writemode.go:56) + help badge (app.go:1130) STAY (safety, not the dup). (R3/US2) applied-filter chip per-pane:
+buckets box when m.bucketFilter!='' && !m.searching; objects box when m.search!='' && !m.searching (per-pane
+field, NOT focus-relative committedFilterTerm search.go:14). warnStyle (no new hue), "filter: term" capped
+with … (boxViewWith drops chip whole — does not elide; full term via re-opening / pre-filled). MOVE breadcrumb-embedded
+markers off the title: drop objectsZoneTitle ' (term*)' (app.go:1354) + resourceTitle '/term*' (app.go:1478).
+Clear is automatic (goBack tree.go:154 / objectsBack app.go:525 / ctx switch app.go:1063). (R4) extend
+boxViewWith (styles.go:334-406) with a 2nd INBOARD chip slot; degrade order: center → filter chip → mode chip
+LAST (mode safety-critical); objects pane gains a chip-bearing variant (today boxViewFocus, no slot). (R5/US3)
+one separator token ' · '→'  ·  '; entryStyled key↔label 1→2 (commandbar.go:159); inter-column gap 2→3 via a
+colGap const with natural := …+2*len(colGap) (commandbar.go:175/179 — kills the +4 double-count). Other
+fitters (fitEntries, renderHintRow, footerIdentityCompact cluster-append) re-measure via lipgloss.Width →
+self-accounting. (R7) TDD white-box package ui (deliver/press/viewOf/stripANSI; dualApp/treeApp/buildApp/
+crossToObjects) + Fake.ListLevelCalls; failing-first per US; MIGRATE existing [RW]/[RO] asserts
+(operation_test/visual_test/writemode_test/spec012_test) to the chip + keep width guards (footer_test
+assertWidthSweep 40..200 ≤9 rows) green. Layout invariant: chips border-only (0 body rows) + boxViewWith
+minRows cap → footer never scrolls (FR-016) at every tier.
 <!-- SPECKIT END -->
