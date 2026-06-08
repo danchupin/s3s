@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/danchupin/s3s/internal/logging"
 	"github.com/danchupin/s3s/internal/secret"
 	yaml "go.yaml.in/yaml/v3"
 )
@@ -19,8 +18,14 @@ func fp(out io.Writer, format string, a ...any) {
 	_, _ = fmt.Fprintf(out, format, a...)
 }
 
-// Marshal serializes a config to YAML. Secret fields hold ${ENV} references
-// produced by the wizard, so no real credential is ever written to disk.
+// promptSecret reads the keychain secret with no echo. It is a package var so tests can
+// substitute it — the real implementation (secret.Prompt) needs a TTY, which a test
+// harness driving RunInit over a pipe does not have.
+var promptSecret = secret.Prompt
+
+// Marshal serializes a config to YAML. The config never holds a real secret (014
+// FR-008) — the wizard writes only keychain:true or a cmd, so nothing sensitive
+// reaches disk.
 func Marshal(c *Config) ([]byte, error) {
 	return yaml.Marshal(c)
 }
@@ -98,27 +103,10 @@ func Save(path string, data []byte) error {
 	return nil
 }
 
-// EnvVarName derives the environment variable that will hold a context's secret,
-// e.g. "prod-public" -> "S3S_PROD_PUBLIC_SECRET".
-func EnvVarName(context string) string {
-	var b strings.Builder
-	b.WriteString("S3S_")
-	for _, r := range strings.ToUpper(context) {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	b.WriteString("_SECRET")
-	return b.String()
-}
-
 // RunInit drives the interactive config generator: it prompts on out, reads
 // answers from in, merges the result into the config at path (creating or
-// extending it), and writes it back. Secrets are stored as ${ENV} references —
-// the raw key is never written to disk (FR-005).
+// extending it), and writes it back. The secret is stored in the OS keychain (the
+// default) or named as a cmd — never written to disk (014 FR-008).
 func RunInit(in io.Reader, out io.Writer, path string) error {
 	sc := bufio.NewScanner(in)
 
@@ -145,32 +133,25 @@ func RunInit(in io.Reader, out io.Writer, path string) error {
 
 	userName := ctxName
 	u := User{Name: userName}
-	var envVar string
 	if anonymous {
 		u.Anonymous = true
 	} else {
-		// Credential source (005 US6): keychain stores the secret in the OS keystore;
-		// cmd/awsProfile reference external sources; env keeps the ${ENV} reference.
-		switch strings.ToLower(ask(out, sc, "Credential source [env/keychain/cmd/awsProfile]", "env")) {
-		case "keychain":
-			u.AccessKeyID = ask(out, sc, "Access key ID", "")
-			u.Keychain = true
-			sec, perr := secret.Prompt("Secret access key (no echo): ")
-			if perr != nil {
-				return perr
-			}
-			if serr := secret.StoreKeychain(userName, sec); serr != nil {
-				return serr
-			}
+		// Credential source (014): keychain stores the secret in the OS keystore (the
+		// blessed default); cmd runs an external program whose stdout is the secret.
+		switch strings.ToLower(ask(out, sc, "Credential source [keychain/cmd]", "keychain")) {
 		case "cmd":
 			u.AccessKeyID = ask(out, sc, "Access key ID", "")
 			u.Command = ask(out, sc, "Command that prints the secret to stdout", "")
-		case "awsprofile", "aws", "profile":
-			u.AWSProfile = ask(out, sc, "AWS profile name", "default")
-		default: // env — unchanged ${ENV} reference
+		default: // keychain — the blessed default; invalid/empty input falls here too
 			u.AccessKeyID = ask(out, sc, "Access key ID", "")
-			envVar = EnvVarName(ctxName)
-			u.SecretAccessKey = logging.Secret("${" + envVar + "}")
+			u.Keychain = true
+			sec, perr := promptSecret("Secret access key (no echo): ")
+			if perr != nil {
+				return perr
+			}
+			if serr := secret.StoreKeychain(keychainAccount(path, userName), sec); serr != nil {
+				return serr
+			}
 		}
 	}
 
@@ -194,10 +175,6 @@ func RunInit(in io.Reader, out io.Writer, path string) error {
 	}
 
 	fp(out, "\nWrote %s\n", path)
-	if envVar != "" {
-		fp(out, "\nSet the secret in your environment (it is NOT stored in the file):\n")
-		fp(out, "  export %s=<your-secret-access-key>\n", envVar)
-	}
 	fp(out, "\nRun:  s3s --context %s\n", ctxName)
 	return nil
 }

@@ -2,7 +2,10 @@ package config
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
+	"path/filepath"
 
 	"github.com/danchupin/s3s/internal/secret"
 	"github.com/danchupin/s3s/internal/storage"
@@ -10,6 +13,9 @@ import (
 
 // EnvContext is the environment variable that selects the active context.
 const EnvContext = "S3S_CONTEXT"
+
+// EnvConfig is the environment variable that selects the config file (014 FR-013).
+const EnvConfig = "S3S_CONFIG"
 
 // ActiveContextName applies the precedence: explicit --context flag >
 // S3S_CONTEXT env > current-context in config (FR-002).
@@ -22,6 +28,38 @@ func ActiveContextName(flag, env, current string) string {
 	default:
 		return current
 	}
+}
+
+// ResolvePath applies the config-file precedence: explicit --config flag > S3S_CONFIG
+// env > DefaultPath() (014 FR-014).
+func ResolvePath(flag, env string) string {
+	switch {
+	case flag != "":
+		return flag
+	case env != "":
+		return env
+	default:
+		return DefaultPath()
+	}
+}
+
+// configIdentity derives a short, deterministic, portable id from a config file path,
+// used to namespace keystore accounts so two configs never collide (014 FR-020a).
+func configIdentity(configPath string) string {
+	abs, err := filepath.Abs(configPath)
+	if err != nil {
+		abs = configPath
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return base64.RawURLEncoding.EncodeToString(sum[:])[:8]
+}
+
+// keychainAccount is the namespaced OS-keystore account for a user under a given config
+// file: "<config-id>:<userName>". Every keystore call site (resolution, cred, add/
+// remove connection, wizard) MUST derive the account through this helper so a secret
+// stored via one path is found via the same path (014 FR-020a).
+func keychainAccount(configPath, userName string) string {
+	return configIdentity(configPath) + ":" + userName
 }
 
 // Resolve returns the cluster and user bound by the named context, with the
@@ -70,17 +108,14 @@ func (c *Config) WriteModeFor(name string, writeFlag bool) (WriteMode, error) {
 }
 
 // secretRequest builds the single-source resolution request for a non-anonymous user
-// (005 FR-041). configPath feeds the command source's owner-only perms gate.
+// (014 FR-002). configPath feeds the command source's owner-only perms gate, and
+// namespaces the keychain account so two configs never collide (FR-020a).
 func (u User) secretRequest(configPath string) (secret.Request, error) {
 	switch {
 	case u.Keychain:
-		return secret.Request{Kind: secret.Keychain, AccessKeyID: u.AccessKeyID, Ref: u.Name}, nil
+		return secret.Request{Kind: secret.Keychain, AccessKeyID: u.AccessKeyID, Ref: keychainAccount(configPath, u.Name)}, nil
 	case u.Command != "":
 		return secret.Request{Kind: secret.Command, AccessKeyID: u.AccessKeyID, Ref: u.Command, ConfigPath: configPath}, nil
-	case u.AWSProfile != "":
-		return secret.Request{Kind: secret.AWSProfile, Ref: u.AWSProfile}, nil
-	case !u.SecretAccessKey.IsEmpty():
-		return secret.Request{Kind: secret.Inline, AccessKeyID: u.AccessKeyID, Ref: u.SecretAccessKey.Reveal()}, nil
 	default:
 		return secret.Request{}, fmt.Errorf("%w: user %q has no credential source", ErrInvalid, u.Name)
 	}
@@ -101,18 +136,18 @@ func (c *Config) ClientConfigWithSecret(name, sec string) (storage.ClientConfig,
 		Anonymous:     u.Anonymous,
 		AccessKeyID:   u.AccessKeyID,
 		SecretKey:     sec,
-		SessionToken:  u.SessionToken.Reveal(), // preserve a config-declared STS token
 	}, nil
 }
 
-// KeychainAccount returns the keystore account for the named context's user (the user
-// name), so `s3s cred` and runtime resolution agree on the key (005 R9).
+// KeychainAccount returns the namespaced keystore account for the named context's user,
+// so `s3s cred` and runtime resolution agree on the key (005 R9, 014 FR-020a). The
+// config-identity prefix isolates same-named contexts across multiple configs.
 func (c *Config) KeychainAccount(name string) (string, error) {
 	cx, ok := c.context(name)
 	if !ok {
 		return "", fmt.Errorf("%w: no such context %q", ErrInvalid, name)
 	}
-	return cx.User, nil
+	return keychainAccount(c.path, cx.User), nil
 }
 
 // ClientConfig builds a storage.ClientConfig for the named context, resolving the
@@ -145,12 +180,7 @@ func (c *Config) ClientConfig(ctx context.Context, name string) (storage.ClientC
 	}
 	cc.AccessKeyID = res.AccessKeyID
 	cc.SecretKey = res.SecretKey.Reveal()
-	cc.SessionToken = res.SessionToken.Reveal()
-	// Only the AWS-profile source supplies its own session token; every other source
-	// takes the (optional) sessionToken from config — keychain/cmd/env credentials can
-	// be STS temporary credentials with a config-declared token (005 US6).
-	if req.Kind != secret.AWSProfile && cc.SessionToken == "" {
-		cc.SessionToken = u.SessionToken.Reveal()
-	}
+	// The kept sources (keychain / cmd) supply a single secret only; session-token /
+	// STS support is out of scope (014 FR-008a).
 	return cc, nil
 }

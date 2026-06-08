@@ -554,10 +554,9 @@ func (m App) connectionsView(w, rows int) string {
 	return body + "\n\n" + dimCellStyle.Render(truncate(hint, max(1, w-1)))
 }
 
-// connFieldHint returns the focused-field guidance line. The secret
-// field names what to enter (the secret access key, stored in the OS keychain) and that the
-// other credential sources are config-file-only — it deliberately does NOT promise ${ENV}
-// resolution, since the form stores the secret verbatim to the keychain.
+// connFieldHint returns the focused-field guidance line. The secret field names what
+// to enter (the secret access key, stored in the OS keychain); the only other source is
+// a cmd in the config file (014). The form stores the secret verbatim to the keychain.
 func (m App) connFieldHint(cursor int) string {
 	switch cursor {
 	case fldName:
@@ -569,7 +568,7 @@ func (m App) connFieldHint(cursor int) string {
 	case fldAccessKey:
 		return "access key id"
 	case fldSecret:
-		return "secret access key — stored in your OS keychain · env var / cmd / AWS profile via config file"
+		return "secret access key — stored in your OS keychain · or use a cmd source via config file"
 	case fldBuckets:
 		return "comma/space-separated bucket names — pin these when credentials can't list all (optional)"
 	}

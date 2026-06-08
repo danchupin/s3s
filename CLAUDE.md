@@ -44,7 +44,7 @@ go test -cover ./...                            # coverage
 ## Architecture (the big picture)
 
 The codebase is governed by a **constitution** (`.specify/memory/constitution.md`,
-v1.1.0). Its seven principles are **I. Core/UI Separation**, **II. Non-Blocking
+v1.2.0). Its seven principles are **I. Core/UI Separation**, **II. Non-Blocking
 TUI**, **III. Test-First**, **IV. Integration Testing**, **V. Observability & Safe
 Operations**, **VI. UI Legibility** (every resource identifier fully visible or
 revealable to read/copy; footer/command bar never scrolled off), and **VII. UI
@@ -118,44 +118,39 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 013-ui-mode-footer-filter (mode chip dedup, footer breathing room, applied-filter state;
-3 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 012-ui-visibility-write-clarity
-— IMPLEMENTED (#18). 011-two-pane-hotkeys — IMPLEMENTED. 010-pinned-buckets — IMPLEMENTED.
-008/007/006/005/004/003/002/001 — complete.
+Active feature: 014-credentials-config-path (credential sources → keychain+cmd only; config-path override;
+5 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 013-ui-mode-footer-filter —
+PLANNED (spec+clarify+plan; tasks/impl pending). 012-ui-visibility-write-clarity — IMPLEMENTED (#18).
+011-two-pane-hotkeys / 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/013-ui-mode-footer-filter/plan.md. Artifacts: spec.md (US1 single read/write mode indicator P1,
-US2 applied-filter state visible P1, US3 footer/menu breathing room P2; FR-001..018, SC-001..008,
-2 clarifications), research.md (R1..R7, grounded file:line), data-model.md, quickstart.md, contracts/
-(border-chip, mode-indicator, applied-filter, footer-spacing, layout-visibility), checklists/requirements.md
-(16/16). Constitution v1.1.0 (VI UI Legibility + VII UI Consistency/Design System drive this feature; no
-amendment). check-readonly STAYS green (no new write-S3 symbol, no storage method). NO integration (no
-storage-contract change; IV N/A justified). All changes in internal/ui; no new file, no new package, no new
-keymap field, no new hue.
+Plan: specs/014-credentials-config-path/plan.md. Artifacts: spec.md (US1 two sources only P1, US2 removed
+sources gone P1, US3 config-path override P2, US4 cross-platform keychain + headless loud-fail P2, US5 docs P3;
+FR-001..022 incl. 008a/018a/020a, SC-001..008, 4 clarifications), research.md (R1..R8 grounded file:line),
+data-model.md, quickstart.md, contracts/ (config-path-resolution, credential-sources, keychain-account-
+namespacing, cred-and-wizard), checklists/requirements.md (16/16). Constitution v1.2.0 (Tech&Security credential
+bullet amended this iteration: env/AWS-profile/prompt → keychain/cmd/prompt, never plaintext-in-config, headless
+loud-fail toward cmd). check-readonly STAYS green (only removes cred code; no write-S3 symbol). IV: kept keychain
+auth flow covered by existing cred_auth_integration_test; no storage-contract change → no new integration test.
 
-GOAL: small presentation iteration continuing 012. (1) ONE read/write mode indicator: keep the border chip,
-remove the duplicate footer [RW]/[RO] tag. (2) Applied-filter state visible as a persistent border chip on the
-filtered pane. (3) Wider footer/command-bar spacing without breaking the no-wrap/no-scroll invariant. Two
-clarifications: filter indicator = border chip on the FILTERED pane (NOT footer, NOT breadcrumb title);
-write-state in non-list modes = a UNIVERSAL mode chip on every browse box (one render path).
+GOAL: cut 4 credential sources to 2 (keychain default + cmd hatch); add config-path override for multiple configs.
+DECISIONS (clarify): NO migration (pre-release, no users — just delete inline/${ENV}/sessionToken/awsProfile from
+schema+resolver+validation+wizard); keychain account NAMESPACED by config-identity; cmd = secret only (no STS
+token); config switch is relaunch-only.
 
-Key approach (grounded research.md R1-R7): (R1/US1) the chip already rides buckets/tree boxes (app.go:1256/
-1270/1286); the ONLY browse box missing it is modeObject (app.go:1178 plain boxView) → swap to boxViewChip +
-m.modeChip(). (R2/US1) strip [RW]/[RO] from footerIdentityCompact (styles.go:512-524) → identity = ● ctx ·
-cluster; update 3 callers (app.go:1382, commandbar.go:185/254). Modal writeBadge (confirmview.go:36/69,
-writemode.go:56) + help badge (app.go:1130) STAY (safety, not the dup). (R3/US2) applied-filter chip per-pane:
-buckets box when m.bucketFilter!='' && !m.searching; objects box when m.search!='' && !m.searching (per-pane
-field, NOT focus-relative committedFilterTerm search.go:14). warnStyle (no new hue), "filter: term" capped
-with … (boxViewWith drops chip whole — does not elide; full term via re-opening / pre-filled). MOVE breadcrumb-embedded
-markers off the title: drop objectsZoneTitle ' (term*)' (app.go:1354) + resourceTitle '/term*' (app.go:1478).
-Clear is automatic (goBack tree.go:154 / objectsBack app.go:525 / ctx switch app.go:1063). (R4) extend
-boxViewWith (styles.go:334-406) with a 2nd INBOARD chip slot; degrade order: center → filter chip → mode chip
-LAST (mode safety-critical); objects pane gains a chip-bearing variant (today boxViewFocus, no slot). (R5/US3)
-one separator token ' · '→'  ·  '; entryStyled key↔label 1→2 (commandbar.go:159); inter-column gap 2→3 via a
-colGap const with natural := …+2*len(colGap) (commandbar.go:175/179 — kills the +4 double-count). Other
-fitters (fitEntries, renderHintRow, footerIdentityCompact cluster-append) re-measure via lipgloss.Width →
-self-accounting. (R7) TDD white-box package ui (deliver/press/viewOf/stripANSI; dualApp/treeApp/buildApp/
-crossToObjects) + Fake.ListLevelCalls; failing-first per US; MIGRATE existing [RW]/[RO] asserts
-(operation_test/visual_test/writemode_test/spec012_test) to the chip + keep width guards (footer_test
-assertWidthSweep 40..200 ≤9 rows) green. Layout invariant: chips border-only (0 body rows) + boxViewWith
-minRows cap → footer never scrolls (FR-016) at every tier.
+Key approach (research.md R1-R8, file:line verified): (R2) secret.Inline FULLY removable — prompt fallback uses
+ClientConfigWithSecret(name,sec)(resolve.go:91) which injects the raw secret, never builds Kind=Inline. (R3) ONE
+helper keychainAccount(configPath,userName)=base64url(sha256(filepath.Abs(path)))[:8]+":"+userName at FIVE keystore
+sites (map found 3; 2 more by direct read): secretRequest Ref(resolve.go:77), KeychainAccount(resolve.go:110),
+AddConnection(connection.go:70), RemoveConnection(connection.go:180), wizard(generate.go:162). Config.path already
+set by Load/Empty → NO signature changes; secret.{Get,Store,Remove}Keychain keep account string (Constitution I).
+(R4) config.ConfigPath(flag,env)=flag>env>DefaultPath + const EnvConfig="S3S_CONFIG"; --config already exists
+(main.go:53/cred.go:20/runConfigInit:197), only env+precedence new; explicit(flag||env set) non-existent path =
+hard error, default path = first-run empty (FR-017). (R5) headless: GetKeychain(keychain.go:26) unavailable-store
+error → name cmd remedy; prompt stays TTY-gated(main.go:149). DELETE: User.{SecretAccessKey,SessionToken,AWSProfile}
+(config.go:70/71/74), awsprofile.go + awsprofile_test.go, secret.{Inline,AWSProfile} + Resolve cases, Resolved.
+SessionToken, EnvVarName + env/awsProfile wizard branches + export-hint; ClientConfig sessionToken block(148-154);
+keep ${ENV} for accessKeyId only. (R7) drop now-unused logging imports (config.go/generate.go) — go build flags.
+(R8) TDD failing-first per US; delete Inline/awsProfile/sessionToken/env tests; migrate validYAML→keychain (mock
+keyring); add namespacing-isolation + ConfigPath-precedence + explicit-not-found tests; update connection_
+integration_test asserted account to namespaced. README/ROADMAP: 4 sources→2, ROADMAP item→Done.
 <!-- SPECKIT END -->

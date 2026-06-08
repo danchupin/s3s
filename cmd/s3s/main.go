@@ -58,20 +58,9 @@ func run() error {
 		return nil
 	}
 
-	if cfgPath == "" {
-		cfgPath = config.DefaultPath()
-	}
-
-	cfg, err := config.Load(cfgPath)
-	firstRun := false
+	cfg, cfgPath, firstRun, err := loadForLaunch(cfgPath, os.Getenv(config.EnvConfig))
 	if err != nil {
-		if !errors.Is(err, config.ErrNotFound) {
-			return err
-		}
-		// No config yet (009): start the TUI in the add-connection form instead of erroring.
-		// An empty config bound to cfgPath lets the in-app form write the first connection.
-		cfg = config.Empty(cfgPath)
-		firstRun = true
+		return err
 	}
 	// A config that exists but declares no contexts is the same "no connections yet" state.
 	if len(cfg.ContextNames()) == 0 {
@@ -189,6 +178,30 @@ func run() error {
 	return nil
 }
 
+// loadForLaunch resolves the config path (--config flag > S3S_CONFIG env > default XDG
+// path, 014 FR-014) and loads it for the TUI. It returns the resolved path and whether
+// the TUI should open in first-run (add-connection) mode. An explicitly named missing
+// file is a hard error; only the default path first-runs (FR-017). Extracted as a seam
+// so the path-precedence + explicit-not-found logic is unit-testable.
+func loadForLaunch(flagPath, envPath string) (*config.Config, string, bool, error) {
+	explicit := flagPath != "" || envPath != ""
+	path := config.ResolvePath(flagPath, envPath)
+	cfg, err := config.Load(path)
+	if err != nil {
+		if !errors.Is(err, config.ErrNotFound) {
+			return nil, path, false, err
+		}
+		// An explicitly named config that does not exist is an error, not first-run.
+		if explicit {
+			return nil, path, false, err
+		}
+		// No default config yet (009): the TUI opens the add-connection form; an empty
+		// config bound to path lets the in-app form write the first connection.
+		return config.Empty(path), path, true, nil
+	}
+	return cfg, path, false, nil
+}
+
 // runConfigInit handles `s3s config init [--config <path>]` — the interactive
 // config generator. Writing a local config file is not an S3 operation, so this
 // does not breach the read-only guarantee (FR-019).
@@ -198,10 +211,8 @@ func runConfigInit(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	path := *cfgPath
-	if path == "" {
-		path = config.DefaultPath()
-	}
+	// Same precedence as run(): flag > S3S_CONFIG env > default (014 FR-014/FR-015).
+	path := config.ResolvePath(*cfgPath, os.Getenv(config.EnvConfig))
 	return config.RunInit(os.Stdin, os.Stdout, path)
 }
 
