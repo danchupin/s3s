@@ -102,7 +102,79 @@ func assertWidthSweep(t *testing.T, build func(w int) App, lo, hi, maxRows int) 
 		if fr := footerLineCount(m, w); fr > maxRows {
 			t.Fatalf("w=%d: footer rows=%d, want ≤%d", w, fr, maxRows)
 		}
+		// 015 US2: the always-visible filter strip fits on exactly one line at every width.
+		strip := m.filterStripView(w)
+		if strings.Contains(strip, "\n") {
+			t.Fatalf("w=%d: filter strip must be one line: %q", w, stripANSI(strip))
+		}
+		if lipgloss.Width(strip) > w {
+			t.Fatalf("w=%d: filter strip exceeds width (%d): %q", w, lipgloss.Width(strip), stripANSI(strip))
+		}
 	}
+}
+
+func lineCount(s string) int { return strings.Count(s, "\n") + 1 }
+
+// assertHeightSweep checks that as the terminal shrinks vertically, the footer AND the filter
+// strip stay fully rendered and only the LIST gives up rows (015 layout-budget-contract). Within
+// the floor-free range the composed view fills EXACTLY the available height — proof that the
+// footer/strip are never clipped and the list absorbs every row of loss.
+func assertHeightSweep(t *testing.T, build func() App, w int) {
+	t.Helper()
+	base := build()
+	base.width = w
+	footerH := strings.Count(base.footerBlock(w), "\n") + 1
+	loH := footerH + 6 // smallest height with no row-floor clamp (list inner rows ≥ 3)
+	for h := loH; h <= loH+24; h++ {
+		m := build()
+		m.width, m.height = w, h
+		view := m.View().Content
+		if lc := lineCount(view); lc != h {
+			t.Fatalf("w=%d h=%d: view fills %d lines, want exactly %d (footer/strip must stay; list absorbs)", w, h, lc, h)
+		}
+		if !strings.Contains(view, m.footerBlock(w)) {
+			t.Fatalf("w=%d h=%d: footer clipped", w, h)
+		}
+		if !strings.Contains(view, m.filterStripView(w)) {
+			t.Fatalf("w=%d h=%d: filter strip clipped", w, h)
+		}
+	}
+}
+
+// T007 / 015 US2: the strip fits at every width and keeps a usable input field (≥10 cols) even at
+// the narrowest supported width (FR-006) — the apply/cancel hints drop before the input.
+func TestFilterStripWidthSweepUsable(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "apple", "apricot")
+	const longTerm = "abcdefghijklmnopqrst" // 20 chars
+	build := func(w int) App {
+		m := treeApp(f, true)
+		m.width, m.height = w, 24
+		m.searching = true
+		m.searchInput = longTerm
+		return m
+	}
+	for w := 40; w <= 200; w++ {
+		strip := build(w).filterStripView(w)
+		if strings.Contains(strip, "\n") {
+			t.Fatalf("w=%d: strip wraps: %q", w, stripANSI(strip))
+		}
+		if lipgloss.Width(strip) > w {
+			t.Fatalf("w=%d: strip overflows (%d): %q", w, lipgloss.Width(strip), stripANSI(strip))
+		}
+	}
+	// At the narrowest supported width the editable field keeps ≥10 visible columns: the first 10
+	// chars of the typed term stay visible (the hints are dropped to make room, FR-006).
+	if narrow := stripANSI(build(40).filterStripView(40)); !strings.Contains(narrow, longTerm[:10]) {
+		t.Errorf("at w=40 the input field must keep ≥10 visible columns; got %q", narrow)
+	}
+}
+
+// T007 / 015 US2: shrinking the height never clips the footer or the strip — only the list shrinks.
+func TestFilterStripHeightSweep(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt", "b.txt", "c.txt", "d.txt")
+	assertHeightSweep(t, func() App { return treeApp(f, true) }, 100)
 }
 
 func containsAny(s string, subs ...string) string {

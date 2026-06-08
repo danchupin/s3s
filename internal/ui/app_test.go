@@ -270,15 +270,88 @@ func TestStatusNamedLoading(t *testing.T) { // S1 / FR-015, FR-029
 	}
 }
 
-func TestStatusSearchPending(t *testing.T) { // S2 / FR-016
+func TestStatusSearchPending(t *testing.T) { // S2 / FR-016 — 015: the input now lives in the strip
 	f := storage.NewFake()
 	f.Seed("b", "a.txt")
 	m := treeApp(f, true)
 	m.searching = true
 	m.searchInput = "ar"
-	// 012 FR-039/FR-040: the prominent filter input names the pane and marks the live preview.
-	if s := m.statusLine(120); !strings.Contains(s, "filter") || !strings.Contains(s, "live") {
-		t.Errorf("object filter input should show a prominent live indicator; got %q", s)
+	// 015 FR-005: the prominent filter input renders via the always-visible strip (no longer
+	// statusLine); it names the pane and marks the live preview.
+	if s := m.filterStripView(120); !strings.Contains(s, "filter") || !strings.Contains(s, "live") {
+		t.Errorf("object filter input should show a prominent live indicator in the strip; got %q", s)
+	}
+}
+
+// T006 / 015 FR-005: statusLine NEVER renders the filter input — it moved to the strip. A status
+// message (notice/error) and an active filter coexist: the input is in the strip, the status in
+// the footer's status line, neither clobbering the other.
+func TestStatusLineNeverHasFilterInput(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+	m := treeApp(f, true)
+	m.searching = true
+	m.searchInput = "needle"
+	m.notice = "SENTINEL_NOTICE"
+	s := m.statusLine(120)
+	if strings.Contains(s, "needle") || strings.Contains(s, "Enter apply") {
+		t.Errorf("statusLine must not render the filter input; got %q", s)
+	}
+	if !strings.Contains(s, "SENTINEL_NOTICE") {
+		t.Errorf("statusLine should keep showing the notice while a filter is active; got %q", s)
+	}
+	// And the input IS in the strip, side by side with the status.
+	if !strings.Contains(m.filterStripView(120), "needle") {
+		t.Errorf("the live input must render in the strip; got %q", m.filterStripView(120))
+	}
+}
+
+// T002 / 015 US1+US2: the filter strip is ALWAYS present in the filterable browse modes — even
+// with no committed filter and not editing — as a dim "/ to filter <pane>" placeholder.
+func TestFilterStripAlwaysVisible(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+
+	mb := dualApp(f) // modeBuckets, focus buckets
+	if mb.searching || mb.bucketFilter != "" {
+		t.Fatal("setup: the bucket scope should be idle with no committed filter")
+	}
+	if s := stripANSI(mb.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
+		t.Errorf("idle bucket strip must show the placeholder; got %q", s)
+	}
+	if v := stripANSI(viewOf(mb)); !strings.Contains(v, "/ to filter buckets") {
+		t.Errorf("the strip must be rendered in the buckets view:\n%s", v)
+	}
+
+	mt := treeApp(f, false) // modeTree → object scope
+	mt.width, mt.height = 120, 30
+	if s := stripANSI(mt.filterStripView(120)); !strings.Contains(s, "/ to filter objects") {
+		t.Errorf("idle tree strip must show the placeholder; got %q", s)
+	}
+	if v := stripANSI(viewOf(mt)); !strings.Contains(v, "/ to filter objects") {
+		t.Errorf("the strip must be rendered in the tree view:\n%s", v)
+	}
+}
+
+// T009 / 015 US2: non-filterable modes reserve NO strip row — the strip cost is paid only where
+// filtering applies (the bucket list and the object tree).
+func TestNoStripReserveInNonFilterableModes(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "a.txt")
+
+	mo := treeApp(f, false)
+	mo.width, mo.height = 100, 30
+	mo.mode = modeObject
+	md := storage.ObjectMetadata{Key: "a.txt", ContentType: "text/plain"}
+	mo.meta = &md
+	if v := stripANSI(viewOf(mo)); strings.Contains(v, "/ to filter") || strings.Contains(v, "▌ filter") {
+		t.Errorf("modeObject must not render the filter strip:\n%s", v)
+	}
+
+	mc := dualApp(f)
+	mc.mode = modeContextSwitch
+	if v := stripANSI(viewOf(mc)); strings.Contains(v, "/ to filter") || strings.Contains(v, "▌ filter") {
+		t.Errorf("modeContextSwitch must not render the filter strip:\n%s", v)
 	}
 }
 

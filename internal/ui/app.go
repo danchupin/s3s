@@ -1137,9 +1137,25 @@ func (m App) View() tea.View {
 
 	footer := m.footerBlock(w)
 	footerH := strings.Count(footer, "\n") + 1
-	// Inner box height = total minus the footer and the two border lines. The box
-	// body MUST NOT exceed this, or the footer (incl. the hints line) scrolls off.
-	rows := m.height - footerH - 2
+
+	// The command bar overlays the footer; its body is the underlying (prev) view.
+	bodyMode := m.mode
+	if m.mode == modeCommand {
+		bodyMode = m.prevMode
+	}
+
+	// The always-visible filter strip reserves exactly one line in the filterable browse modes
+	// (modeBuckets/modeTree); it is subtracted from the LIST, never the footer (015 FR-005,
+	// layout-budget-contract). The upload file browser takes over the body, so no strip is
+	// reserved while it is open.
+	filterStripH := 0
+	if (m.op == nil || m.op.phase != phaseBrowse) && (bodyMode == modeBuckets || bodyMode == modeTree) {
+		filterStripH = 1
+	}
+
+	// Inner box height = total minus the footer, the reserved filter strip, and the two border
+	// lines. The box body MUST NOT exceed this, or the footer (incl. the hints line) scrolls off.
+	rows := m.height - footerH - filterStripH - 2
 	if rows < 3 {
 		rows = 3
 	}
@@ -1156,12 +1172,6 @@ func (m App) View() tea.View {
 		v := tea.NewView(body + "\n" + footer)
 		v.AltScreen = true
 		return v
-	}
-
-	// The command bar overlays the footer; its body is the underlying (prev) view.
-	bodyMode := m.mode
-	if m.mode == modeCommand {
-		bodyMode = m.prevMode
 	}
 
 	var body string
@@ -1206,7 +1216,13 @@ func (m App) View() tea.View {
 		body = m.revealView(w, bodyH)
 	}
 
-	v := tea.NewView(body + "\n" + footer)
+	mid := body + "\n" + footer
+	if filterStripH == 1 {
+		// Reserved chrome: the strip rides one line above the footer; the LIST already gave up
+		// the row, so the footer stays put (015 layout-budget-contract).
+		mid = body + "\n" + m.filterStripView(w) + "\n" + footer
+	}
+	v := tea.NewView(mid)
 	v.AltScreen = true
 	return v
 }
@@ -1303,24 +1319,54 @@ func (m App) modeChip() string {
 // full committed term remains recoverable by re-opening the filter input (`/`), which pre-fills it.
 const filterChipTermMax = 14
 
-// filterChipText renders the applied-filter chip for a committed (non-empty) term, hidden while
-// the typing input is open (013 US2 / applied-filter-contract F8). warnStyle reuses the typing-
-// input accent; the term is capped with an ellipsis.
-func (m App) filterChipText(term string) string {
-	if term == "" || m.searching {
+// filterChipText renders the count-bearing applied-filter chip for a committed (non-empty) term.
+// The match count is appended after the term: "filter: <term> · M/T" for a scope whose total is
+// known locally (buckets), "filter: <term> · N" for a scope whose total is not fetched (objects,
+// paginated server-side — 015 FR-013). The per-scope wrappers own visibility gating (a chip
+// hides only while THAT scope is actively edited); this function is zone-agnostic. warnStyle
+// reuses the filter accent; the TERM is capped (boxViewWith drops the WHOLE chip when it can't
+// fit — the always-visible strip still shows the active filter), the count is never elided.
+func (m App) filterChipText(term string, matched, total int, hasTotal bool) string {
+	if term == "" {
 		return ""
 	}
-	return warnStyle.Render("filter: " + truncate(term, filterChipTermMax))
+	label := "filter: " + truncate(term, filterChipTermMax)
+	if hasTotal {
+		label += fmt.Sprintf(" · %d/%d", matched, total)
+	} else {
+		label += fmt.Sprintf(" · %d", matched)
+	}
+	return warnStyle.Render(label)
 }
 
-// bucketFilterChip is the applied-filter chip for the bucket list (local name filter).
-func (m App) bucketFilterChip() string { return m.filterChipText(m.bucketFilter) }
+// bucketFilterChip is the count-bearing applied-filter chip for the bucket list (local name
+// filter): matched/total, both known locally. Term-gated + zone-agnostic — shown whenever a
+// bucket filter is committed, INDEPENDENT of focus; hidden only while the bucket scope is being
+// actively edited (its live term shows in the always-visible strip instead).
+func (m App) bucketFilterChip() string {
+	if m.searching && m.filterIsBucketList() {
+		return ""
+	}
+	return m.filterChipText(m.bucketFilter, len(m.filteredBuckets()), len(m.buckets), true)
+}
 
-// objectsFilterChip is the applied-filter chip for an object level (server-side prefix search).
-func (m App) objectsFilterChip() string { return m.filterChipText(m.search) }
+// objectsFilterChip is the count-bearing applied-filter chip for an object level (server-side
+// prefix search): N matched only — the level total is not fetched (paginated, 015 FR-013). Term-
+// gated + zone-agnostic; hidden only while the object scope is being actively edited.
+func (m App) objectsFilterChip() string {
+	if m.searching && !m.filterIsBucketList() {
+		return ""
+	}
+	matched := 0
+	if m.level != nil {
+		matched = m.level.count()
+	}
+	return m.filterChipText(m.search, matched, 0, false)
+}
 
-// primaryFilterChip is the applied-filter chip for the single primary list box: the bucket
-// filter in modeBuckets, the level search otherwise (modeTree).
+// primaryFilterChip is the applied-filter chip for a SINGLE-pane list box (Single tier or a
+// collapsed pane): the bucket filter in modeBuckets, the level search otherwise (modeTree). The
+// two-pane layout (listWithPane) chips each box independently and does NOT route through this.
 func (m App) primaryFilterChip() string {
 	if m.mode == modeBuckets {
 		return m.bucketFilterChip()
@@ -1416,6 +1462,50 @@ func (m App) footerBlock(w int) string {
 	return strings.Join(lines, "\n")
 }
 
+// filterStripView renders the always-visible, single-line filter strip shown between the list
+// body and the footer in the filterable browse modes (modeBuckets/modeTree). It OWNS the filter
+// input (moved out of statusLine): while editing it shows the live input + caret + apply/cancel
+// hints; idle it shows the focused scope's committed term, or a dim "/ to filter <pane>"
+// placeholder. Exactly one line that never wraps — the input/term elides with "…"; under width
+// pressure the apply/cancel hints drop BEFORE the input so the field keeps a usable minimum width
+// (015 FR-005/FR-006). <pane> is the focused scope (filterIsBucketList).
+func (m App) filterStripView(w int) string {
+	w = clampW(w)
+	pane := "objects"
+	if m.filterIsBucketList() {
+		pane = "buckets"
+	}
+	head := "▌ filter " + pane + ": "
+	headW := lipgloss.Width(head)
+
+	if m.searching {
+		// The objects level previews live (debounced); the bucket list filters instantly.
+		suffix := "  (live) · Enter apply · Esc cancel"
+		if m.filterIsBucketList() {
+			suffix = "  Enter apply · Esc cancel"
+		}
+		// Defensive: a width too small for head + a 1-col input falls back to a plain elided line
+		// (never reached at the supported ≥40-col widths, where headW≈18).
+		if w < headW+2 {
+			return warnStyle.Render(truncate(head+m.searchInput, w))
+		}
+		styledHead := warnStyle.Render("▌ ") + accentStyle.Render("filter "+pane+": ")
+		caret := accentStyle.Render("▏")
+		const minInput = 10 // FR-006: the editable field keeps a usable minimum width
+		avail := w - headW - 1
+		if avail >= minInput+lipgloss.Width(suffix) {
+			input := truncate(m.searchInput, avail-lipgloss.Width(suffix))
+			return styledHead + objCellStyle.Render(input) + caret + dimCellStyle.Render(suffix)
+		}
+		// Not enough room for the hints AND a usable input — drop the hints, keep the field.
+		return styledHead + objCellStyle.Render(truncate(m.searchInput, avail)) + caret
+	}
+	if term := m.committedFilterTerm(); term != "" {
+		return dimCellStyle.Render(truncate(head+term, w))
+	}
+	return dimCellStyle.Render(truncate("/ to filter "+pane, w))
+}
+
 // searchActive reports whether a search/filter is applied or being typed (drives the
 // footer's esc-clear vs esc-back disambiguation, FR-009).
 func (m App) searchActive() bool {
@@ -1447,17 +1537,8 @@ func (m App) statusLine(w int) string {
 			return m.opPromptLine(w)
 		}
 	}
-	if m.searching {
-		// A prominent filter input: a left accent bar names the pane being filtered;
-		// the objects level previews live (debounced), the bucket list instantly.
-		pane, suffix := "objects", "  (live) · Enter apply · Esc cancel"
-		if m.filterIsBucketList() {
-			pane, suffix = "buckets", "  Enter apply · Esc cancel"
-		}
-		head := warnStyle.Render("▌ ") + accentStyle.Render("filter "+pane+": ")
-		input := truncate(m.searchInput, max(1, w-lipgloss.Width(head)-len(suffix)-1))
-		return head + objCellStyle.Render(input) + dimCellStyle.Render(suffix)
-	}
+	// The filter input moved to the always-visible strip (015 FR-005); statusLine now carries
+	// only loading / notice / error / op-prompt, which coexist with an active filter.
 	if m.loading {
 		// Name what is loading; cancel is the back/escape key now.
 		what := "loading…"

@@ -118,39 +118,35 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 014-credentials-config-path (credential sources → keychain+cmd only; config-path override;
-5 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 013-ui-mode-footer-filter —
-PLANNED (spec+clarify+plan; tasks/impl pending). 012-ui-visibility-write-clarity — IMPLEMENTED (#18).
-011-two-pane-hotkeys / 010-pinned-buckets — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
+Active feature: 015-filter-ux-redesign (always-visible filter; keep bucket+object scopes; fix "doesn't fit";
+5 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 014-credentials-config-path —
+IMPLEMENTED (#20). conn-form cmd source — IMPLEMENTED (#21). 013-ui-mode-footer-filter — PLANNED (spec+clarify+plan).
+012-ui-visibility-write-clarity — IMPLEMENTED (#18). 011/010 — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
 
-Plan: specs/014-credentials-config-path/plan.md. Artifacts: spec.md (US1 two sources only P1, US2 removed
-sources gone P1, US3 config-path override P2, US4 cross-platform keychain + headless loud-fail P2, US5 docs P3;
-FR-001..022 incl. 008a/018a/020a, SC-001..008, 4 clarifications), research.md (R1..R8 grounded file:line),
-data-model.md, quickstart.md, contracts/ (config-path-resolution, credential-sources, keychain-account-
-namespacing, cred-and-wizard), checklists/requirements.md (16/16). Constitution v1.2.0 (Tech&Security credential
-bullet amended this iteration: env/AWS-profile/prompt → keychain/cmd/prompt, never plaintext-in-config, headless
-loud-fail toward cmd). check-readonly STAYS green (only removes cred code; no write-S3 symbol). IV: kept keychain
-auth flow covered by existing cred_auth_integration_test; no storage-contract change → no new integration test.
+Plan: specs/015-filter-ux-redesign/plan.md. Artifacts: spec.md (US1 filter always visible per-pane P1, US2 filter+
+footer always fit P1, US3 both scopes preserved P1, US4 live narrowing + match count P2, US5 refine/clear P2;
+FR-001..016, SC-001..007, 3 clarifications), research.md (R1..R8 grounded file:line), data-model.md, quickstart.md,
+contracts/ (filter-strip, applied-filter-chip-count, layout-budget, dual-scope-visibility), checklists/requirements.md
+(16/16). Constitution v1.2.0 (VI UI Legibility + VII UI Consistency drive this; NO amendment). check-readonly STAYS
+green (no S3 symbol). IV N/A (no storage-contract change). All changes in internal/ui; no new package/file/hue/keymap.
 
-GOAL: cut 4 credential sources to 2 (keychain default + cmd hatch); add config-path override for multiple configs.
-DECISIONS (clarify): NO migration (pre-release, no users — just delete inline/${ENV}/sessionToken/awsProfile from
-schema+resolver+validation+wizard); keychain account NAMESPACED by config-identity; cmd = secret only (no STS
-token); config switch is relaunch-only.
+GOAL: make the filter ALWAYS visible + always fit (user: "не всегда влезает"). Research top-5 TUI (fzf/broot/k9s/
+ranger-lf/yazi, adversarial-verified). DECISIONS (clarify): (1) filter input = ALWAYS-VISIBLE STRIP (fzf/broot), not
+transient — reserved chrome, LIST absorbs the line, footer never sacrificed; (2) object match count = "N matched"
+(no level total — paginated), bucket = "matched/total" (local); (3) count baked into the per-pane chip.
 
-Key approach (research.md R1-R8, file:line verified): (R2) secret.Inline FULLY removable — prompt fallback uses
-ClientConfigWithSecret(name,sec)(resolve.go:91) which injects the raw secret, never builds Kind=Inline. (R3) ONE
-helper keychainAccount(configPath,userName)=base64url(sha256(filepath.Abs(path)))[:8]+":"+userName at FIVE keystore
-sites (map found 3; 2 more by direct read): secretRequest Ref(resolve.go:77), KeychainAccount(resolve.go:110),
-AddConnection(connection.go:70), RemoveConnection(connection.go:180), wizard(generate.go:162). Config.path already
-set by Load/Empty → NO signature changes; secret.{Get,Store,Remove}Keychain keep account string (Constitution I).
-(R4) config.ConfigPath(flag,env)=flag>env>DefaultPath + const EnvConfig="S3S_CONFIG"; --config already exists
-(main.go:53/cred.go:20/runConfigInit:197), only env+precedence new; explicit(flag||env set) non-existent path =
-hard error, default path = first-run empty (FR-017). (R5) headless: GetKeychain(keychain.go:26) unavailable-store
-error → name cmd remedy; prompt stays TTY-gated(main.go:149). DELETE: User.{SecretAccessKey,SessionToken,AWSProfile}
-(config.go:70/71/74), awsprofile.go + awsprofile_test.go, secret.{Inline,AWSProfile} + Resolve cases, Resolved.
-SessionToken, EnvVarName + env/awsProfile wizard branches + export-hint; ClientConfig sessionToken block(148-154);
-keep ${ENV} for accessKeyId only. (R7) drop now-unused logging imports (config.go/generate.go) — go build flags.
-(R8) TDD failing-first per US; delete Inline/awsProfile/sessionToken/env tests; migrate validYAML→keychain (mock
-keyring); add namespacing-isolation + ConfigPath-precedence + explicit-not-found tests; update connection_
-integration_test asserted account to namespaced. README/ROADMAP: 4 sources→2, ROADMAP item→Done.
+Key approach (research.md R1-R8, file:line verified): (R1) View()(app.go:1124) height budget 1138-1142 rows:=height-
+footerH-2 → ADD filterStripH=1 in filterable modes (modeBuckets/modeTree only) → rows:=height-footerH-filterStripH-2;
+render body+"\n"+filterStripView(w)+"\n"+footer (1209). windowBounds/treeView adapt → LIST shrinks. (R2) DELETE the
+searching case from statusLine(app.go:1450-1459) — input now owned by the strip; statusLine keeps loading/notice/
+error/op-prompt. (R3) NEW filterStripView: active=▌filter <pane>: <input>+caret+hints; idle=dim committed term or
+"/ to filter <pane>"; one strip bound to focused scope (filterIsBucketList). (R4/R5) filterChipText(app.go:1309)
++(matched,total,hasTotal)→"filter: term · M/T"(bucket: filteredBuckets/buckets) | "term · N"(object: m.level.count(),
+no total fetched — FR-013); TERM-GATED + zone-agnostic so BOTH chips show at once (listWithPane:1251 already chips
+both boxes); a scope's chip hides only while THAT scope edits live. (R6) boxViewWith degrade order unchanged (center→
+filter→mode, mode survives); chip drops WHOLE under width, strip still shows filter; filterChipTermMax(1304) budgets
+the " · M/T" suffix, elide term first. (R8) TDD: extend assertWidthSweep(footer_test:92) + height-sweep (strip+footer
+fit, LIST shrinks); add TestFilterStripAlwaysVisible + TestBothChipsVisibleTogether; migrate spec013_test
+(TestBucketFilterChipCommitted/TestObjectsFilterChipCommitted) to always-visible + counts; migrate app_test
+TestStatusSearchPending→filterStripView; keep search_test green (scopes independent).
 <!-- SPECKIT END -->

@@ -98,3 +98,154 @@ func TestSearchEnterConfirmsAndCloses(t *testing.T) {
 		t.Errorf("enter should confirm term, search = %q", m.search)
 	}
 }
+
+// T013 / 015 US3: the bucket and object filter scopes are independent — committing or clearing
+// one never changes the other.
+func TestDualScopeIndependent(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("alpha", "log.txt", "data.txt")
+	f.Seed("beta")
+	m := dualApp(f) // focus buckets
+
+	m = press(m, "/")
+	for _, r := range "alph" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	if m.bucketFilter != "alph" {
+		t.Fatalf("setup: bucket filter = %q", m.bucketFilter)
+	}
+
+	m = crossToObjects(m, f, "alpha")
+	m = press(m, "/")
+	for _, r := range "log" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	page, _ := f.ListLevel(context.Background(), storage.LevelQuery{Bucket: "alpha", Search: "log"})
+	m = deliver(m, levelMsg{gen: m.gen, key: m.levelKey(), page: page})
+	if m.bucketFilter != "alph" || m.search != "log" {
+		t.Fatalf("both scopes should be committed: bucket=%q object=%q", m.bucketFilter, m.search)
+	}
+
+	// Clear the OBJECT filter → the bucket filter is untouched.
+	m = press(m, "esc") // objectsBack clears the active search
+	if m.search != "" {
+		t.Fatalf("esc should clear the object search, got %q", m.search)
+	}
+	if m.bucketFilter != "alph" {
+		t.Errorf("clearing the object filter must NOT change the bucket filter, got %q", m.bucketFilter)
+	}
+}
+
+// T013 / 015 FR-013: a keystroke burst coalesces — a stale (older-gen) searchFireMsg never
+// supersedes a newer keystroke (the searchGen guard in onSearchFire).
+func TestObjectSearchSupersedes(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("b", "apple", "apricot", "banana")
+	m := enterTree(t, f, "b")
+
+	m = press(m, "/")
+	m = press(m, "a")
+	m = press(m, "p")
+	latest := m.searchGen
+
+	genBefore := m.gen
+	m = deliver(m, searchFireMsg{searchGen: latest - 1, term: "a"})
+	if m.gen != genBefore || m.search != "" {
+		t.Errorf("a stale debounce must not supersede a newer keystroke (search=%q)", m.search)
+	}
+
+	m = deliver(m, searchFireMsg{searchGen: latest, term: "ap"})
+	if m.search != "ap" {
+		t.Errorf("the latest debounce should apply, got search=%q", m.search)
+	}
+}
+
+// T018 / 015 US5: the always-visible strip reflects the full lifecycle — placeholder → active
+// edit (input + hints) → committed echo (no hints) → reopen pre-filled → Esc revert → clear.
+func TestFilterStripLifecycle(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("alpha")
+	f.Seed("beta")
+	m := dualApp(f) // focus buckets
+
+	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
+		t.Errorf("idle strip should show the placeholder; got %q", s)
+	}
+
+	m = press(m, "/")
+	for _, r := range "alph" {
+		m = press(m, string(r))
+	}
+	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "alph") || !strings.Contains(s, "Enter apply") {
+		t.Errorf("active strip should show the live input + hints; got %q", s)
+	}
+
+	m = press(m, "enter")
+	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "filter buckets: alph") || strings.Contains(s, "Enter apply") {
+		t.Errorf("committed idle strip should echo the term without hints; got %q", s)
+	}
+
+	// Reopen pre-filled, edit, then Esc reverts to the committed term.
+	m = press(m, "/")
+	if m.searchInput != "alph" {
+		t.Fatalf("reopen should pre-fill the committed term, got %q", m.searchInput)
+	}
+	m = press(m, "backspace")
+	m = press(m, "esc")
+	if m.bucketFilter != "alph" {
+		t.Errorf("Esc should revert to the committed term, got %q", m.bucketFilter)
+	}
+
+	// Clear (empty + commit) → strip back to the placeholder.
+	m = press(m, "/")
+	for range "alph" {
+		m = press(m, "backspace")
+	}
+	m = press(m, "enter")
+	if m.bucketFilter != "" {
+		t.Fatalf("clearing should empty the bucket filter, got %q", m.bucketFilter)
+	}
+	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
+		t.Errorf("after clear the strip should return to the placeholder; got %q", s)
+	}
+}
+
+// T018 / 015 FR-016: switching context clears that level's filter and resets the strip.
+func TestNavigateAwayClearsFilter(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("alpha")
+	f.Seed("beta")
+	other := storage.NewFake()
+	other.Seed("gamma")
+	resolve := func(n string) (Backend, error) {
+		if n == "two" {
+			return Backend{Store: other}, nil
+		}
+		return Backend{Store: f}, nil
+	}
+	m := withBuckets(f, []string{"one", "two"}, resolve)
+	m.ctxName = "one"
+
+	m = press(m, "/")
+	for _, r := range "alph" {
+		m = press(m, string(r))
+	}
+	m = press(m, "enter")
+	if m.bucketFilter != "alph" {
+		t.Fatalf("setup: bucket filter = %q", m.bucketFilter)
+	}
+
+	m = press(m, "2")
+	m = finishSwitch(m, resolve, "two")
+	if m.ctxName != "two" {
+		t.Fatalf("context switch failed, ctx = %q", m.ctxName)
+	}
+	if m.bucketFilter != "" {
+		t.Errorf("switching context must clear the bucket filter, got %q", m.bucketFilter)
+	}
+	if s := stripANSI(m.filterStripView(120)); !strings.Contains(s, "/ to filter buckets") {
+		t.Errorf("after a context switch the strip resets to the placeholder; got %q", s)
+	}
+}
