@@ -79,6 +79,42 @@ func TestAddConnectionMapsTripleNoPlaintext(t *testing.T) {
 	}
 }
 
+// TestAddConnectionCmdSource: a connection added with a Command becomes a cmd-source user
+// (no keychain entry, no secret on disk) — the in-app form's cmd path (015).
+func TestAddConnectionCmdSource(t *testing.T) {
+	keyring.MockInit()
+	cfg := loadBase(t)
+
+	names, err := cfg.AddConnection(NewConnection{
+		Name: "viacmd", Endpoint: "http://h:9000", AccessKeyID: "AK",
+		Command: "vault kv get -field=secret s3/viacmd",
+	}, "") // a cmd source carries no secret
+	if err != nil {
+		t.Fatalf("AddConnection cmd: %v", err)
+	}
+	if len(names) != 2 || names[1] != "viacmd" {
+		t.Errorf("context names should include viacmd; got %v", names)
+	}
+
+	raw, _ := os.ReadFile(cfg.Path())
+	if !strings.Contains(string(raw), "cmd: vault kv get -field=secret s3/viacmd") {
+		t.Errorf("config should carry the cmd source:\n%s", raw)
+	}
+
+	c2, err := Load(cfg.Path())
+	if err != nil {
+		t.Fatalf("saved cmd config must re-load: %v", err)
+	}
+	u, _ := c2.user("viacmd")
+	if u.Command == "" || u.Keychain {
+		t.Errorf("viacmd should be a cmd source, not keychain: %+v", u)
+	}
+	// A cmd source stores NO keychain secret.
+	if _, err := keyring.Get("s3s", keychainAccount(cfg.Path(), "viacmd")); err == nil {
+		t.Error("a cmd source must not store a keychain secret")
+	}
+}
+
 func TestAddConnectionRejectsDuplicate(t *testing.T) {
 	keyring.MockInit()
 	cfg := loadBase(t)

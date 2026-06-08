@@ -269,6 +269,11 @@ secret-tool lookup service s3s account prod         # libsecret
 security find-generic-password -w -s s3s -a prod    # macOS
 ```
 
+Either source can be set up in three ways: `s3s config init`, by hand in the config, or the
+**in-app add-connection form** (`c` → `+ add connection`) — its `source` row toggles
+(`space`) between `keychain` and `cmd`, and the credential field below becomes either the
+masked secret or the command line.
+
 ## Running
 
 ```bash

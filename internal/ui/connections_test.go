@@ -329,7 +329,7 @@ func TestConnDeleteHintAbsentForActive(t *testing.T) {
 func formApp() App {
 	m := connApp(&fakeConnector{}, []string{"ctx"})
 	m.mode = modeConnForm
-	m.form = &connForm{pathStyle: true}
+	m.form = &connForm{pathStyle: true, source: srcKeychain}
 	return m
 }
 
@@ -403,14 +403,68 @@ func TestConnFormCaretNoOpOnToggleRow(t *testing.T) {
 // --- 008 US4: secret + per-field guidance ---
 
 func TestConnFormSecretGuidance(t *testing.T) {
-	m := formApp()
+	m := formApp() // source defaults to keychain
 	m.form.cursor = fldSecret
 	view := m.connFormView(100)
 	if !strings.Contains(view, "keychain") {
-		t.Errorf("secret guidance must name keychain storage; view:\n%s", view)
+		t.Errorf("keychain-source secret guidance must name keychain storage; view:\n%s", view)
 	}
-	if !strings.Contains(view, "config file") {
-		t.Errorf("secret guidance must note other sources are config-file-only; view:\n%s", view)
+}
+
+// TestConnFormCmdSourceGuidanceAndLabel: toggling the source to cmd relabels the credential
+// row to "command" and switches its guidance to the command-line hint (015).
+func TestConnFormCmdSourceGuidanceAndLabel(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldSource
+	m = press(m, "space") // keychain → cmd
+	if m.form.source != srcCmd {
+		t.Fatalf("space on the source row should select cmd; got %q", m.form.source)
+	}
+	m.form.cursor = fldSecret
+	view := m.connFormView(100)
+	if !strings.Contains(view, "command") {
+		t.Errorf("cmd source must relabel the credential row + hint to command; view:\n%s", view)
+	}
+}
+
+// TestConnFormCmdSourceDrafts: with the cmd source, the credential field is NOT masked and
+// the draft carries Command (not Secret) (015).
+func TestConnFormCmdSourceDrafts(t *testing.T) {
+	m := formApp()
+	m.form.cursor = fldSource
+	m = press(m, "space") // keychain → cmd
+	m.form.cursor = fldSecret
+	m = deliver(m, tea.PasteMsg{Content: "vault kv get -field=secret s3/prod"})
+	view := m.connFormView(120)
+	if strings.Contains(view, "•") {
+		t.Errorf("a cmd command line must NOT be masked; view:\n%s", view)
+	}
+	if !strings.Contains(view, "vault kv get") {
+		t.Errorf("command should render in the clear; view:\n%s", view)
+	}
+	d := m.form.draft()
+	if d.Source != srcCmd || d.Command != "vault kv get -field=secret s3/prod" {
+		t.Errorf("draft should carry the command; got source=%q cmd=%q", d.Source, d.Command)
+	}
+	if string(d.Secret) != "" {
+		t.Errorf("a cmd draft must not carry a keychain secret; got %q", d.Secret)
+	}
+}
+
+// TestConnFormCmdSourceValidation: a cmd source requires a command; an access key id is
+// required for either source (015).
+func TestConnFormCmdSourceValidation(t *testing.T) {
+	m := formApp()
+	m.form.name = textField{Value: "c"}
+	m.form.endpoint = textField{Value: "http://h:9000"}
+	m.form.accessKey = textField{Value: "AK"}
+	m.form.source = srcCmd // cmd, no command yet
+	if e := m.validateForm(); e == "" {
+		t.Error("a cmd source without a command should fail validation")
+	}
+	m.form.secret = textField{Value: "vault kv get -field=secret s3/c"}
+	if e := m.validateForm(); e != "" {
+		t.Errorf("a cmd source with a command should validate; got %q", e)
 	}
 }
 

@@ -10,12 +10,15 @@ import (
 )
 
 // NewConnection is the UI-agnostic description of a connection to add (006 US4). The
-// secret is passed separately and never lands in the config — it goes to the keychain.
+// credential source is exactly one of: the OS keychain (the secret is passed separately and
+// goes to the keystore, never the config) or an external Command (stored in the config; its
+// stdout is the secret at resolve time, 015).
 type NewConnection struct {
 	Name        string
 	Endpoint    string
 	Region      string
 	AccessKeyID string
+	Command     string // external-command source (015); empty ⇒ keychain source
 	PathStyle   bool
 	ReadOnly    bool
 	Buckets     []string // pinned bucket names (010 US3) — stored on the cluster
@@ -50,7 +53,14 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 	}
 
 	cl := Cluster{Name: nc.Name, Endpoint: nc.Endpoint, Region: nc.Region, PathStyle: nc.PathStyle, Buckets: nc.Buckets}
-	u := User{Name: nc.Name, AccessKeyID: nc.AccessKeyID, Keychain: true}
+	// Exactly one credential source: a cmd (stored in config) or the keychain (secret to the
+	// keystore below). 015.
+	u := User{Name: nc.Name, AccessKeyID: nc.AccessKeyID}
+	if nc.Command != "" {
+		u.Command = nc.Command
+	} else {
+		u.Keychain = true
+	}
 	cx := Context{Name: nc.Name, Cluster: nc.Name, User: nc.Name, ReadOnly: nc.ReadOnly}
 
 	// Validate a TRIAL copy before mutating the live config or touching the keychain — so
@@ -68,8 +78,11 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 	// Keychain first, then disk — only after BOTH succeed is the live config mutated, so a
 	// failure leaves cfg/UI untouched (a stray keychain entry is harmless, FR-026). The
 	// account is namespaced by config identity so multiple configs never collide (014 FR-020a).
-	if err := secret.StoreKeychain(keychainAccount(c.path, nc.Name), secretVal); err != nil {
-		return nil, err
+	// A cmd source stores no secret in the keystore (the command yields it at resolve time, 015).
+	if nc.Command == "" {
+		if err := secret.StoreKeychain(keychainAccount(c.path, nc.Name), secretVal); err != nil {
+			return nil, err
+		}
 	}
 	data, err := Marshal(&trial)
 	if err != nil {
