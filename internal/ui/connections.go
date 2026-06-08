@@ -16,14 +16,17 @@ import (
 // form (modeConnForm) reach the config writer + keychain ONLY through the injected
 // Connector seam, so the UI never imports the SDK or config marshalling (Constitution I).
 
-// ConnDraft is the UI-agnostic working value of the add-connection form. The secret is
-// held redacted and never persisted to config.
+// ConnDraft is the UI-agnostic working value of the add-connection form. A connection uses
+// exactly one credential source: the OS keychain (Secret, held redacted, never persisted to
+// config) or an external command (Command, whose stdout is the secret at resolve time).
 type ConnDraft struct {
 	Name        string
 	Endpoint    string
 	Region      string
 	AccessKeyID string
+	Source      string // "keychain" (default) or "cmd"
 	Secret      logging.Secret
+	Command     string   // external command (Source == "cmd"); stored verbatim in config
 	Buckets     []string // pinned bucket names — empty ⇒ list-all
 	PathStyle   bool
 	ReadOnly    bool
@@ -52,14 +55,21 @@ const (
 	fldEndpoint
 	fldRegion
 	fldAccessKey
-	fldSecret
+	fldSource  // credential source toggle: keychain (default) or cmd
+	fldSecret  // credential value: secret (keychain) or command line (cmd)
 	fldBuckets // pinned bucket names — optional, comma/space separated
 	fldPathStyle
 	fldReadOnly
 	connFieldCount
 )
 
-var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "secret", "buckets", "path-style", "read-only"}
+var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "source", "secret", "buckets", "path-style", "read-only"}
+
+// credential sources for the in-app form's fldSource toggle.
+const (
+	srcKeychain = "keychain"
+	srcCmd      = "cmd"
+)
 
 // connForm is the in-flight add-connection form state (modeConnForm). The secret field is
 // masked BY THE FORM (held as a raw string, rendered as bullets, wrapped in logging.Secret
@@ -67,8 +77,9 @@ var connFieldLabels = []string{"name", "endpoint", "region", "access key id", "s
 // (005 R12) and would corrupt the alt-screen.
 type connForm struct {
 	name, endpoint, region, accessKey textField
-	secret                            textField // masked on render, never logged
+	secret                            textField // credential input: masked iff source==keychain
 	buckets                           textField // pinned bucket names, comma/space separated
+	source                            string    // srcKeychain (default) or srcCmd
 	pathStyle                         bool
 	readOnly                          bool
 	cursor                            int    // 0..fldReadOnly
@@ -123,7 +134,7 @@ func (m App) onConnectionsKey(key string) (tea.Model, tea.Cmd) {
 		m.mode = modeBuckets
 	case matches(key, m.keys.Enter):
 		if m.connSel == len(rows)-1 {
-			m.form = &connForm{pathStyle: true} // path-style default (Ceph RGW / MinIO)
+			m.form = &connForm{pathStyle: true, source: srcKeychain} // path-style + keychain defaults
 			m.mode = modeConnForm
 			return m, nil
 		}
@@ -240,6 +251,8 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 		return m, nil
 	case " ", "space":
 		switch f.cursor {
+		case fldSource:
+			f.toggleSource()
 		case fldPathStyle:
 			f.pathStyle = !f.pathStyle
 		case fldReadOnly:
@@ -256,10 +269,21 @@ func (m App) onConnFormKey(key string, msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	}
 }
 
-// focusField returns a pointer to the editable textField under the cursor, or nil for the
-// boolean toggle rows. The single field selector shared by all editing ops.
-func (f *connForm) focusField() *textField {
-	switch f.cursor {
+// toggleSource flips the credential source between keychain and cmd; editing it
+// invalidates a prior reachability test (the test resolves the credential differently).
+func (f *connForm) toggleSource() {
+	if f.source == srcCmd {
+		f.source = srcKeychain
+	} else {
+		f.source = srcCmd
+	}
+	f.tested, f.testOK = false, false
+}
+
+// fieldAt returns a pointer to the editable textField at index i, or nil for the toggle
+// rows (source, path-style, read-only). The single field selector shared by editing + render.
+func (f *connForm) fieldAt(i int) *textField {
+	switch i {
 	case fldName:
 		return &f.name
 	case fldEndpoint:
@@ -275,6 +299,9 @@ func (f *connForm) focusField() *textField {
 	}
 	return nil
 }
+
+// focusField returns the editable textField under the cursor, or nil for the toggle rows.
+func (f *connForm) focusField() *textField { return f.fieldAt(f.cursor) }
 
 func (m App) formAppend(s string) {
 	f := m.form
@@ -300,18 +327,25 @@ func (m App) formCaret(move func(*textField)) {
 	}
 }
 
-// draft builds the ConnDraft from the form.
+// draft builds the ConnDraft from the form. The credential field (f.secret) carries either
+// the keychain secret or the cmd command line, routed by the source toggle.
 func (f *connForm) draft() ConnDraft {
-	return ConnDraft{
+	d := ConnDraft{
 		Name:        strings.TrimSpace(f.name.Value),
 		Endpoint:    strings.TrimSpace(f.endpoint.Value),
 		Region:      strings.TrimSpace(f.region.Value),
 		AccessKeyID: strings.TrimSpace(f.accessKey.Value),
-		Secret:      logging.Secret(f.secret.Value),
+		Source:      f.source,
 		Buckets:     parseBuckets(f.buckets.Value),
 		PathStyle:   f.pathStyle,
 		ReadOnly:    f.readOnly,
 	}
+	if f.source == srcCmd {
+		d.Command = strings.TrimSpace(f.secret.Value)
+	} else {
+		d.Secret = logging.Secret(f.secret.Value)
+	}
+	return d
 }
 
 // parseBuckets normalizes a free-text bucket list: split on commas and
@@ -350,13 +384,16 @@ func (m App) validateForm() string {
 	if u, err := url.Parse(ep); err != nil || u.Scheme == "" || u.Host == "" {
 		return "endpoint must be an absolute URL (https://host:port)"
 	}
-	// Credentials are required: the connection is persisted with a keychain source, which
-	// the config validator rejects without an access key id (and an empty secret is
-	// useless). Catch it here so a bad draft never reaches the config writer.
+	// Credentials are required: the config validator rejects either source without an access
+	// key id. Catch it here so a bad draft never reaches the config writer.
 	if strings.TrimSpace(f.accessKey.Value) == "" {
 		return "access key id is required"
 	}
-	if f.secret.Value == "" {
+	if f.source == srcCmd {
+		if strings.TrimSpace(f.secret.Value) == "" {
+			return "command is required for a cmd source"
+		}
+	} else if f.secret.Value == "" {
 		return "secret access key is required"
 	}
 	return ""
@@ -554,9 +591,8 @@ func (m App) connectionsView(w, rows int) string {
 	return body + "\n\n" + dimCellStyle.Render(truncate(hint, max(1, w-1)))
 }
 
-// connFieldHint returns the focused-field guidance line. The secret field names what
-// to enter (the secret access key, stored in the OS keychain); the only other source is
-// a cmd in the config file (014). The form stores the secret verbatim to the keychain.
+// connFieldHint returns the focused-field guidance line. The credential field's hint
+// depends on the chosen source (keychain secret vs cmd command line).
 func (m App) connFieldHint(cursor int) string {
 	switch cursor {
 	case fldName:
@@ -567,8 +603,13 @@ func (m App) connFieldHint(cursor int) string {
 		return "region, e.g. us-east-1 (optional)"
 	case fldAccessKey:
 		return "access key id"
+	case fldSource:
+		return "space toggles: keychain (secret stored in the OS keystore) · cmd (a command whose stdout is the secret)"
 	case fldSecret:
-		return "secret access key — stored in your OS keychain · or use a cmd source via config file"
+		if m.form != nil && m.form.source == srcCmd {
+			return "command whose stdout is the secret, e.g. vault kv get -field=secret s3/prod"
+		}
+		return "secret access key — stored in your OS keychain, never written to config"
 	case fldBuckets:
 		return "comma/space-separated bucket names — pin these when credentials can't list all (optional)"
 	}
@@ -581,7 +622,7 @@ func (m App) connFormView(w int) string {
 	if f == nil {
 		return ""
 	}
-	fields := []textField{f.name, f.endpoint, f.region, f.accessKey, f.secret, f.buckets}
+	cmdSource := f.source == srcCmd
 	checkbox := func(on bool) string {
 		if on {
 			return "[x] (space toggles)"
@@ -598,23 +639,33 @@ func (m App) connFormView(w int) string {
 			marker = "▶ "
 			lblStyle = formActiveStyle
 		}
+		// The credential row's label tracks the source: "command" for cmd, else "secret".
+		if i == fldSecret && cmdSource {
+			label = "command"
+		}
 		var val string
 		switch i {
+		case fldSource:
+			val = f.source + "  (space toggles: keychain / cmd)"
 		case fldPathStyle:
 			val = checkbox(f.pathStyle)
 		case fldReadOnly:
 			val = checkbox(f.readOnly)
 		case fldSecret:
+			// Mask only a keychain secret; a cmd command line is not a secret.
 			if focused {
-				val = fields[i].Render(avail, true) // masked, with caret
+				val = f.secret.Render(avail, !cmdSource)
+			} else if cmdSource {
+				val = truncate(f.secret.Value, avail)
 			} else {
-				val = strings.Repeat("•", len([]rune(fields[i].Value)))
+				val = strings.Repeat("•", len([]rune(f.secret.Value)))
 			}
 		default:
+			p := f.fieldAt(i)
 			if focused {
-				val = fields[i].Render(avail, false) // windowed, with caret
+				val = p.Render(avail, false) // windowed, with caret
 			} else {
-				val = truncate(fields[i].Value, avail)
+				val = truncate(p.Value, avail)
 			}
 		}
 		b.WriteString(marker + lblStyle.Render(pad(label, 16)) + objCellStyle.Render(val) + "\n")

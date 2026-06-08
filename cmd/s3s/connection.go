@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/danchupin/s3s/internal/config"
+	"github.com/danchupin/s3s/internal/secret"
 	"github.com/danchupin/s3s/internal/storage"
 	"github.com/danchupin/s3s/internal/ui"
 )
@@ -20,12 +21,24 @@ type connSeam struct {
 // probes the first declared bucket via a bounded ListLevel instead of ListBuckets — what the
 // connection will actually use, and what bucket-scoped creds can reach (010 US4/FR-008).
 func (s connSeam) Test(ctx context.Context, d ui.ConnDraft) error {
+	// A cmd-source draft resolves its secret by running the command (owner-only gated against
+	// the live config file) — exactly what the saved connection will do at resolve time (015).
+	secretVal := d.Secret.Reveal()
+	if d.Command != "" {
+		res, rerr := secret.Resolve(ctx, secret.Request{
+			Kind: secret.Command, AccessKeyID: d.AccessKeyID, Ref: d.Command, ConfigPath: s.cfg.Path(),
+		})
+		if rerr != nil {
+			return rerr
+		}
+		secretVal = res.SecretKey.Reveal()
+	}
 	cc := storage.ClientConfig{
 		Endpoint:    d.Endpoint,
 		Region:      d.Region,
 		PathStyle:   d.PathStyle,
 		AccessKeyID: d.AccessKeyID,
-		SecretKey:   d.Secret.Reveal(),
+		SecretKey:   secretVal,
 	}
 	st, err := storage.New(cc)
 	if err != nil {
@@ -47,6 +60,7 @@ func (s connSeam) Save(_ context.Context, d ui.ConnDraft) ([]string, error) {
 		Endpoint:    d.Endpoint,
 		Region:      d.Region,
 		AccessKeyID: d.AccessKeyID,
+		Command:     d.Command,
 		PathStyle:   d.PathStyle,
 		ReadOnly:    d.ReadOnly,
 		Buckets:     d.Buckets,
