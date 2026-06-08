@@ -1,28 +1,34 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.0.0 → 1.1.0
-Bump rationale: MINOR. Two new principles added (VI. UI Legibility, VII. UI Consistency &
-  Design System) sourced from feature 012 (specs/012-ui-visibility-write-clarity, FR-023/FR-024,
-  SC-010). No existing principle removed or redefined → not MAJOR; more than wording → not PATCH.
+Version change: 1.1.0 → 1.2.0
+Bump rationale: MINOR. Materially changed the Technology & Security Constraints credential-source
+  enumeration to match feature 014 (specs/014-credentials-config-path): the supported secret sources
+  are narrowed to the OS keychain and an external credential command, with an explicit no-echo prompt
+  as the interactive fallback; environment / AWS-style profile sources are removed, and a secret must
+  never be written to the s3s config in plaintext. This strengthens the V. Observability & Safe
+  Operations posture (no plaintext-on-disk). No Core Principle added, removed, or redefined → not MAJOR;
+  more than a wording clarification → not PATCH.
 
 Modified principles:
-  (none renamed) I–V retained verbatim.
+  (none renamed) I–VII retained verbatim.
 
-Added sections:
-  - VI. UI Legibility
-  - VII. UI Consistency & Design System
+Modified sections:
+  - Technology & Security Constraints — credential-source bullet rewritten (env/AWS-profile/prompt →
+    OS keychain / external credential command / explicit prompt; anonymous access permitted; secret
+    never persisted to the s3s config in plaintext).
 
+Added sections: none
 Removed sections: none
 
 Templates requiring updates:
-  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic; new UI principles
-     add no structural gate. No edit needed.
+  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic; constraint change adds
+     no structural gate. No edit needed.
   ✅ .specify/templates/spec-template.md  — no constitution-specific mandatory section added. Aligned.
-  ✅ .specify/templates/tasks-template.md — task categories already cover UI/test work. Aligned.
-  ✅ CLAUDE.md — principle count (five → seven) and constitution version (v1.0.0 → v1.1.0) updated.
+  ✅ .specify/templates/tasks-template.md — task categories already cover config/security work. Aligned.
+  ✅ CLAUDE.md — constitution version reference (v1.1.0 → v1.2.0) updated.
 
-Follow-up TODOs: none. RATIFICATION_DATE unchanged (2026-06-04). LAST_AMENDED_DATE = 2026-06-07.
+Follow-up TODOs: none. RATIFICATION_DATE unchanged (2026-06-04). LAST_AMENDED_DATE = 2026-06-08.
 -->
 
 # s3s Constitution
@@ -90,8 +96,13 @@ labels erode trust and let visual drift accumulate unnoticed.
 - Language: Go. Code MUST pass `gofmt`/`go vet` and the project linter before merge.
 - S3 access: use a maintained S3 SDK; the storage client MUST be an interface to allow
   fakes in unit tests and a real backend in integration tests.
-- Credentials MUST come from environment, AWS-style config/profile, or explicit prompt — never
-  hardcoded and never committed. `.env` and credential files MUST be git-ignored.
+- Credentials MUST come from the OS keychain or an external credential command, with an explicit
+  no-echo prompt as the interactive fallback — never hardcoded, never committed, and never written
+  to the s3s config in plaintext. Anonymous (no-credential) access is permitted. The keychain is the
+  blessed default (macOS Keychain / Windows Credential Manager / Linux Secret Service); the external
+  command is the headless and power-user path; where the keychain is unavailable, s3s MUST fail loudly
+  toward the command source rather than silently fall back to plaintext. `.env` and credential files
+  MUST be git-ignored.
 - TLS verification MUST default to on; disabling it (for local MinIO) MUST be an explicit,
   documented opt-in flag.
 - No telemetry or network calls beyond the configured S3 endpoint.
@@ -116,4 +127,4 @@ principle or materially expanded section, PATCH for clarifications and wording. 
 reviews MUST verify compliance; unjustified complexity is grounds for rejection. Use the project
 plan and `CLAUDE.md` for runtime development guidance.
 
-**Version**: 1.1.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-07
+**Version**: 1.2.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-08

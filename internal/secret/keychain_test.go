@@ -28,11 +28,24 @@ func TestKeychainRoundTrip(t *testing.T) {
 	}
 }
 
-// TestKeychainMissing: a missing entry yields a clear, actionable error (FR-043).
+// TestKeychainMissing: a missing entry yields a clear, actionable error pointing at
+// `s3s cred set` or a cmd source (FR-020/043).
 func TestKeychainMissing(t *testing.T) {
 	keyring.MockInit()
 	_, err := GetKeychain("absent")
 	if err == nil || !strings.Contains(err.Error(), "no keystore entry") {
 		t.Errorf("want a clear missing-entry error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "cmd") {
+		t.Errorf("missing-entry error should mention the cmd alternative, got %v", err)
+	}
+}
+
+// TestNoKeystoreErrorNamesCmd: the unavailable-keystore sentinel (headless Linux, no
+// Secret Service) names the cmd source as the remedy and never implies a plaintext
+// fallback (FR-020).
+func TestNoKeystoreErrorNamesCmd(t *testing.T) {
+	if !strings.Contains(ErrNoKeystore.Error(), "cmd") {
+		t.Errorf("ErrNoKeystore should point at a cmd source, got %q", ErrNoKeystore.Error())
 	}
 }

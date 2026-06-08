@@ -59,11 +59,11 @@ _Coming soon — a recording of context switching, tree navigation, and previews
   `ncdu`-style view) with live progress and drill-down — what's eating space, in-TUI.
 - **Sortable lists** — sort any level by name, size, or last-modified and toggle
   direction (`s` / `S`); the sort persists across navigation.
-- **Secure credential sources** — a context resolves its secret from exactly one of:
-  the OS keychain, an external command (`pass`, Vault, 1Password, sops…), an AWS shared
-  profile, or the classic `${ENV}` reference — with a secure no-echo prompt fallback.
-  Stop exporting a secret into every shell; the secret never lives on disk in plaintext.
-  Manage keystore secrets with `s3s cred set|rotate|rm <context>`.
+- **Two secure credential sources** — a context resolves its secret from exactly one of:
+  the **OS keychain** (the default; macOS Keychain / Windows Credential Manager / Linux
+  Secret Service) or an **external command** (`pass`, Vault, 1Password, sops…) — with a
+  secure no-echo prompt fallback. The secret never lives on disk in plaintext. Manage
+  keystore secrets with `s3s cred set|rotate|rm <context>`.
 - **Tree navigation** — walk the key namespace by the `/` delimiter with
   on-demand pagination; never loads a whole bucket up front. Per-session cache
   with manual refresh.
@@ -150,9 +150,9 @@ s3s config init --config ./my.yaml    # custom path
 ```
 
 The wizard asks for the endpoint, addressing/TLS, credentials, and context name,
-then merges into any existing config. The secret is stored as a `${ENV}`
-reference (never written to disk) and the wizard prints the `export` line to set
-it.
+then merges into any existing config. The credential source defaults to the **OS
+keychain**: the wizard reads the secret with no echo and stores it in the keystore
+(never on disk). Choose `cmd` instead to name an external command.
 
 ### Or write it by hand
 
@@ -169,7 +169,7 @@ clusters:
 users:
   - name: dev
     accessKeyId: admin
-    secretAccessKey: ${S3S_DEV_SECRET}   # ${ENV} resolved at load; never logged
+    keychain: true           # secret in the OS keystore (store via: s3s cred set local)
   - name: public
     anonymous: true          # public buckets, no signing
 contexts:
@@ -181,11 +181,19 @@ current-context: local
 
 ```bash
 chmod 600 ~/.config/s3s/config.yaml
-export S3S_DEV_SECRET=password
+s3s cred set local           # store the secret in the OS keystore (no echo)
 ```
 
 Active-context precedence: `--context <name>` > `S3S_CONTEXT` env >
 `current-context`.
+
+**Multiple configs.** Point s3s at an alternate config file with `--config <path>` or
+the `S3S_CONFIG` env var (precedence: `--config` > `S3S_CONFIG` > default
+`~/.config/s3s/config.yaml`). It applies to the TUI, `s3s cred`, and `s3s config init`,
+so you can keep separate work/personal or prod/staging configs. Keychain secrets are
+isolated per config, so two configs that both define a `prod` context never share a
+secret. An explicitly named missing config is an error (only the default path opens the
+first-run add-connection form).
 
 ### Scoped credentials (pinned buckets)
 
@@ -214,9 +222,8 @@ list buckets normally are unaffected (no `+ add bucket` row, no behavior change)
 
 ### Credential sources
 
-A non-anonymous user names **exactly one** secret source (more than one is a config
-error). The secret never lives on disk in plaintext and need not be exported into every
-shell:
+A non-anonymous user names **exactly one** secret source — `keychain` or `cmd` (more than
+one, or neither, is a config error). The secret never lives on disk in plaintext.
 
 ```yaml
 users:
@@ -226,25 +233,50 @@ users:
   - name: vault                   # external command — owner-only config required
     accessKeyId: AKIAVLT
     cmd: "vault kv get -field=secret s3/prod"
-  - name: aws                     # ~/.aws/credentials profile (static keys)
-    awsProfile: prod
-  - name: ci                      # classic ${ENV} — still works for automation
-    accessKeyId: AKIACI
-    secretAccessKey: ${S3S_CI_SECRET}
 ```
 
-`s3s cred set|rotate|rm <context>` manages a context's secret in the OS keystore only.
-If no source resolves, s3s prompts securely (no echo) at startup and offers to save to
-the keystore. A group/world-readable config triggers a warning; a `cmd:` source is
-*refused* on a group/world-writable config (it would let a tampered file run a command).
+#### `keychain` (the default)
+
+The same `keychain: true` field works on every desktop OS — s3s uses the platform's
+native secret store:
+
+| OS | Backed by |
+|----|-----------|
+| macOS | login Keychain |
+| Windows | Credential Manager |
+| Linux / BSD desktop | Secret Service over D-Bus (GNOME Keyring / KWallet) |
+
+Manage the secret with `s3s cred set|rotate|rm <context>` (the OS keystore only — never the
+config file). If the keystore has no entry, s3s prompts securely (no echo) at startup and
+offers to save it.
+
+> **Headless Linux** (no Secret Service / D-Bus): the keychain is unavailable, and s3s
+> emits a clear error pointing you at a `cmd` source — it never falls back to a plaintext
+> secret.
+
+#### `cmd` (the escape hatch)
+
+The command's **stdout** is the secret. It runs as argv (never a shell), the config must be
+`chmod 600` (a `cmd:` source is *refused* on a group/world-writable config — a tampered file
+must not run a command), and it is bounded by a 10s timeout. Ready recipes:
+
+```bash
+vault kv get -field=secret s3/prod                 # HashiCorp Vault
+op read "op://Private/s3-prod/secret"               # 1Password CLI
+pass show s3/prod                                   # pass
+sops -d --extract '["secret"]' creds.yaml           # sops
+secret-tool lookup service s3s account prod         # libsecret
+security find-generic-password -w -s s3s -a prod    # macOS
+```
 
 ## Running
 
 ```bash
-s3s                  # uses current-context (read-only by default)
-s3s --context local  # explicit context
-s3s --write          # START in write mode (toggle at runtime with `w`; readonly contexts stay protected)
-s3s --version        # print version
+s3s                          # uses current-context (read-only by default)
+s3s --context local          # explicit context
+s3s --config ~/work.yaml     # use an alternate config (or set S3S_CONFIG)
+s3s --write                  # START in write mode (toggle at runtime with `w`; readonly contexts stay protected)
+s3s --version                # print version
 ```
 
 ### A local MinIO to try it

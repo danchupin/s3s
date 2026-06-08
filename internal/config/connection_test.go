@@ -67,8 +67,8 @@ func TestAddConnectionMapsTripleNoPlaintext(t *testing.T) {
 		t.Errorf("config MUST NOT contain the plaintext secret:\n%s", s)
 	}
 
-	// The secret is retrievable from the keychain under the connection name.
-	got, err := keyring.Get("s3s", "newc")
+	// The secret is retrievable from the keychain under the namespaced account (014 FR-020a).
+	got, err := keyring.Get("s3s", keychainAccount(cfg.Path(), "newc"))
 	if err != nil || got != "SUPER_SECRET" {
 		t.Errorf("keychain should hold the secret; got %q err %v", got, err)
 	}
@@ -118,7 +118,7 @@ func TestRemoveConnectionDropsTripleAndSecret(t *testing.T) {
 		t.Fatalf("AddConnection: %v", err)
 	}
 	// The keychain secret for "extra" exists.
-	if _, err := keyring.Get("s3s", "extra"); err != nil {
+	if _, err := keyring.Get("s3s", keychainAccount(cfg.Path(), "extra")); err != nil {
 		t.Fatalf("precondition: keychain secret for extra missing: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestRemoveConnectionDropsTripleAndSecret(t *testing.T) {
 		t.Errorf("on-disk config still mentions extra:\n%s", raw)
 	}
 	// Keychain secret is removed.
-	if _, err := keyring.Get("s3s", "extra"); err == nil {
+	if _, err := keyring.Get("s3s", keychainAccount(cfg.Path(), "extra")); err == nil {
 		t.Error("keychain secret for extra should be removed")
 	}
 }
@@ -176,7 +176,7 @@ func TestRemoveConnectionMissingSecretIsBenign(t *testing.T) {
 	}, "SECRET"); err != nil {
 		t.Fatalf("AddConnection: %v", err)
 	}
-	_ = keyring.Delete("s3s", "extra")
+	_ = keyring.Delete("s3s", keychainAccount(cfg.Path(), "extra"))
 	if _, err := cfg.RemoveConnection("extra"); err != nil {
 		t.Fatalf("RemoveConnection with a missing secret must be benign; got %v", err)
 	}

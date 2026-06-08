@@ -7,20 +7,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-)
 
-func TestEnvVarName(t *testing.T) {
-	cases := map[string]string{
-		"local":       "S3S_LOCAL_SECRET",
-		"prod-public": "S3S_PROD_PUBLIC_SECRET",
-		"a.b/c":       "S3S_A_B_C_SECRET",
-	}
-	for in, want := range cases {
-		if got := EnvVarName(in); got != want {
-			t.Errorf("EnvVarName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
+	"github.com/zalando/go-keyring"
+
+	"github.com/danchupin/s3s/internal/secret"
+)
 
 func TestUpsertReplacesByName(t *testing.T) {
 	c := &Config{APIVersion: "s3s/v1"}
@@ -45,21 +36,26 @@ func TestUpsertReplacesByName(t *testing.T) {
 	}
 }
 
-func TestRunInitWritesEnvRefNotSecret(t *testing.T) {
+// TestRunInitKeychainDefault: pressing Enter at the source prompt selects keychain (the
+// blessed default); the secret goes to the OS keystore under the namespaced account and
+// never to disk (014 US1/FR-008). promptSecret is stubbed because the real one needs a TTY.
+func TestRunInitKeychainDefault(t *testing.T) {
+	keyring.MockInit()
+	orig := promptSecret
+	promptSecret = func(string) (string, error) { return "kc-secret", nil }
+	defer func() { promptSecret = orig }()
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
-
-	// Scripted answers: context, cluster(default), endpoint, region(default),
-	// pathStyle(default y), tlsSkip(default n), anonymous=n, accessKey, current(default y).
 	in := strings.NewReader(strings.Join([]string{
 		"local",                 // context
-		"",                      // cluster (default = local)
+		"",                      // cluster default
 		"http://127.0.0.1:9000", // endpoint
 		"",                      // region default
 		"",                      // path-style default yes
 		"",                      // tls skip default no
 		"n",                     // anonymous no
-		"env",                   // credential source (env / ${ENV})
+		"",                      // credential source: Enter → keychain (the default)
 		"AKIAEXAMPLE",           // access key id
 		"",                      // current context default yes
 	}, "\n") + "\n")
@@ -68,41 +64,48 @@ func TestRunInitWritesEnvRefNotSecret(t *testing.T) {
 	if err := RunInit(in, &out, path); err != nil {
 		t.Fatalf("RunInit: %v", err)
 	}
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "keychain: true") || !strings.Contains(string(body), "AKIAEXAMPLE") {
+		t.Errorf("config should declare keychain + accessKeyId:\n%s", body)
+	}
+	if strings.Contains(string(body), "kc-secret") {
+		t.Errorf("secret must NOT be written to disk:\n%s", body)
+	}
+	got, err := secret.GetKeychain(keychainAccount(path, "local"))
+	if err != nil || got != "kc-secret" {
+		t.Errorf("secret should be in the keystore under the namespaced account: got %q err %v", got, err)
+	}
+}
 
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read written config: %v", err)
-	}
-	body := string(data)
-	if strings.Contains(body, "AKIAEXAMPLE") == false {
-		t.Errorf("access key id should be written:\n%s", body)
-	}
-	if !strings.Contains(body, "${S3S_LOCAL_SECRET}") {
-		t.Errorf("secret should be an env ref:\n%s", body)
-	}
-	// Output guides the user to export the secret.
-	if !strings.Contains(out.String(), "export S3S_LOCAL_SECRET=") {
-		t.Errorf("output should hint export:\n%s", out.String())
-	}
+// TestRunInitCmdSource: choosing cmd writes a cmd source (no prompt, no secret on disk).
+func TestRunInitCmdSource(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	in := strings.NewReader(strings.Join([]string{
+		"local", "", "http://127.0.0.1:9000", "", "", "", "n",
+		"cmd",                                 // credential source
+		"AKIAEXAMPLE",                         // access key id
+		"vault kv get -field=secret s3/local", // command
+		"",                                    // current default
+	}, "\n") + "\n")
 
-	// File perms must be 0600.
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("config perms = %o, want 600", info.Mode().Perm())
+	var out bytes.Buffer
+	if err := RunInit(in, &out, path); err != nil {
+		t.Fatalf("RunInit cmd: %v", err)
 	}
-
-	// The written config loads and resolves once the env var is set.
-	t.Setenv("S3S_LOCAL_SECRET", "real-secret")
+	body, _ := os.ReadFile(path)
+	if !strings.Contains(string(body), "cmd: vault kv get -field=secret s3/local") {
+		t.Errorf("config should declare the cmd source:\n%s", body)
+	}
+	if strings.Contains(string(body), "keychain") {
+		t.Errorf("cmd source must not set keychain:\n%s", body)
+	}
 	cfg, err := Load(path)
 	if err != nil {
-		t.Fatalf("written config does not load: %v", err)
+		t.Fatalf("written cmd config does not load: %v", err)
 	}
-	cc, err := cfg.ClientConfig(context.Background(), "local")
-	if err != nil {
-		t.Fatalf("ClientConfig: %v", err)
-	}
-	if cc.SecretKey != "real-secret" || cc.AccessKeyID != "AKIAEXAMPLE" || !cc.PathStyle {
-		t.Errorf("resolved client config wrong: %+v", cc)
+	if u, _ := cfg.user("local"); u.Command == "" {
+		t.Errorf("loaded user should carry the cmd: %+v", u)
 	}
 }
 

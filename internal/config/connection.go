@@ -66,8 +66,9 @@ func (c *Config) AddConnection(nc NewConnection, secretVal string) ([]string, er
 	}
 
 	// Keychain first, then disk — only after BOTH succeed is the live config mutated, so a
-	// failure leaves cfg/UI untouched (a stray keychain entry is harmless, FR-026).
-	if err := secret.StoreKeychain(nc.Name, secretVal); err != nil {
+	// failure leaves cfg/UI untouched (a stray keychain entry is harmless, FR-026). The
+	// account is namespaced by config identity so multiple configs never collide (014 FR-020a).
+	if err := secret.StoreKeychain(keychainAccount(c.path, nc.Name), secretVal); err != nil {
 		return nil, err
 	}
 	data, err := Marshal(&trial)
@@ -177,7 +178,8 @@ func (c *Config) RemoveConnection(name string) ([]string, error) {
 		return nil, err
 	}
 	// Best-effort keychain cleanup: a missing secret MUST NOT fail the removal (FR-031).
-	if rmErr := secret.RemoveKeychain(name); rmErr != nil {
+	// Same namespaced account as AddConnection (014 FR-020a).
+	if rmErr := secret.RemoveKeychain(keychainAccount(c.path, name)); rmErr != nil {
 		slog.Warn("connection.delete", "name", name, "keychain", "not-removed", "err", rmErr)
 	}
 	c.Clusters, c.Users, c.Contexts, c.CurrentContext = trial.Clusters, trial.Users, trial.Contexts, trial.CurrentContext

@@ -1,16 +1,10 @@
 package config
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/zalando/go-keyring"
-
-	"github.com/danchupin/s3s/internal/logging"
-	"github.com/danchupin/s3s/internal/secret"
 )
 
 func cfgWithUser(u User) *Config {
@@ -22,53 +16,28 @@ func cfgWithUser(u User) *Config {
 	}
 }
 
-// TestValidateExactlyOneSource: a non-anonymous user must declare exactly one source
-// (005 FR-041); inline/${ENV} still works; anonymous is unaffected.
+// TestValidateExactlyOneSource: a non-anonymous user must declare exactly one of the two
+// sources — keychain or cmd (014 FR-002); anonymous is unaffected.
 func TestValidateExactlyOneSource(t *testing.T) {
 	if err := cfgWithUser(User{Name: "u", AccessKeyID: "AK", Keychain: true}).Validate(); err != nil {
 		t.Errorf("keychain-only should validate: %v", err)
 	}
-	if err := cfgWithUser(User{Name: "u", AWSProfile: "prod"}).Validate(); err != nil {
-		t.Errorf("awsProfile-only (no accessKeyId) should validate: %v", err)
-	}
-	if err := cfgWithUser(User{Name: "u", AccessKeyID: "AK", SecretAccessKey: logging.Secret("s")}).Validate(); err != nil {
-		t.Errorf("inline should validate: %v", err)
+	if err := cfgWithUser(User{Name: "u", AccessKeyID: "AK", Command: "vault kv get -field=secret s3/u"}).Validate(); err != nil {
+		t.Errorf("cmd-only should validate: %v", err)
 	}
 	if err := cfgWithUser(User{Name: "u", Anonymous: true}).Validate(); err != nil {
 		t.Errorf("anonymous should validate: %v", err)
+	}
+	if err := cfgWithUser(User{Name: "u", Keychain: true}).Validate(); err == nil {
+		t.Error("keychain without accessKeyId should fail")
 	}
 	err := cfgWithUser(User{Name: "u", AccessKeyID: "AK", Keychain: true, Command: "echo x"}).Validate()
 	if err == nil || !strings.Contains(err.Error(), "exactly one") {
 		t.Errorf("two sources should fail with the one-source error, got %v", err)
 	}
-	if err := cfgWithUser(User{Name: "u"}).Validate(); err == nil {
-		t.Error("zero sources (non-anon) should fail")
-	}
-}
-
-// TestSessionTokenPreservedNonProfile: a config-declared sessionToken is preserved for a
-// non-AWS-profile source (keychain/cmd/env) — STS temporary credentials. Regression for
-// the 005 review finding (it was silently dropped for non-inline sources).
-func TestSessionTokenPreservedNonProfile(t *testing.T) {
-	keyring.MockInit()
-	if err := secret.StoreKeychain("u", "the-secret"); err != nil {
-		t.Fatal(err)
-	}
-	c := &Config{
-		APIVersion: "s3s/v1",
-		Clusters:   []Cluster{{Name: "c", Endpoint: "http://x"}},
-		Users:      []User{{Name: "u", AccessKeyID: "AK", Keychain: true, SessionToken: logging.Secret("tok-123")}},
-		Contexts:   []Context{{Name: "x", Cluster: "c", User: "u"}},
-	}
-	if err := c.Validate(); err != nil {
-		t.Fatalf("keychain + sessionToken should validate: %v", err)
-	}
-	cc, err := c.ClientConfig(context.Background(), "x")
-	if err != nil {
-		t.Fatalf("ClientConfig: %v", err)
-	}
-	if cc.SecretKey != "the-secret" || cc.SessionToken != "tok-123" {
-		t.Errorf("got secret=%q token=%q, want the-secret/tok-123 (token must not be dropped)", cc.SecretKey, cc.SessionToken)
+	zeroErr := cfgWithUser(User{Name: "u"}).Validate()
+	if zeroErr == nil || !strings.Contains(zeroErr.Error(), "keychain or cmd") {
+		t.Errorf("zero sources (non-anon) should fail naming keychain/cmd, got %v", zeroErr)
 	}
 }
 

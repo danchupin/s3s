@@ -12,16 +12,17 @@ import (
 const keyringService = "s3s"
 
 // ErrNoKeystore reports that the OS keystore is unavailable (e.g. headless Linux with
-// no Secret Service). Callers fall back to another source or the prompt (005 FR-043).
-var ErrNoKeystore = errors.New("secret: OS keystore unavailable")
+// no Secret Service). There is NO plaintext fallback — the actionable remedy is a `cmd`
+// credential source (FR-020).
+var ErrNoKeystore = errors.New("secret: OS keystore unavailable — use a cmd credential source (e.g. cmd: \"vault kv get -field=secret …\") on this machine")
 
 // GetKeychain fetches a stored secret for account. A missing entry or an unavailable
-// keystore both yield a clear, actionable error — never an empty secret (FR-043).
+// keystore both yield a clear, actionable error — never an empty secret (FR-020/043).
 func GetKeychain(account string) (string, error) {
 	s, err := keyring.Get(keyringService, account)
 	if err != nil {
 		if errors.Is(err, keyring.ErrNotFound) {
-			return "", fmt.Errorf("secret: no keystore entry for %q (run: s3s cred set %s)", account, account)
+			return "", fmt.Errorf("secret: no keystore entry for %q (run: s3s cred set, or use a cmd source)", account)
 		}
 		return "", fmt.Errorf("%w: %v", ErrNoKeystore, err)
 	}

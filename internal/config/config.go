@@ -1,7 +1,8 @@
 // Package config loads and validates the kubectl-style YAML config
 // (~/.config/s3s/config.yaml): clusters, users, contexts, and current-context.
-// Secrets are held as logging.Secret so they never leak through logs or display
-// (FR-005). ${ENV} references are resolved at load (FR-005, contracts/config-schema.md).
+// The secret is never stored in the config (014 FR-008) — a non-anonymous user names
+// the OS keychain or an external command. A ${ENV} reference in the non-secret
+// accessKeyId is resolved at load.
 package config
 
 import (
@@ -12,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"github.com/danchupin/s3s/internal/logging"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -59,35 +59,26 @@ type Cluster struct {
 	Buckets       []string `yaml:"buckets,omitempty"` // pinned bucket names (010) — empty ⇒ list-all
 }
 
-// User is a named credential. Secrets are redacted everywhere (FR-005). A
-// non-anonymous user names exactly ONE credential source (005 FR-041): an inline
-// secretAccessKey (literal or ${ENV}), the OS keychain, an external command, or an
-// AWS shared profile.
+// User is a named credential. A non-anonymous user names exactly ONE credential
+// source (014 FR-002): the OS keychain or an external command. The secret itself is
+// never stored in the config (FR-008) — it lives in the keystore or the command's
+// stdout.
 type User struct {
-	Name            string         `yaml:"name"`
-	Anonymous       bool           `yaml:"anonymous,omitempty"`
-	AccessKeyID     string         `yaml:"accessKeyId,omitempty"`
-	SecretAccessKey logging.Secret `yaml:"secretAccessKey,omitempty"` // inline / ${ENV} source
-	SessionToken    logging.Secret `yaml:"sessionToken,omitempty"`
-	Keychain        bool           `yaml:"keychain,omitempty"`   // OS keystore source (005 US6)
-	Command         string         `yaml:"cmd,omitempty"`        // external-command source (005 US6)
-	AWSProfile      string         `yaml:"awsProfile,omitempty"` // ~/.aws/credentials source (005 US6)
+	Name        string `yaml:"name"`
+	Anonymous   bool   `yaml:"anonymous,omitempty"`
+	AccessKeyID string `yaml:"accessKeyId,omitempty"`
+	Keychain    bool   `yaml:"keychain,omitempty"` // OS keystore source (014)
+	Command     string `yaml:"cmd,omitempty"`      // external-command source (014)
 }
 
 // sourceCount reports how many credential sources the user declares. Exactly one is
-// required for a non-anonymous user (005 FR-041).
+// required for a non-anonymous user (014 FR-002).
 func (u User) sourceCount() int {
 	n := 0
-	if !u.SecretAccessKey.IsEmpty() {
-		n++
-	}
 	if u.Keychain {
 		n++
 	}
 	if u.Command != "" {
-		n++
-	}
-	if u.AWSProfile != "" {
 		n++
 	}
 	return n
@@ -149,8 +140,9 @@ func Load(path string) (*Config, error) {
 	return &c, nil
 }
 
-// resolveEnv replaces ${VAR} references in credential fields with environment
-// values (env-over-inline precedence). A referenced-but-unset var is an error.
+// resolveEnv replaces a ${VAR} reference in the non-secret accessKeyId with its
+// environment value. A referenced-but-unset var is an error. The secret itself is
+// never an inline/${ENV} value (014 FR-004) — it comes from the keychain or a command.
 func (c *Config) resolveEnv() error {
 	for i := range c.Users {
 		u := &c.Users[i]
@@ -159,18 +151,6 @@ func (c *Config) resolveEnv() error {
 			return fmt.Errorf("user %q accessKeyId: %w", u.Name, err)
 		}
 		u.AccessKeyID = ak
-
-		sk, err := resolveRef(string(u.SecretAccessKey))
-		if err != nil {
-			return fmt.Errorf("user %q secretAccessKey: %w", u.Name, err)
-		}
-		u.SecretAccessKey = logging.Secret(sk)
-
-		st, err := resolveRef(string(u.SessionToken))
-		if err != nil {
-			return fmt.Errorf("user %q sessionToken: %w", u.Name, err)
-		}
-		u.SessionToken = logging.Secret(st)
 	}
 	return nil
 }
@@ -228,15 +208,14 @@ func (c *Config) Validate() error {
 		if !us.Anonymous {
 			switch us.sourceCount() {
 			case 0:
-				return fmt.Errorf("%w: user %q is not anonymous but missing credentials", ErrInvalid, us.Name)
+				return fmt.Errorf("%w: user %q is not anonymous but missing credentials — declare keychain or cmd", ErrInvalid, us.Name)
 			case 1:
-				// AWS profile supplies its own access key; every other source needs the
-				// (non-secret) accessKeyId from config.
-				if us.AWSProfile == "" && us.AccessKeyID == "" {
+				// Both sources need the (non-secret) accessKeyId from config.
+				if us.AccessKeyID == "" {
 					return fmt.Errorf("%w: user %q is missing accessKeyId", ErrInvalid, us.Name)
 				}
 			default:
-				return fmt.Errorf("%w: user %q declares more than one credential source — choose exactly one (secretAccessKey | keychain | cmd | awsProfile)", ErrInvalid, us.Name)
+				return fmt.Errorf("%w: user %q declares more than one credential source — choose exactly one (keychain | cmd)", ErrInvalid, us.Name)
 			}
 		}
 	}

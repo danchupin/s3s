@@ -27,10 +27,9 @@ func runCred(args []string) error {
 	}
 	action, ctxName := rest[0], rest[1]
 
-	path := *cfgPath
-	if path == "" {
-		path = config.DefaultPath()
-	}
+	// Same precedence as run(): flag > S3S_CONFIG env > default (014 FR-014/FR-015). A
+	// non-existent explicit path errors via config.Load below.
+	path := config.ResolvePath(*cfgPath, os.Getenv(config.EnvConfig))
 	cfg, err := config.Load(path)
 	if err != nil {
 		return err

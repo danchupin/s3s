@@ -5,6 +5,15 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## Done
 
+- **Credential sources simplification & config-path override (014)** — narrowed the four
+  credential sources to **two**: the OS keychain (the prompted default; macOS Keychain /
+  Windows Credential Manager / Linux Secret Service) and an external `cmd`. Removed the
+  inline `secretAccessKey` (literal + `${ENV}`), inline `sessionToken`, and `awsProfile`
+  sources outright (pre-release, no migration). Headless keychain failures now point
+  loudly at `cmd` instead of any plaintext fallback. Added a config-path override
+  (`--config` flag > `S3S_CONFIG` env > default) across the TUI, `cred`, and `config init`,
+  with keychain accounts namespaced by config identity so multiple configs never collide.
+  Constitution amended to v1.2.0. See `specs/014-credentials-config-path/`.
 - **UI redesign (006)** — k9s-style rework: the modal action menu is gone; every item
   action is a single direct key (`d` download, `a` analyze, `x`/`X` delete/recursive,
   `y` copy, `m` move, `u` upload, `+` mkdir, `r` refresh) with an always-visible
