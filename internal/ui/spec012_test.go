@@ -582,7 +582,7 @@ func TestEveryActionAdvertised(t *testing.T) {
 	for _, e := range m.writeEntries(kind, cat) {
 		labels[e.label] = true
 	}
-	for _, want := range []string{"download", "analyze", "copy", "move", "upload", "new folder"} {
+	for _, want := range []string{"download", "detail", "copy", "move", "upload", "new folder"} {
 		if !labels[want] {
 			t.Errorf("action %q must stay advertised in the command bar; got %v", want, labels)
 		}

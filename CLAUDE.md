@@ -118,35 +118,42 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 015-filter-ux-redesign (always-visible filter; keep bucket+object scopes; fix "doesn't fit";
-5 user stories) — PLANNED (spec + clarify + plan done; tasks/impl pending). 014-credentials-config-path —
-IMPLEMENTED (#20). conn-form cmd source — IMPLEMENTED (#21). 013-ui-mode-footer-filter — PLANNED (spec+clarify+plan).
-012-ui-visibility-write-clarity — IMPLEMENTED (#18). 011/010 — IMPLEMENTED. 008/007/006/005/004/003/002/001 — complete.
+Active feature: 016-metadata-enrichment (enrich HeadObject fields omit-empty in SHARED metaFieldRows; fold analyze/
+modeUsage into inline usage totals+ONE-section breakdown w/ dedicated usageGen+usageCancel + ungated channel-drain;
+new read-only GetObjectTagging/GetBucketConfiguration tri-state, NotFound→none vs NotImplemented/501→ErrUnsupported,
+unsupported via Fake+classify units only; storage-class marker w/ reveal; 'a' Analyze→MoreDetail shared by :detail
+cmd) — IMPLEMENTED unit (US1-US5 green: enriched metadata, inline usage totals+breakdown, tags+config
+tri-state, storage-class marker; lint+vet+check-readonly green); MinIO integration (T017/T031) + manual
+validation (T044) pending. 015-filter-ux-redesign — IMPLEMENTED (#22).
+014-credentials-config-path — IMPLEMENTED (#20). conn-form cmd source — IMPLEMENTED (#21). 013-ui-mode-footer-filter
+— PLANNED. 012-ui-visibility-write-clarity — IMPLEMENTED (#18). 011/010 — IMPLEMENTED. 008/007/006/005/004/003/002/001
+— complete.
 
-Plan: specs/015-filter-ux-redesign/plan.md. Artifacts: spec.md (US1 filter always visible per-pane P1, US2 filter+
-footer always fit P1, US3 both scopes preserved P1, US4 live narrowing + match count P2, US5 refine/clear P2;
-FR-001..016, SC-001..007, 3 clarifications), research.md (R1..R8 grounded file:line), data-model.md, quickstart.md,
-contracts/ (filter-strip, applied-filter-chip-count, layout-budget, dual-scope-visibility), checklists/requirements.md
-(16/16). Constitution v1.2.0 (VI UI Legibility + VII UI Consistency drive this; NO amendment). check-readonly STAYS
-green (no S3 symbol). IV N/A (no storage-contract change). All changes in internal/ui; no new package/file/hue/keymap.
+Plan: specs/016-metadata-enrichment/plan.md. Artifacts: spec.md (US1 rich object meta P1, US2 inline bucket/prefix
+totals P1, US3 expandable breakdown P2, US4 tags+bucket-config tri-state P2, US5 storage-class in list P3; FR-001..019,
+SC-001..007, 4 clarifications), research.md (Decision/Rationale/Alt, file:line), data-model.md, quickstart.md,
+contracts/ (object-metadata-pane, storage-read-extension, inline-usage, more-detail-key, listing-storage-class,
+layout-budget), checklists/requirements.md (16/16). Constitution v1.2.0 (VI UI Legibility + VII UI Consistency drive;
+NO amendment). check-readonly STAYS green (Get* only, never write-verb regex; SDK stays in internal/storage). IV
+REQUIRED: US4 adds GetObjectTagging/GetBucketConfiguration to storage-client contract → MinIO integration tests.
 
-GOAL: make the filter ALWAYS visible + always fit (user: "не всегда влезает"). Research top-5 TUI (fzf/broot/k9s/
-ranger-lf/yazi, adversarial-verified). DECISIONS (clarify): (1) filter input = ALWAYS-VISIBLE STRIP (fzf/broot), not
-transient — reserved chrome, LIST absorbs the line, footer never sacrificed; (2) object match count = "N matched"
-(no level total — paginated), bucket = "matched/total" (local); (3) count baked into the per-pane chip.
+DECISIONS (clarify): (1) on-demand affordances = single freed 'a' = context-aware MoreDetail (bucket/prefix→expand
+breakdown+load config; object→tags+governance), shared by :detail cmd; (2) object pane OMITS empty optional fields,
+always shows core + permission-gated as "unknown/denied"; (3) usage scan = dwell-gated (tea.Tick), session-cached
+(usageResults keyed (context,bucket,prefix)), cancel-on-navigate. version-history OUT of scope.
 
-Key approach (research.md R1-R8, file:line verified): (R1) View()(app.go:1124) height budget 1138-1142 rows:=height-
-footerH-2 → ADD filterStripH=1 in filterable modes (modeBuckets/modeTree only) → rows:=height-footerH-filterStripH-2;
-render body+"\n"+filterStripView(w)+"\n"+footer (1209). windowBounds/treeView adapt → LIST shrinks. (R2) DELETE the
-searching case from statusLine(app.go:1450-1459) — input now owned by the strip; statusLine keeps loading/notice/
-error/op-prompt. (R3) NEW filterStripView: active=▌filter <pane>: <input>+caret+hints; idle=dim committed term or
-"/ to filter <pane>"; one strip bound to focused scope (filterIsBucketList). (R4/R5) filterChipText(app.go:1309)
-+(matched,total,hasTotal)→"filter: term · M/T"(bucket: filteredBuckets/buckets) | "term · N"(object: m.level.count(),
-no total fetched — FR-013); TERM-GATED + zone-agnostic so BOTH chips show at once (listWithPane:1251 already chips
-both boxes); a scope's chip hides only while THAT scope edits live. (R6) boxViewWith degrade order unchanged (center→
-filter→mode, mode survives); chip drops WHOLE under width, strip still shows filter; filterChipTermMax(1304) budgets
-the " · M/T" suffix, elide term first. (R8) TDD: extend assertWidthSweep(footer_test:92) + height-sweep (strip+footer
-fit, LIST shrinks); add TestFilterStripAlwaysVisible + TestBothChipsVisibleTogether; migrate spec013_test
-(TestBucketFilterChipCommitted/TestObjectsFilterChipCommitted) to always-visible + counts; migrate app_test
-TestStatusSearchPending→filterStripView; keep search_test green (scopes independent).
+Key corrected design (adversarial-verified, file:line): (1) height-budget failure mode is NOT footer-loss (footer
+composed after body; boxViewWith hard-caps body to minRows, styles.go:348-350) but SILENT TRUNCATION of pane content
+— at 130×24 footerH≈6 + filterFieldH=3 → details body budget rows-2≈11; enriched obj (6 core + 6-9 optional) + tags +
+breakdown overflow → FIX: ONE expandable detail section at a time (breakdown XOR tags XOR config) + "… +N more (i to
+reveal)" affordance + 130×24 height-sweep test asserting every seeded value present OR revealable. (2) inline scan owns
+dedicated usageGen + usageCancel, NOT m.gen/loadCancel (analyze.go:65 beginLoad coupling removed); cancel = usageCancel()
++ usageGen++ together on focus-move & in beginLoad; result-application gated on usageGen, channel pump (waitForUsage
+re-arm) DRAINS regardless of gen (mirror analyze.go:100-108) so no producer leak. (3) dwell: extend afterSelectionMove
+(app.go:328-338) to arm usageTick for dir/level too (not just objects); onUsageTick fires loadUsage only if
+gen==usageGen AND focusedUsageTarget() unchanged AND not cached. (4) refresh: tree 'r' (tree.go:144 cache.Invalidate)
++ bucket 'r' (refreshBuckets, hintbar.go:175) both also Invalidate(usageResults). (5) classify: *NotFound/*NotConfigured
+→ none; reserve ErrUnsupported for NotImplemented/501/405 (untestable on MinIO → Fake-unit + classify-unit). Delete
+modeUsage RED set COMPLETE: app.go:30/219-227/881/1190-1191, analyze.go, command.go:33+57(canOpenCommand),
+footer_test.go:194/249, keys.go:21/54, hintbar.go:52/70, pane.go:54/67/71.
 <!-- SPECKIT END -->

@@ -149,8 +149,13 @@ func TestDirectAnalyzeNoMenu(t *testing.T) {
 	selectDir(&m, "docs/")
 	m = press(m, "a")
 
-	if m.mode != modeUsage {
-		t.Fatalf("'a' on a folder should analyze (modeUsage), not open a menu; mode=%v", m.mode)
+	// 016: 'a' is now "more detail" — on a folder it expands the inline usage breakdown
+	// in place (no separate full-screen mode, no menu).
+	if m.detailSection != sectBreakdown {
+		t.Fatalf("'a' on a folder should expand the inline usage breakdown; section=%v, mode=%v", m.detailSection, m.mode)
+	}
+	if m.mode != modeTree {
+		t.Errorf("'a' must NOT switch modes; mode=%v", m.mode)
 	}
 }
 
@@ -383,8 +388,9 @@ func TestBucketListDirectAnalyze(t *testing.T) {
 	f.Seed("b", "a.txt")
 	m := withBuckets(f, []string{"ctx"}, nil)
 	m = press(m, "a")
-	if m.mode != modeUsage {
-		t.Fatalf("'a' in the bucket list should analyze the bucket; mode=%v", m.mode)
+	// 016: 'a' expands the inline usage breakdown for the highlighted bucket (no mode switch).
+	if m.detailSection != sectBreakdown {
+		t.Fatalf("'a' in the bucket list should expand the inline usage breakdown; section=%v, mode=%v", m.detailSection, m.mode)
 	}
 }
 

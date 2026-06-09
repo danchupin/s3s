@@ -191,7 +191,7 @@ func containsAny(s string, subs ...string) string {
 func TestFooterHintsAdvertiseActionsNotWriteKeys(t *testing.T) { // obligation 1/2
 	// footerHints now serves overlay/list modes (the buckets/tree hints moved to the 006
 	// hint bar); it must still always show help/quit and never advertise write ops.
-	h := footerHints(hintCtx{mode: modeUsage, width: 80})
+	h := footerHints(hintCtx{mode: modeContextSwitch, width: 80})
 	if strings.Count(h, "\n") != 0 {
 		t.Fatalf("hint row must be a single line; got %q", h)
 	}
@@ -246,7 +246,7 @@ func TestFooterHintsNarrowDropsWithMoreCue(t *testing.T) { // obligation 5
 }
 
 func TestFooterHintsArrowPrimaryNoVim(t *testing.T) { // obligation 6 (FR-031)
-	h := footerHints(hintCtx{mode: modeUsage, multiContext: true, width: 120})
+	h := footerHints(hintCtx{mode: modeContextSwitch, multiContext: true, width: 120})
 	if bad := containsAny(h, " j", " k", " g", " G", "Home", "End", "hjkl"); bad != "" {
 		t.Errorf("footer must not advertise vim/Top-Bottom keys; found %q in %q", bad, h)
 	}

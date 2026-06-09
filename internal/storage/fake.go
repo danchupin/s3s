@@ -35,6 +35,13 @@ type Fake struct {
 type FakeBucket struct {
 	CreationDate time.Time
 	Objects      map[string]FakeObject // full key -> object
+
+	// 016 US4: bucket configuration the Fake returns. A zero-value ConfigItem (State
+	// == "") is normalised to ConfigNone. UnsupportedGetConfigs[sub]=true forces that
+	// sub-resource to "unsupported" (sub ∈ versioning|encryption|lifecycle|replication|
+	// publicaccessblock|location) — MinIO can't produce this, so it is unit-tested here.
+	BucketConfig          BucketConfig
+	UnsupportedGetConfigs map[string]bool
 }
 
 // FakeObject is one seeded object.
@@ -46,6 +53,26 @@ type FakeObject struct {
 	LastModified time.Time
 	UserMetadata map[string]string
 	AccessDenied bool // simulate a 403 on Head/Get
+
+	// 016 enriched HeadObject fields (leave a permission-gated field "" to simulate
+	// "header absent" → rendered "unknown").
+	VersionID           string
+	DeleteMarker        bool
+	SSEAlgorithm        string
+	SSEKMSKeyID         string
+	ReplicationStatus   string
+	RestoreStatus       string
+	ObjectLockMode      string
+	ObjectLockRetainTil time.Time
+	ObjectLockLegalHold string
+	LifecycleExpiration string
+	ContentEncoding     string
+	CacheControl        string
+	ContentDisposition  string
+
+	// 016 US4: object tags (values). TagsDenied simulates a 403 on GetObjectTagging.
+	Tags       map[string]string
+	TagsDenied bool
 }
 
 // NewFake returns an empty Fake ready to seed.
@@ -192,6 +219,20 @@ func (f *Fake) HeadObject(ctx context.Context, bucket, key string) (ObjectMetada
 		StorageClass: o.StorageClass,
 		ETag:         o.ETag,
 		UserMetadata: o.UserMetadata,
+
+		VersionID:           o.VersionID,
+		DeleteMarker:        o.DeleteMarker,
+		SSEAlgorithm:        o.SSEAlgorithm,
+		SSEKMSKeyID:         o.SSEKMSKeyID,
+		ReplicationStatus:   o.ReplicationStatus,
+		RestoreStatus:       o.RestoreStatus,
+		ObjectLockMode:      o.ObjectLockMode,
+		ObjectLockRetainTil: o.ObjectLockRetainTil,
+		ObjectLockLegalHold: o.ObjectLockLegalHold,
+		LifecycleExpiration: o.LifecycleExpiration,
+		ContentEncoding:     o.ContentEncoding,
+		CacheControl:        o.CacheControl,
+		ContentDisposition:  o.ContentDisposition,
 	}, nil
 }
 
@@ -382,6 +423,72 @@ func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress fu
 		}
 	}
 	return agg.report(true), nil
+}
+
+// GetObjectTagging returns the seeded tags for an object (016 US4). TagsDenied → 403.
+func (f *Fake) GetObjectTagging(ctx context.Context, bucket, key string) (ObjectTags, error) {
+	if err := ctx.Err(); err != nil {
+		return ObjectTags{}, err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return ObjectTags{}, fmt.Errorf("tags %q: %w", bucket, ErrNotFound)
+	}
+	o, ok := b.Objects[key]
+	if !ok {
+		return ObjectTags{}, fmt.Errorf("tags %q/%q: %w", bucket, key, ErrNotFound)
+	}
+	if o.TagsDenied {
+		return ObjectTags{}, fmt.Errorf("tags %q/%q: %w", bucket, key, ErrAccessDenied)
+	}
+	return ObjectTags{ObjectKey: key, Tags: o.Tags}, nil
+}
+
+// GetBucketConfiguration returns the seeded BucketConfig with empty sub-resources
+// normalised to "none" and UnsupportedGetConfigs entries forced to "unsupported"
+// (016 US4/FR-013).
+func (f *Fake) GetBucketConfiguration(ctx context.Context, bucket string) (BucketConfig, error) {
+	if err := ctx.Err(); err != nil {
+		return BucketConfig{}, err
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return BucketConfig{Bucket: bucket}, fmt.Errorf("config %q: %w", bucket, ErrNotFound)
+	}
+	cfg := b.BucketConfig
+	cfg.Bucket = bucket
+	cfg.Versioning = defConfigState(cfg.Versioning)
+	cfg.Encryption = defConfigState(cfg.Encryption)
+	cfg.Lifecycle = defConfigState(cfg.Lifecycle)
+	cfg.Replication = defConfigState(cfg.Replication)
+	cfg.PublicAccessBlock = defConfigState(cfg.PublicAccessBlock)
+	cfg.Location = defConfigState(cfg.Location)
+	for sub := range b.UnsupportedGetConfigs {
+		item := ConfigItem{State: ConfigUnsupported, Reason: ErrUnsupported}
+		switch sub {
+		case "versioning":
+			cfg.Versioning = item
+		case "encryption":
+			cfg.Encryption = item
+		case "lifecycle":
+			cfg.Lifecycle = item
+		case "replication":
+			cfg.Replication = item
+		case "publicaccessblock", "pab":
+			cfg.PublicAccessBlock = item
+		case "location":
+			cfg.Location = item
+		}
+	}
+	return cfg, nil
+}
+
+// defConfigState normalises a zero-value ConfigItem (State == "") to ConfigNone.
+func defConfigState(it ConfigItem) ConfigItem {
+	if it.State == "" {
+		return ConfigItem{State: ConfigNone}
+	}
+	return it
 }
 
 // GetObjectRange returns a reader over Data[start : end+1] (clamped).

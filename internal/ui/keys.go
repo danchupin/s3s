@@ -18,7 +18,7 @@ type keyMap struct {
 	Search      []string
 	Refresh     []string
 	Context     []string
-	Analyze     []string // du analytics on folder/level/bucket — read
+	MoreDetail  []string // 016: context-aware "more detail" — usage breakdown / tags / bucket config (was Analyze)
 	Download    []string // download the selected object / marked set — read
 	NewFolder   []string // create an empty folder (write mode)
 	Delete      []string // delete the selected object (write mode)
@@ -51,7 +51,7 @@ func defaultKeys() keyMap {
 		Search:      []string{"/"},
 		Refresh:     []string{"r"},
 		Context:     []string{"c"},
-		Analyze:     []string{"a"}, // analyze (du) — frees the old menu key
+		MoreDetail:  []string{"a"}, // "more detail": usage breakdown / tags / bucket config (was analyze)
 		Download:    []string{"d"}, // download — read, works read-only
 		NewFolder:   []string{"+"},
 		Delete:      []string{"x"}, // k9s-style delete; frees "d" for download
@@ -164,7 +164,7 @@ func (m App) helpLines() []string {
 		"",
 		sec("Actions") + dimCellStyle.Render("  (single key on the selection — no menu)"),
 		row(formatKeys(k.Download), "download the selected object / marked set"),
-		row(formatKeys(k.Analyze), "analyze (du) a bucket / folder / level"),
+		row(formatKeys(k.MoreDetail), "more detail: usage totals/breakdown · tags · bucket config"),
 		row(formatKeys(k.Refresh), "reload the current list"),
 		row(formatKeys(k.NewFolder), "create a folder") + wtag,
 		row(formatKeys(k.Upload), "upload a local file") + wtag,

@@ -41,6 +41,11 @@ var (
 	// objects. Bucket delete requires an empty bucket; it never recursively purges
 	// (007 FR-024b). Returned before any DeleteBucket call.
 	ErrBucketNotEmpty = errors.New("storage: bucket is not empty")
+	// ErrUnsupported: the backend does not implement this call (HTTP 501/405,
+	// NotImplemented/MethodNotAllowed). Distinct from "not configured" (which is a
+	// successful empty result) — used by GetBucketConfiguration so the UI can show
+	// "unsupported" vs "none" vs "denied" (016 FR-013).
+	ErrUnsupported = errors.New("storage: backend does not support this operation")
 )
 
 // DeleteSummary is the truthful outcome of a recursive delete: how many objects
@@ -125,6 +130,54 @@ type Storage interface {
 	// running totals; a cancelled ctx returns the partial report (Complete=false) with
 	// ctx.Err(). A read. 005 FR-008..FR-012.
 	UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error)
+
+	// GetObjectTagging returns the object's tag key/value pairs (values, not just the
+	// count). An empty Tags map = "no tags". A read. 016 US4/FR-011.
+	GetObjectTagging(ctx context.Context, bucket, key string) (ObjectTags, error)
+
+	// GetBucketConfiguration fetches each governance sub-resource (versioning,
+	// encryption, lifecycle, replication, public-access-block, location) INDEPENDENTLY
+	// and classifies each as configured/none/denied/unsupported, so one failed
+	// sub-resource never fails the whole call. A read. 016 US4/FR-012/FR-013.
+	GetBucketConfiguration(ctx context.Context, bucket string) (BucketConfig, error)
+}
+
+// ObjectTags is the tag set of one object (values, not just a count) — 016 US4/FR-011.
+type ObjectTags struct {
+	ObjectKey string
+	Tags      map[string]string
+}
+
+// ConfigState is the tri-state (+unsupported) of one bucket-config sub-resource
+// (016 FR-013): a value MUST distinguish "configured" / "none" / "denied" / "unsupported".
+type ConfigState string
+
+// The four tri-state (+unsupported) values a bucket-config sub-resource can take (FR-013).
+const (
+	ConfigConfigured  ConfigState = "configured"  // set; Detail summarises it
+	ConfigNone        ConfigState = "none"        // call succeeded, nothing configured
+	ConfigDenied      ConfigState = "denied"      // caller lacks read permission
+	ConfigUnsupported ConfigState = "unsupported" // backend does not implement the call
+)
+
+// ConfigItem is one bucket-config sub-resource result. Detail/Reason carry only
+// summaries/codes — never SDK bodies or secrets (constitution V).
+type ConfigItem struct {
+	State  ConfigState
+	Detail string // human summary when configured (e.g. "Enabled", "SSE-KMS", "3 rules")
+	Reason error  // nil | ErrAccessDenied | ErrUnsupported
+}
+
+// BucketConfig aggregates the independently-classified governance sub-resources of a
+// bucket (016 US4). Bucket policy / policy-public status is intentionally OUT of scope.
+type BucketConfig struct {
+	Bucket            string
+	Versioning        ConfigItem
+	Encryption        ConfigItem
+	Lifecycle         ConfigItem
+	Replication       ConfigItem
+	PublicAccessBlock ConfigItem
+	Location          ConfigItem
 }
 
 // UsageChild is one immediate child (sub-prefix or direct object) of an analyzed
@@ -183,7 +236,12 @@ type ObjectRef struct {
 	StorageClass string
 }
 
-// ObjectMetadata is the detailed view from HeadObject (FR-013).
+// ObjectMetadata is the detailed view from HeadObject (FR-013). The block below the
+// core fields is populated from the SAME HeadObject response (016 FR-001/FR-002 — no
+// extra round-trip). Optional fields are "" / zero when the response omits them;
+// the permission-gated ObjectLock* fields are "" both when unset AND when the caller
+// lacks the retention/legal-hold read permission (the header is simply absent), so the
+// UI renders them as "unknown" rather than "none" (016 FR-003).
 type ObjectMetadata struct {
 	Key          string
 	Size         int64
@@ -192,6 +250,21 @@ type ObjectMetadata struct {
 	StorageClass string
 	ETag         string
 	UserMetadata map[string]string
+
+	// 016 enriched fields (all from the existing HeadObject response).
+	VersionID           string    // x-amz-version-id
+	DeleteMarker        bool      // current version is a delete marker
+	SSEAlgorithm        string    // server-side-encryption: AES256 | aws:kms | …
+	SSEKMSKeyID         string    // KMS key ARN (long — revealable)
+	ReplicationStatus   string    // COMPLETE | PENDING | FAILED | REPLICA
+	RestoreStatus       string    // parsed from x-amz-restore (ongoing/expiry)
+	ObjectLockMode      string    // GOVERNANCE | COMPLIANCE — permission-gated
+	ObjectLockRetainTil time.Time // retain-until date
+	ObjectLockLegalHold string    // ON | OFF — permission-gated
+	LifecycleExpiration string    // x-amz-expiration (lifecycle delete schedule)
+	ContentEncoding     string
+	CacheControl        string
+	ContentDisposition  string
 }
 
 // ClientConfig is the resolved (cluster + user) input used to build a Storage.

@@ -37,7 +37,7 @@ func TestHelpActionsSection(t *testing.T) { // obligation 1a (FR-014b)
 	if !strings.Contains(h, "single key on the selection") {
 		t.Error("Actions section should document the menu-less direct keys")
 	}
-	for _, item := range []string{"download", "analyze", "create a folder", "delete the selected object", "upload a local file", "move/rename", "recursively delete"} {
+	for _, item := range []string{"download", "more detail", "create a folder", "delete the selected object", "upload a local file", "move/rename", "recursively delete"} {
 		if !strings.Contains(h, item) {
 			t.Errorf("Actions section missing item %q", item)
 		}
