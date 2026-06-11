@@ -28,7 +28,7 @@ jobs:
         # v8 installs golangci-lint v2 (our .golangci.yml is config version 2).
         # "latest" is built with a current Go toolchain — it must be >= go.mod's
         # version or the linter refuses to run.
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
 
