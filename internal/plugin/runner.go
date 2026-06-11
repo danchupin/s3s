@@ -72,7 +72,12 @@ func (r *ExecRunner) invoke(ctx context.Context, d Decl, req Request) Result {
 	cmd.Stdin = bytes.NewReader(payload)
 	cmd.Stdout = out
 	cmd.Stderr = io.Discard
-	cmd.WaitDelay = time.Second // never hang on a child that outlives its kill
+	// The deadline must kill the plugin's whole process group — a grandchild
+	// (e.g. a shell script's spawned helper) inheriting stdout would otherwise
+	// hold the pipe open past the kill. WaitDelay backstops anything that still
+	// survives so Wait can never hang.
+	setupProcessGroup(cmd)
+	cmd.WaitDelay = 500 * time.Millisecond
 
 	runErr := cmd.Run()
 	switch {
