@@ -157,10 +157,10 @@ func TestPluginsUnknownConnectionIsWarningOnly(t *testing.T) {
 
 func TestMatchRuleMatches(t *testing.T) {
 	cases := []struct {
-		name string
-		rule MatchRule
+		name              string
+		rule              MatchRule
 		conn, bucket, key string
-		want bool
+		want              bool
 	}{
 		{"full match", MatchRule{Connections: []string{"prod"}, Buckets: []string{"images-*"}, KeyPattern: "^[0-9a-f]{4}"},
 			"prod", "images-prod", "0af3.jpg", true},

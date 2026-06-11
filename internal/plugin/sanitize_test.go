@@ -18,7 +18,7 @@ func TestSanitizeStripsControlFlow(t *testing.T) {
 		{"osc st stripped", "x\x1b]8;;http://e\x1b\\y", "xy"},
 		{"bare escape pair", "a\x1bZb", "ab"},
 		{"c0 stripped", "a\x01\x02b", "ab"},
-		{"c1 stripped", "ab", "ab"},
+		{"c1 stripped", "a\u0085\u009bb", "ab"},
 		{"del stripped", "a\x7fb", "ab"},
 		{"tab to space", "a\tb", "a b"},
 		{"invalid utf8 replaced", "a\xffb", "a�b"},

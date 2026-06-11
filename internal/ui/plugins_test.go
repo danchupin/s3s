@@ -174,7 +174,7 @@ func TestUnassignedConnectionNeverInvoked(t *testing.T) {
 	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
 	m := pluginApp(f, Backend{}, []config.PluginDecl{discoveryDecl("disco", "prod")}, r,
 		[]string{"ctx", "prod"}, nil)
-	m = drain(m, m.Init())
+	_ = drain(m, m.Init())
 
 	if r.callCount("disco") != 0 {
 		t.Errorf("plugin for another connection invoked %d times", r.callCount("disco"))
@@ -760,7 +760,7 @@ func TestPluginsToggleOptimisticAndPersisted(t *testing.T) {
 	// The very next load skips the disabled plugin.
 	m = press(m, "esc")
 	m, cmd = pressCmd(m, "r")
-	m = drain(m, cmd)
+	_ = drain(m, cmd)
 	if r.callCount("disco") != 1 {
 		t.Errorf("disabled plugin still invoked: calls = %d", r.callCount("disco"))
 	}
@@ -821,7 +821,7 @@ func TestIncompatiblePluginSkippedForSession(t *testing.T) {
 	}
 
 	m, cmd := pressCmd(m, "r") // refresh: incompatible plugin must be skipped
-	m = drain(m, cmd)
+	_ = drain(m, cmd)
 	if r.callCount("disco") != 1 {
 		t.Errorf("incompatible plugin re-invoked: calls = %d", r.callCount("disco"))
 	}
@@ -831,7 +831,7 @@ func TestContextSwitchClearsDiscoveryCache(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("listed-a")
 	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
-	resolve := func(name string) (Backend, error) {
+	resolve := func(_ string) (Backend, error) {
 		return Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x"}, nil
 	}
 	m := pluginApp(f, Backend{}, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r,

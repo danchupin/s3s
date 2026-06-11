@@ -26,6 +26,8 @@ const (
 // capabilities so one runner code path serves all of them.
 type Capability string
 
+// The two v1 capabilities: supplying bucket names a connection cannot list,
+// and enriching one object with externally-held metadata fields.
 const (
 	BucketDiscovery Capability = "bucket-discovery"
 	ObjectMetadata  Capability = "object-metadata"
@@ -93,7 +95,7 @@ type respWire struct {
 // capability. Outcomes: OK for a valid payload, ContractError for a soft
 // {"error": …}, Incompatible for a foreign contractVersion, InvalidOutput for
 // everything else (unparsable JSON, missing version, wrong/both/no payload).
-func DecodeResponse(data []byte, cap Capability) (Response, Outcome) {
+func DecodeResponse(data []byte, capability Capability) (Response, Outcome) {
 	var w respWire
 	if err := json.Unmarshal(data, &w); err != nil {
 		return Response{}, OutcomeInvalidOutput
@@ -118,7 +120,7 @@ func DecodeResponse(data []byte, cap Capability) (Response, Outcome) {
 		}
 		return resp, OutcomeContractError
 	}
-	switch cap {
+	switch capability {
 	case BucketDiscovery:
 		if w.Buckets == nil || w.Fields != nil {
 			return resp, OutcomeInvalidOutput
@@ -136,6 +138,9 @@ func DecodeResponse(data []byte, cap Capability) (Response, Outcome) {
 // Outcome classifies one invocation for status display and logging.
 type Outcome string
 
+// Outcome values, per the exec contract's classification table: ok, deadline
+// kill, spawn/exit failure, soft {"error":…}, schema/parse violation, and a
+// foreign contract version.
 const (
 	OutcomeOK            Outcome = "ok"
 	OutcomeTimeout       Outcome = "timeout"

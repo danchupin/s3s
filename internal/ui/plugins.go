@@ -27,8 +27,8 @@ type pluginState struct {
 	enabled      bool   // live toggle (persisted via Connector.SetPluginEnabled)
 	unavailable  string // non-empty reason (unknown connection / missing executable) ⇒ never invoked
 	incompatible int    // contract version the plugin answered with; > 0 ⇒ skipped for the session
-	discRunning  bool // a discovery invocation is in flight
-	discRunGen   int  // discovery generation that invocation was dispatched under
+	discRunning  bool   // a discovery invocation is in flight
+	discRunGen   int    // discovery generation that invocation was dispatched under
 	hasRun       bool
 	lastOutcome  plugin.Outcome
 	lastErr      string

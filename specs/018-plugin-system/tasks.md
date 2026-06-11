@@ -140,10 +140,10 @@ surface lists both with correct states; toggle stops invocations immediately
 
 ## Phase 6: Polish & Cross-Cutting
 
-- [ ] T036 [P] README.md: Plugins section (declaring, contract pointer, example stubs, security model: argv exec / owner-only config / no secrets)
-- [ ] T037 Gates: `make fmt vet lint check-readonly` + `make test` fully green; confirm `internal/plugin` imports no S3 SDK symbols
-- [ ] T038 `make test-integration` (MinIO suite) — must stay green, unchanged by this feature
-- [ ] T039 Manual validation per quickstart.md: stub discovery on a `pathStyle: false` listing-denied connection (≤5s), enrichment flow with copy, NO_COLOR pass, 130×24 + narrow footer check, `chmod 666` config refusal
+- [X] T036 [P] README.md: Plugins section (declaring, contract pointer, example stubs, security model: argv exec / owner-only config / no secrets)
+- [X] T037 Gates: `make fmt vet lint check-readonly` + `make test` fully green; confirm `internal/plugin` imports no S3 SDK symbols
+- [X] T038 `make test-integration` (MinIO suite) — must stay green, unchanged by this feature
+- [ ] T039 Manual validation per quickstart.md (PENDING — human terminal pass; owner-only refusal already covered by a unit test): stub discovery on a `pathStyle: false` listing-denied connection (≤5s), enrichment flow with copy, NO_COLOR pass, 130×24 + narrow footer check, `chmod 666` config refusal
 
 ---
 

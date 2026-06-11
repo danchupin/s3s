@@ -125,22 +125,23 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 018-plugin-system — PLANNED. Plan: specs/018-plugin-system/plan.md. External plugins =
-user-declared executables (explicit opt-in, `plugins:` config section), shlex argv exec (NEVER sh -c) +
-owner-only config gate (secret/command.go precedent), one JSON request on stdin → one JSON response on stdout,
-contractVersion=1, capped read 1MiB, default timeout 5s. v1 capabilities: bucket-discovery (US1 P1; merge ALWAYS
-additive pinned ∪ listed ∪ discovered, dedup; invalid names discarded+counted; cap 5000) and object-metadata
-(US2 P2; match rule connection+bucket-glob+keyPattern RE2; details-pane group "From <plugin>", 017 tri-state +
-per-field copy reuse; caps 64 fields/4096B). US3 P3 status surface: NEW modePlugins full-screen 'P'/:plugins
-(P free per keys.go), Esc→prevMode, space=toggle persisted via NEW Connector.SetPluginEnabled (AddBucket
-pattern), Enter=error reveal. NEW UI-agnostic pkg internal/plugin (runner/sanitize/envelope; UI depends on
-plugin.Runner iface, fake in tests). Request ctx: name/endpoint/userLabel/accessKeyId — SECRET NEVER (clarified).
-Sanitize ALL plugin strings (CSI/OSC/C0/C1 strip) before render. Session cache, refresh-invalidated; gen-guard
-drops stale. Logging: invocation facts only, never payload/argv. Actions + MCP = OUT of v1 (envelope
-channel-agnostic for future MCP bridge). Zero plugins declared ⇒ zero UI change. No S3 SDK in internal/plugin;
-check-readonly + MinIO suite untouched. Constitution v1.3.0 — no amendment. Artifacts: spec.md (3 US,
-FR-001..019, SC-001..007, 4 clarifications), research.md D1-D15, data-model.md, quickstart.md (RED sets 0-3),
-contracts/ (plugin-exec-contract, config-plugins, ui-plugin-surfaces).
+Active feature: 018-plugin-system — IMPLEMENTED (T001–T038 done; T039 manual human pass pending: 130×24 +
+narrow footer, NO_COLOR, enrichment copy flow, live chmod-666 refusal). External plugins = user-declared
+executables (explicit opt-in, `plugins:` config section), shlex argv exec (NEVER sh -c) + owner-only config
+gate, one JSON request stdin → one JSON response stdout, contractVersion=1, read cap 1MiB, default timeout 5s.
+NEW UI-agnostic pkg internal/plugin (envelope/runner/sanitize; UI depends on plugin.Runner, fakeRunner in ui
+tests). bucket-discovery: merge ALWAYS additive pinned ∪ listed ∪ discovered (mergeBuckets pure fn), invalid
+names discarded+counted, cap 5000; rides its OWN discGen (NOT m.gen — a level load must never drop a valid
+discovery), invalidated by refresh ('r') / context switch. object-metadata: legs join onPaneTick + openObject,
+"From <plugin>" groups append after native groups, caps 64 fields / 4096B values, enrichGen invalidation; a
+late result for a superseded SELECTION is still cached for its own key (usage-scan precedent) — refresh/switch
+drops fully before cache write. modePlugins ('P'/:plugins; hint + help section only when ≥1 declared):
+space=toggle via NEW Connector.SetPluginEnabled (optimistic, error→revert), r=retry last failed target,
+Enter=reveal full sanitized error; incompatible (contract≠1) ⇒ skipped for the session. Request ctx:
+name/endpoint/userLabel/accessKeyId — SECRET NEVER. Sanitize ALL plugin strings (plugin.Sanitize). Logging:
+invocation facts only, never payload/argv. config.Save now atomic (temp+rename) for ALL config mutations.
+Zero plugins ⇒ zero UI change; check-readonly green; MinIO suite green (25 integration PASS, 0 SKIP).
+Constitution v1.3.0 — no amendment.
 
 017-usage-insights-ux — IMPLEMENTED+MERGED (#24, #25); manual validation (130×24 human pass + RGW prefix-wide
 MPU check) still pending. MinIO QUIRK: ListMultipartUploads returns uploads ONLY for prefix==exact key —
