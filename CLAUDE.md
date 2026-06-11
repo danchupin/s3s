@@ -118,42 +118,29 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 016-metadata-enrichment (enrich HeadObject fields omit-empty in SHARED metaFieldRows; fold analyze/
-modeUsage into inline usage totals+ONE-section breakdown w/ dedicated usageGen+usageCancel + ungated channel-drain;
-new read-only GetObjectTagging/GetBucketConfiguration tri-state, NotFound→none vs NotImplemented/501→ErrUnsupported,
-unsupported via Fake+classify units only; storage-class marker w/ reveal; 'a' Analyze→MoreDetail shared by :detail
-cmd) — IMPLEMENTED unit (US1-US5 green: enriched metadata, inline usage totals+breakdown, tags+config
-tri-state, storage-class marker; lint+vet+check-readonly green); MinIO integration (T017/T031) + manual
-validation (T044) pending. 015-filter-ux-redesign — IMPLEMENTED (#22).
-014-credentials-config-path — IMPLEMENTED (#20). conn-form cmd source — IMPLEMENTED (#21). 013-ui-mode-footer-filter
-— PLANNED. 012-ui-visibility-write-clarity — IMPLEMENTED (#18). 011/010 — IMPLEMENTED. 008/007/006/005/004/003/002/001
-— complete.
+Active feature: 017-usage-insights-ux — PLANNED (spec+clarify+plan done; next /speckit-tasks). Plan:
+specs/017-usage-insights-ux/plan.md. US1 P1 budgeted ambient scan (UsageOf gains maxObjects cap, default budget
+20000 via config usageScanBudget *int, 0=ambient off; Bounded lower-bound reports CACHED — inverts onUsageDone
+discard analyze.go:185-187; full scan ONLY via new 'A'/:scan single dispatcher; 'a'/:detail re-pointed at budgeted
+scan, never unbounded). US2 P1 details-pane regroup (metaFieldRows → 4 named groups; relTime(now,t) dual dates w/
+injected clock; state matrix populated/—/omitted/unknown/denied/unsupported TEXT-distinct NO_COLOR-safe; multipart
+ETag ^32hex-N$ annotation; per-field copy). US3 P2 copy/share ('Y' focus-aware menu + :copy; NEW pure pkg
+internal/share: S3URI/HTTPURL(pathStyle-aware)/CLI+curl snippets/ExportCSV+JSON → DownloadDir temp+rename;
+storage.PresignGet via s3.NewPresignClient client-side, TTL presets 15m/1h(default)/24h/7d ONLY, warn on cred
+expiry < ttl, URL NEVER logged; clipboard = existing OSC52 reveal path + popup fallback). US4 P2 health card (NEW
+modeHealth full-screen 'H'/:health, Esc→prevMode; age/size/class [6]DistBucket histograms accumulated IN usageAgg
+same pass — zero extra requests; ListIncompleteUploads = ListMultipartUploads pages + ListParts sizing capped at
+first 100; tri-state reuse, honest-zero ≠ denied; small-object warning >50% < 128KiB configurable). US5 P3 preview
+(gzip magic-bytes detect, gunzip capped at preview.Limit 5MiB out, re-Classify; KindJSON/KindNDJSON pretty via
+json.Indent + 'p' raw toggle, silent raw fallback; hexdump for binary). Guard analysis: Presign*/List* verbs never
+match check-readonly regex; IncompleteUploads has no \b-anchored banned verb; SDK + MPU seeder stay in
+internal/storage. IV REQUIRED: cap honored / distributions / MPU seed (CreateMultipartUpload+UploadPart no
+complete) / presign plain-http fetch. Artifacts: spec.md (5 US, FR-001..029, SC-001..008, 4 clarifications),
+research.md D1-D15, data-model.md, quickstart.md (RED sets), contracts/ (budgeted-usage-scan, storage-read-
+extension, health-card-view, copy-share-menu, details-pane-groups, preview-rendering). Constitution v1.2.0 — no
+amendment; new keys Y/A/H/p free per keys.go:43-74.
 
-Plan: specs/016-metadata-enrichment/plan.md. Artifacts: spec.md (US1 rich object meta P1, US2 inline bucket/prefix
-totals P1, US3 expandable breakdown P2, US4 tags+bucket-config tri-state P2, US5 storage-class in list P3; FR-001..019,
-SC-001..007, 4 clarifications), research.md (Decision/Rationale/Alt, file:line), data-model.md, quickstart.md,
-contracts/ (object-metadata-pane, storage-read-extension, inline-usage, more-detail-key, listing-storage-class,
-layout-budget), checklists/requirements.md (16/16). Constitution v1.2.0 (VI UI Legibility + VII UI Consistency drive;
-NO amendment). check-readonly STAYS green (Get* only, never write-verb regex; SDK stays in internal/storage). IV
-REQUIRED: US4 adds GetObjectTagging/GetBucketConfiguration to storage-client contract → MinIO integration tests.
-
-DECISIONS (clarify): (1) on-demand affordances = single freed 'a' = context-aware MoreDetail (bucket/prefix→expand
-breakdown+load config; object→tags+governance), shared by :detail cmd; (2) object pane OMITS empty optional fields,
-always shows core + permission-gated as "unknown/denied"; (3) usage scan = dwell-gated (tea.Tick), session-cached
-(usageResults keyed (context,bucket,prefix)), cancel-on-navigate. version-history OUT of scope.
-
-Key corrected design (adversarial-verified, file:line): (1) height-budget failure mode is NOT footer-loss (footer
-composed after body; boxViewWith hard-caps body to minRows, styles.go:348-350) but SILENT TRUNCATION of pane content
-— at 130×24 footerH≈6 + filterFieldH=3 → details body budget rows-2≈11; enriched obj (6 core + 6-9 optional) + tags +
-breakdown overflow → FIX: ONE expandable detail section at a time (breakdown XOR tags XOR config) + "… +N more (i to
-reveal)" affordance + 130×24 height-sweep test asserting every seeded value present OR revealable. (2) inline scan owns
-dedicated usageGen + usageCancel, NOT m.gen/loadCancel (analyze.go:65 beginLoad coupling removed); cancel = usageCancel()
-+ usageGen++ together on focus-move & in beginLoad; result-application gated on usageGen, channel pump (waitForUsage
-re-arm) DRAINS regardless of gen (mirror analyze.go:100-108) so no producer leak. (3) dwell: extend afterSelectionMove
-(app.go:328-338) to arm usageTick for dir/level too (not just objects); onUsageTick fires loadUsage only if
-gen==usageGen AND focusedUsageTarget() unchanged AND not cached. (4) refresh: tree 'r' (tree.go:144 cache.Invalidate)
-+ bucket 'r' (refreshBuckets, hintbar.go:175) both also Invalidate(usageResults). (5) classify: *NotFound/*NotConfigured
-→ none; reserve ErrUnsupported for NotImplemented/501/405 (untestable on MinIO → Fake-unit + classify-unit). Delete
-modeUsage RED set COMPLETE: app.go:30/219-227/881/1190-1191, analyze.go, command.go:33+57(canOpenCommand),
-footer_test.go:194/249, keys.go:21/54, hintbar.go:52/70, pane.go:54/67/71.
+016-metadata-enrichment — IMPLEMENTED+MERGED (#23); MinIO integration (T017/T031) + manual validation (T044)
+still pending. 015 — #22. 014 — #20. conn-form cmd source — #21. 013 — PLANNED. 012 — #18. 011/010 — IMPLEMENTED.
+008..001 — complete.
 <!-- SPECKIT END -->
