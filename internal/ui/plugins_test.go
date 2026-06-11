@@ -294,6 +294,25 @@ func TestDiscoveryCachedUntilRefresh(t *testing.T) {
 	}
 }
 
+// While discovery is in flight the bucket list stays usable; a spinner rides the
+// list title (next to the count) so a slow provider is visibly working, not stuck.
+func TestDiscoveryRunningShowsSpinnerInBucketTitle(t *testing.T) {
+	f := storage.NewFake()
+	f.FailListBuckets = true
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
+	m := pluginApp(f, Backend{PinnedBuckets: []string{"pinned-b"}},
+		[]config.PluginDecl{discoveryDecl("disco", "ctx")}, r, nil, nil)
+
+	m.pluginByName("disco").discRunning = true // an invocation in flight (mode is buckets)
+	if got := m.resourceTitle(); !strings.Contains(got, spinnerFrames[0]) {
+		t.Errorf("in-flight discovery must show a spinner in the bucket title; got %q", got)
+	}
+	m.pluginByName("disco").discRunning = false // settled
+	if got := m.resourceTitle(); strings.Contains(got, spinnerFrames[0]) {
+		t.Errorf("settled discovery must not show a spinner; got %q", got)
+	}
+}
+
 // --- US2: metadata enrichment ---
 
 // imagesMatch scopes a metadata plugin to ctx + images* buckets + hex-prefixed keys.
