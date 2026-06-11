@@ -55,7 +55,7 @@ func TestPinnedBucketsRenderWithoutListBuckets(t *testing.T) {
 	}
 }
 
-// bucketsConnApp builds a pinned App wired to a Connector (so the "+ add bucket" row shows).
+// bucketsConnApp builds a pinned App wired to a Connector (so the "+ discover bucket" row shows).
 func bucketsConnApp(f *storage.Fake, pins []string, conn Connector) App {
 	return New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x", PinnedBuckets: pins},
 		"ctx", []string{"ctx"}, nil, conn, preview.ProtoNone)
@@ -68,8 +68,8 @@ func TestAddBucketRowShownOnlyWhenScoped(t *testing.T) {
 	f.Seed("alpha", "x")
 	m := bucketsConnApp(f, []string{"alpha"}, &fakeConnector{})
 	m = loadInto(m, f)
-	if !strings.Contains(viewOf(m), "+ add bucket") {
-		t.Errorf("scoped (pinned) list must show + add bucket:\n%s", viewOf(m))
+	if !strings.Contains(viewOf(m), "+ discover bucket") {
+		t.Errorf("scoped (pinned) list must show + discover bucket:\n%s", viewOf(m))
 	}
 
 	// Working list-all with results → row hidden.
@@ -78,8 +78,8 @@ func TestAddBucketRowShownOnlyWhenScoped(t *testing.T) {
 	f2.Seed("two", "y")
 	m2 := bucketsConnApp(f2, nil, &fakeConnector{})
 	m2 = loadInto(m2, f2)
-	if strings.Contains(viewOf(m2), "+ add bucket") {
-		t.Errorf("working list-all must NOT show + add bucket:\n%s", viewOf(m2))
+	if strings.Contains(viewOf(m2), "+ discover bucket") {
+		t.Errorf("working list-all must NOT show + discover bucket:\n%s", viewOf(m2))
 	}
 
 	// Scoped via list-all FAILURE (no pins) → row shown so the user can bootstrap.
@@ -87,8 +87,8 @@ func TestAddBucketRowShownOnlyWhenScoped(t *testing.T) {
 	f3.FailListBuckets = true
 	m3 := bucketsConnApp(f3, nil, &fakeConnector{})
 	m3 = loadInto(m3, f3) // loadBuckets calls ListBuckets → errMsg → bucketsScoped
-	if !strings.Contains(viewOf(m3), "+ add bucket") {
-		t.Errorf("list-all failure must show + add bucket:\n%s", viewOf(m3))
+	if !strings.Contains(viewOf(m3), "+ discover bucket") {
+		t.Errorf("list-all failure must show + discover bucket:\n%s", viewOf(m3))
 	}
 }
 
@@ -101,11 +101,11 @@ func TestAddBucketFlowPersistsAndReflects(t *testing.T) {
 	m := bucketsConnApp(f, []string{"alpha"}, conn)
 	m = loadInto(m, f)
 
-	// Move to the "+ add bucket" row (index 1, past the single pinned bucket) and open it.
+	// Move to the "+ discover bucket" row (index 1, past the single pinned bucket) and open it.
 	m = press(m, "down")
 	m = press(m, "enter")
 	if m.mode != modeAddBucket || m.addForm == nil {
-		t.Fatalf("enter on + add bucket should open modeAddBucket; mode=%v", m.mode)
+		t.Fatalf("enter on + discover bucket should open modeAddBucket; mode=%v", m.mode)
 	}
 
 	// Type a name and submit → connector persists; onAddBucket updates pins + returns to list.
@@ -135,7 +135,7 @@ func TestAddBucketEscCancels(t *testing.T) {
 	f.Seed("alpha", "x")
 	m := bucketsConnApp(f, []string{"alpha"}, conn)
 	m = loadInto(m, f)
-	m = press(m, "down")  // → + add bucket row
+	m = press(m, "down")  // → + discover bucket row
 	m = press(m, "enter") // open
 	m = typeStr(m, "junk")
 	m = press(m, "esc")
@@ -181,15 +181,15 @@ func TestRefreshPinnedKeepsNoListBuckets(t *testing.T) {
 }
 
 func TestScopedEmptyListAllShowsAddRow(t *testing.T) {
-	// list-all succeeds but returns ZERO buckets → scoped → "+ add bucket" available.
+	// list-all succeeds but returns ZERO buckets → scoped → "+ discover bucket" available.
 	f := storage.NewFake() // no buckets seeded; FailListBuckets=false
 	m := bucketsConnApp(f, nil, &fakeConnector{})
 	m = loadInto(m, f)
 	if f.ListBucketsCalls != 1 {
 		t.Errorf("empty list-all should still call ListBuckets once, got %d", f.ListBucketsCalls)
 	}
-	if !strings.Contains(viewOf(m), "+ add bucket") {
-		t.Errorf("an empty list-all result should offer + add bucket:\n%s", viewOf(m))
+	if !strings.Contains(viewOf(m), "+ discover bucket") {
+		t.Errorf("an empty list-all result should offer + discover bucket:\n%s", viewOf(m))
 	}
 }
 

@@ -1376,7 +1376,7 @@ func (m App) View() tea.View {
 	case modeConnForm:
 		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
 	case modeAddBucket:
-		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
+		body = boxView("discover bucket", "", m.addBucketView(w-2), w, rows)
 	case modeHealth:
 		body = boxView("health", "", m.healthView(w-2, dataRows), w, rows)
 	case modePlugins:
@@ -1730,10 +1730,16 @@ func (m App) resourceTitle() string {
 		return "object"
 	default:
 		fb := m.filteredBuckets()
+		title := fmt.Sprintf("buckets[%d]", len(m.buckets))
 		if m.bucketFilter != "" {
-			return fmt.Sprintf("buckets[%d/%d]", len(fb), len(m.buckets))
+			title = fmt.Sprintf("buckets[%d/%d]", len(fb), len(m.buckets))
 		}
-		return fmt.Sprintf("buckets[%d]", len(m.buckets))
+		// A discovery provider can take seconds; a spinner on the title (beside the
+		// growing count) shows it is working while the already-listed buckets stay usable.
+		if m.discoveryRunning() {
+			title += " " + spinnerFrames[m.spin%len(spinnerFrames)]
+		}
+		return title
 	}
 }
 
@@ -1817,7 +1823,7 @@ func (m App) bucketsView(w, rows int) string {
 	data := make([][]string, 0, end-off)
 	for i := off; i < end; i++ {
 		if addRow && i == len(fb) {
-			data = append(data, []string{"+ add bucket", ""})
+			data = append(data, []string{"+ discover bucket", ""})
 		} else {
 			data = append(data, []string{fb[i].Name, formatDate(fb[i].CreationDate)})
 		}
