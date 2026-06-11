@@ -12,12 +12,12 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Operator health card (017 US4): a dedicated full-screen view (modeHealth) answering,
+// Operator health card: a dedicated full-screen view (modeHealth) answering
 // for one bucket/prefix, how the data ages, how it is sized, how it spreads across
 // storage classes, and what is wasted in incomplete multipart uploads. Distributions
-// come from the SAME enumeration the usage scan performed (zero extra requests,
-// FR-020); the MPU probe is its own lazy, cancellable read (FR-021). Opening the card
-// NEVER starts unbounded work — at most the budgeted scan (FR-003).
+// come from the SAME enumeration the usage scan performed (zero extra requests
+// the MPU probe is its own lazy, cancellable read. Opening the card
+// NEVER starts unbounded work — at most the budgeted scan.
 
 // openHealth enters the card for the focused bucket/prefix target. An object
 // selection has no card target — no-op with a footer note (contract).
@@ -32,7 +32,7 @@ func (m App) openHealth() (tea.Model, tea.Cmd) {
 	m.healthBucket, m.healthPrefix = b, p
 
 	var cmds []tea.Cmd
-	// Usage data: a budgeted scan when nothing is cached (never unbounded — FR-003).
+	// Usage data: a budgeted scan when nothing is cached (never unbounded).
 	if _, hit := m.usageResults.Get(m.usageKey(b, p)); !hit && m.usageCh == nil {
 		mm, cmd := m.startUsageScan(b, p, m.usageBudget)
 		m = mm.(App)
@@ -40,7 +40,7 @@ func (m App) openHealth() (tea.Model, tea.Cmd) {
 			cmds = append(cmds, cmd)
 		}
 	}
-	// The MPU probe: lazy, generation-guarded, cancellable (FR-021).
+	// The MPU probe: lazy, generation-guarded, cancellable.
 	if _, hit := m.mpuResults.Get(m.usageKey(b, p)); !hit {
 		m.healthGen++
 		if m.healthCancel != nil {
@@ -62,7 +62,7 @@ func loadIncompleteUploads(ctx context.Context, st storage.Storage, bucket, pref
 }
 
 // onIncompleteUploads caches the probe result; a stale generation is dropped, an error
-// surfaces in the footer and never masquerades as a zero (FR-022).
+// surfaces in the footer and never masquerades as a zero.
 func (m App) onIncompleteUploads(msg incompleteUploadsMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.healthGen {
 		return m, nil
@@ -112,7 +112,7 @@ func (m App) healthView(w, rows int) string {
 	rep, hasRep := m.usageResults.Get(key)
 
 	head := []string{metaRow("Target", sanitizeLabel("s3://"+b+"/"+p), w)}
-	if totals := m.usageLine(b, p); totals != "" {
+	if totals := m.usageLine(b, p, w); totals != "" {
 		head = append(head, totals+"\n")
 	}
 	if hasRep && !rep.Complete {
@@ -136,6 +136,10 @@ func (m App) healthView(w, rows int) string {
 		}
 	}
 	sections = append(sections, healthSection{lines: m.mpuLines(key)})
+	// The card's own key hints — the affordances live where they apply.
+	cardHints := keyHint(m.keys.FullScan, "full scan") + sepDot +
+		keyHint(m.keys.CopyMenu, "export") + sepDot + keyHint(m.keys.Back, "back")
+	sections = append(sections, healthSection{lines: []string{hintLabelStyle.Render(truncate(cardHints, w)) + "\n"}})
 
 	total := 0
 	for _, s := range sections {
@@ -212,7 +216,7 @@ func classLines(rep *storage.UsageReport, lb string, w int) []string {
 
 // smallObjectWarning fires when more than the configured share of objects falls below
 // the configured threshold — computed from the SizeDist buckets fully below it
-// (017 FR-023). Text names both numbers; ⚠ is a text marker (NO_COLOR-safe).
+// . Text names both numbers; ⚠ is a text marker (NO_COLOR-safe).
 func (m App) smallObjectWarning(rep *storage.UsageReport) string {
 	if rep.TotalCount == 0 {
 		return ""
@@ -233,7 +237,7 @@ func (m App) smallObjectWarning(rep *storage.UsageReport) string {
 }
 
 // mpuLines renders the incomplete-multipart block per its tri-state — denied and
-// unsupported are explicit, never zero-as-clean (FR-022).
+// unsupported are explicit, never zero-as-clean.
 func (m App) mpuLines(key cache.Key) []string {
 	head := colHeadStyle.Render("Incomplete multipart uploads") + "\n"
 	res, ok := m.mpuResults.Get(key)

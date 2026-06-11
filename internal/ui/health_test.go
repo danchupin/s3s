@@ -37,7 +37,7 @@ func healthApp(t *testing.T, f *storage.Fake) App {
 }
 
 // TestHealthCardOpensAndRenders: `H` opens the full-screen card with histograms from
-// the cached report and the MPU block from the probe (017 US4/FR-020/FR-021).
+// the cached report and the MPU block from the probe.
 func TestHealthCardOpensAndRenders(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
@@ -62,7 +62,7 @@ func TestHealthCardOpensAndRenders(t *testing.T) {
 }
 
 // TestHealthPartialLabels: a budget-bounded report renders every figure as a lower
-// bound with the full-scan affordance (017 US4/FR-024).
+// bound with the full-scan affordance.
 func TestHealthPartialLabels(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
@@ -80,7 +80,7 @@ func TestHealthPartialLabels(t *testing.T) {
 }
 
 // TestHealthMPUStates: denied/unsupported are explicit states — never zero-as-clean
-// (017 FR-022, SC-007).
+// .
 func TestHealthMPUStates(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
@@ -108,7 +108,7 @@ func TestHealthMPUStates(t *testing.T) {
 }
 
 // TestHealthSmallObjectWarning: fires above the share threshold with both numbers in
-// text; silent at/below it (017 FR-023).
+// text; silent at/below it.
 func TestHealthSmallObjectWarning(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
@@ -134,7 +134,7 @@ func TestHealthSmallObjectWarning(t *testing.T) {
 	}
 }
 
-// TestHealthEscRestores: Esc returns to the exact prior browsing position (017 US4
+// TestHealthEscRestores: Esc returns to the exact prior browsing position.
 // acceptance 7).
 func TestHealthEscRestores(t *testing.T) {
 	f := storage.NewFake()
@@ -167,8 +167,8 @@ func TestHealthObjectFocusNoop(t *testing.T) {
 	}
 }
 
-// TestHealthUncachedStartsBudgetedOnly: opening the card never starts unbounded work —
-// at most the budgeted scan (017 FR-003).
+// TestHealthUncachedStartsBudgetedOnly: opening the card never starts unbounded work
+// at most the budgeted scan.
 func TestHealthUncachedStartsBudgetedOnly(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 1500)
@@ -200,6 +200,71 @@ func TestHealthCommandOpens(t *testing.T) {
 	mm, _ := pressCmd(m, "enter")
 	if mm.mode != modeHealth {
 		t.Errorf(":health must open the card, mode = %v", mm.mode)
+	}
+}
+
+// TestHealthDiscoverableInHintBar: the health card is advertised in the always-visible
+// command bar on the bucket list AND in the level view — nobody should have to read the
+// docs to find `H` ( finding 3, constitution VII).
+func TestHealthDiscoverableInHintBar(t *testing.T) {
+	f := storage.NewFake()
+	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
+
+	m := withBuckets(f, []string{"ctx"}, nil)
+	m = deliver(m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	if v := stripANSI(viewOf(m)); !strings.Contains(v, "H  health") {
+		t.Errorf("bucket list must advertise the health key in the command bar:\n%s", v)
+	}
+
+	mt := treeApp(f, false)
+	mt = deliver(mt, tea.WindowSizeMsg{Width: 140, Height: 40})
+	if v := stripANSI(viewOf(mt)); !strings.Contains(v, "H  health") {
+		t.Errorf("level view must advertise the health key in the command bar:\n%s", v)
+	}
+}
+
+// TestHealthCardHintsLine: the card itself carries its key hints (full scan / export /
+// back) so the affordances are visible where they apply ( finding 4).
+func TestHealthCardHintsLine(t *testing.T) {
+	f := storage.NewFake()
+	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
+	m := healthApp(t, f)
+
+	mm, cmd := pressCmd(m, "H")
+	m = drainBatch(t, mm, cmd)
+	v := stripANSI(viewOf(m))
+	for _, want := range []string{"A full scan", "Y export", "Esc back"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("health card must advertise %q:\n%s", want, v)
+		}
+	}
+}
+
+// TestHealthCardShowsLiveScanProgress: a full scan started FROM the card renders its
+// running totals in the card ( finding 4 — progress must be transparent).
+func TestHealthCardShowsLiveScanProgress(t *testing.T) {
+	f := storage.NewFake()
+	seedKeys(f, "b", 1500)
+	m := withBuckets(f, []string{"ctx"}, nil)
+	m = deliver(m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m.usageResults.Put(m.usageKey("b", ""), &storage.UsageReport{TotalSize: 10, TotalCount: 1000, Bounded: true})
+
+	mm, cmd := pressCmd(m, "H")
+	m = drainBatch(t, mm, cmd) // MPU probe only — usage is cached partial
+	mm2, scanCmd := m.Update(keyMsgFor("A"))
+	m = mm2.(App)
+	if scanCmd == nil {
+		t.Fatal("A inside the card must start the full scan")
+	}
+	msg := scanCmd()
+	ev, ok := msg.(usageProgressMsg)
+	if !ok {
+		t.Fatalf("first scan event = %#v, want usageProgressMsg", msg)
+	}
+	m = deliver(m, ev)
+	v := stripANSI(viewOf(m))
+	if !strings.Contains(v, "full scan") || !strings.Contains(v, "1000") {
+		t.Errorf("card must show the live full-scan totals:\n%s", v)
 	}
 }
 

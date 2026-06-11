@@ -1,34 +1,32 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 1.1.0 → 1.2.0
-Bump rationale: MINOR. Materially changed the Technology & Security Constraints credential-source
-  enumeration to match feature 014 (specs/014-credentials-config-path): the supported secret sources
-  are narrowed to the OS keychain and an external credential command, with an explicit no-echo prompt
-  as the interactive fallback; environment / AWS-style profile sources are removed, and a secret must
-  never be written to the s3s config in plaintext. This strengthens the V. Observability & Safe
-  Operations posture (no plaintext-on-disk). No Core Principle added, removed, or redefined → not MAJOR;
-  more than a wording clarification → not PATCH.
+Version change: 1.2.0 → 1.3.0
+Bump rationale: MINOR. Materially expanded the Development Workflow section with a normative
+  comment-hygiene rule (user-mandated): code and product-visible text MUST NOT reference spec-kit
+  artifacts (user-story numbers, FR-/SC-/T-identifiers, feature numbers, research/contract section
+  pointers) — comments explain intent in plain language instead. No Core Principle added, removed,
+  or redefined → not MAJOR; a new enforceable workflow rule → not PATCH.
 
 Modified principles:
   (none renamed) I–VII retained verbatim.
 
 Modified sections:
-  - Technology & Security Constraints — credential-source bullet rewritten (env/AWS-profile/prompt →
-    OS keychain / external credential command / explicit prompt; anonymous access permitted; secret
-    never persisted to the s3s config in plaintext).
+  - Development Workflow — added the comment-hygiene bullet (no spec-kit references in comments;
+    reviewers reject violations).
 
 Added sections: none
 Removed sections: none
 
 Templates requiring updates:
-  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic; constraint change adds
-     no structural gate. No edit needed.
+  ✅ .specify/templates/plan-template.md  — Constitution Check gate is generic. No edit needed.
   ✅ .specify/templates/spec-template.md  — no constitution-specific mandatory section added. Aligned.
-  ✅ .specify/templates/tasks-template.md — task categories already cover config/security work. Aligned.
-  ✅ CLAUDE.md — constitution version reference (v1.1.0 → v1.2.0) updated.
+  ✅ .specify/templates/tasks-template.md — task categories unaffected. Aligned.
+  ✅ CLAUDE.md — comment-hygiene rule + constitution version reference (v1.2.0 → v1.3.0) updated.
 
-Follow-up TODOs: none. RATIFICATION_DATE unchanged (2026-06-04). LAST_AMENDED_DATE = 2026-06-08.
+Follow-up TODOs: existing spec-reference comments across the codebase predate this rule; they are
+  scrubbed opportunistically when a file is touched (tracked in ROADMAP.md).
+  RATIFICATION_DATE unchanged (2026-06-04). LAST_AMENDED_DATE = 2026-06-11.
 -->
 
 # s3s Constitution
@@ -116,6 +114,12 @@ labels erode trust and let visual drift accumulate unnoticed.
   rejects any change that puts logic in the TUI layer, lacks a preceding test, hides a resource
   identifier with no way to reveal it (VI), or introduces one-off prompt/label styling outside
   the shared design system (VII).
+- Comments — in code, tests, and any product-visible text — MUST explain intent in plain
+  language and MUST NOT reference spec-kit artifacts: user-story numbers, FR-/SC-/T-identifiers,
+  feature numbers, or research/contract/data-model section pointers. Such references rot as specs
+  evolve and say nothing to a reader without the spec tree; state the constraint itself instead.
+  A reviewer rejects comments that cite tickets in place of an explanation. Rationale: the code
+  is read for years by people who never open `specs/`; a comment must stand on its own.
 - Complexity that violates a principle MUST be justified in the PR description or removed.
 
 ## Governance
@@ -127,4 +131,4 @@ principle or materially expanded section, PATCH for clarifications and wording. 
 reviews MUST verify compliance; unjustified complexity is grounds for rejection. Use the project
 plan and `CLAUDE.md` for runtime development guidance.
 
-**Version**: 1.2.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-08
+**Version**: 1.3.0 | **Ratified**: 2026-06-04 | **Last Amended**: 2026-06-11

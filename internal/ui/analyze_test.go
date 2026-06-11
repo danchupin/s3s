@@ -56,7 +56,7 @@ func scanToDone(t *testing.T, cmd tea.Cmd) usageDoneMsg {
 }
 
 // TestInlineUsageTotalsCached: a completed scan caches the report and the inline usage line
-// shows the total + count, ranked children largest-first (016 US2, FR-004/FR-007).
+// shows the total + count, ranked children largest-first.
 func TestInlineUsageTotalsCached(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "logs/a.log", storage.FakeObject{Data: make([]byte, 300)})
@@ -72,15 +72,15 @@ func TestInlineUsageTotalsCached(t *testing.T) {
 	if rep.Children[0].Name != "logs/" || rep.Children[1].Name != "big.bin" {
 		t.Errorf("children ranking: %+v", rep.Children)
 	}
-	if line := m.usageLine("b", ""); !strings.Contains(line, "total") || !strings.Contains(line, "3 objects") {
-		t.Errorf("usageLine = %q, want total + 3 objects", line)
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "650 B") || !strings.Contains(line, "3 obj") {
+		t.Errorf("usageLine = %q, want size + 3 obj", line)
 	}
 }
 
-// TestSupersededScanReportCached (017 INVERTS the 016 discard): a scan's late terminal
+// TestSupersededScanReportCached (017 INVERTS the discard): a scan's late terminal
 // report carries data valid for ITS OWN target key — it is cached there even after the
 // user navigated on (gen mismatch). The VIEW stays generation-guarded; only the work is
-// no longer thrown away (017 US1/FR-004).
+// no longer thrown away.
 func TestSupersededScanReportCached(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: make([]byte, 10)})
@@ -102,7 +102,7 @@ func TestSupersededScanReportCached(t *testing.T) {
 
 // TestInlineBreakdownAndConfigCycle: on a bucket, MoreDetail cycles None → breakdown →
 // config → None (one section at a time). The breakdown lists ranked children; the config
-// section renders the tri-state labels (016 US3 + US4).
+// section renders the tri-state labels ( + ).
 func TestInlineBreakdownAndConfigCycle(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "logs/a.log", storage.FakeObject{Data: make([]byte, 300)})
@@ -147,7 +147,7 @@ func TestInlineBreakdownAndConfigCycle(t *testing.T) {
 }
 
 // TestObjectTagsToggle: MoreDetail on an object loads + shows its tags; an object with no
-// tags shows "none" (016 US4/FR-011).
+// tags shows "none".
 func TestObjectTagsToggle(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "doc.txt", storage.FakeObject{Data: []byte("x"), Tags: map[string]string{"env": "prod"}})

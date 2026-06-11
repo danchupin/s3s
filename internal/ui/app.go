@@ -28,11 +28,11 @@ const (
 	modeObject // combined metadata + content view (opened with Enter)
 	modeContextSwitch
 	modeHelp
-	modeCommand     // `:` command bar — 006 US3
-	modeConnections // in-app connection manager list — 006 US4
-	modeConnForm    // add-connection form — 006 US4
-	modeAddBucket   // "+ add bucket" name input — 010 US2
-	modeHealth      // full-screen operator health card — 017 US4
+	modeCommand     // `:` command bar
+	modeConnections // in-app connection manager list
+	modeConnForm    // add-connection form
+	modeAddBucket   // "+ add bucket" name input
+	modeHealth      // full-screen operator health card
 )
 
 // zone names which interactive column owns keyboard input in the multi-pane browse
@@ -106,15 +106,15 @@ type Backend struct {
 	ReadOnly    bool   // context is readonly:true — never armable
 	DownloadDir string // default local download dir from config
 	// PathStyle mirrors the cluster's addressing style so copied HTTPS URLs match
-	// what the user's own tooling expects (017 US3/FR-014, research D12).
+	// what the user's own tooling expects.
 	PathStyle bool
-	// UsageScanBudget caps the ambient usage scan in enumerated objects (017 US1):
+	// UsageScanBudget caps the ambient usage scan in enumerated objects
 	// the RESOLVED config value (main applies the default); 0 = ambient scanning off.
 	UsageScanBudget int
-	// Health-card small-object warning knobs (017 US4/FR-023); zero ⇒ 128 KiB / 0.5.
+	// Health-card small-object warning knobs; zero ⇒ 128 KiB / 0.5.
 	HealthSmallObjectKiB   int
 	HealthSmallObjectShare float64
-	// PinnedBuckets are the connection's declared bucket names (010). Non-empty ⇒ the
+	// PinnedBuckets are the connection's declared bucket names. Non-empty ⇒ the
 	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
 	PinnedBuckets []string
 }
@@ -131,8 +131,8 @@ type App struct {
 	contexts    []string
 	resolve     Resolver
 	imgProto    preview.Protocol
-	armed       bool // runtime write-arm intent (toggle / --write initial) — 005 US5
-	ctxReadOnly bool // active context is readonly:true (absolute lock, FR-028)
+	armed       bool // runtime write-arm intent (toggle / --write initial)
+	ctxReadOnly bool // active context is readonly:true (absolute lock)
 
 	keys  keyMap
 	cache *cache.Cache[*levelState]
@@ -145,8 +145,8 @@ type App struct {
 	buckets      []storage.Bucket
 	bucketSel    int
 	bucketFilter string // client-side name filter at the bucket list
-	// bucketLoadGen debounces the objects-zone reload as the bucket cursor moves:
-	// each move bumps it + schedules a bucketTickMsg; only the settled tick fires the load,
+	// bucketLoadGen debounces the objects-zone reload as the bucket cursor moves
+	// each move bumps it + schedules a bucketTickMsg; only the settled tick fires the load
 	// so fast scrolling never issues a ListLevel per intermediate bucket.
 	bucketLoadGen int
 
@@ -170,7 +170,7 @@ type App struct {
 	meta       *storage.ObjectMetadata
 	prev       *preview.Payload
 	prevOff    int
-	rawPreview bool // 017 US5: pretty↔raw toggle; reset per payload
+	rawPreview bool //: pretty↔raw toggle; reset per payload
 
 	// context switcher
 	ctxSel int
@@ -189,7 +189,7 @@ type App struct {
 	connect Connector      // nil disables in-app connection add
 	connSel int            // selection in modeConnections list
 	form    *connForm      // active add-connection form (modeConnForm)
-	addForm *bucketAddForm // active "+ add bucket" input (modeAddBucket) — 010 US2
+	addForm *bucketAddForm // active "+ add bucket" input (modeAddBucket)
 
 	// bucketsScoped marks the current bucket list as scoped (pins present, or list-all
 	// failed/denied/empty): the "+ add bucket" row is shown only then.
@@ -220,13 +220,13 @@ type App struct {
 	// reveal/inspect popup: non-nil while showing the full identifier of a selection
 	reveal *revealState
 
-	// field-select copy overlay (017 US2/FR-012): non-nil while choosing a field
+	// field-select copy overlay: non-nil while choosing a field
 	fieldCopy *fieldCopyState
 
-	// copy/share menu overlay (017 US3/FR-014): non-nil while open
+	// copy/share menu overlay: non-nil while open
 	copyMenu *copyMenuState
 
-	// health card (017 US4): target, probe lifecycle, MPU session cache, warning knobs
+	// health card: target, probe lifecycle, MPU session cache, warning knobs
 	healthBucket string
 	healthPrefix string
 	healthGen    int                                      // MPU-probe generation
@@ -245,19 +245,20 @@ type App struct {
 	sortBy  sortCol
 	sortAsc bool
 
-	// inline usage (016 US2/US3): a dwell-gated, generation-guarded, session-cached
+	// inline usage: a dwell-gated, generation-guarded, session-cached
 	// background UsageOf scan whose totals + breakdown render in the details pane. The
 	// scan owns its OWN generation + cancel, ISOLATED from m.gen/loadCancel (the main
 	// load), so a level load never cancels a usage scan and vice-versa.
-	usageResults *cache.Cache[*storage.UsageReport] // session cache keyed by (ctx,bucket,prefix)
-	usageProg    storage.UsageProgress              // running partial during the active scan
-	usageScanKey cache.Key                          // target of the in-flight scan
-	usageGen     int                                // scan generation (NOT m.gen)
-	usageCancel  context.CancelFunc                 // cancels the in-flight scan's own ctx
-	usageCh      chan usageEvent                    // in-flight scan progress channel
-	usageBudget  int                                // ambient-scan cap (017 US1); 0 = ambient off
+	usageResults  *cache.Cache[*storage.UsageReport] // session cache keyed by (ctx,bucket,prefix)
+	usageProg     storage.UsageProgress              // running partial during the active scan
+	usageScanKey  cache.Key                          // target of the in-flight scan
+	usageGen      int                                // scan generation (NOT m.gen)
+	usageCancel   context.CancelFunc                 // cancels the in-flight scan's own ctx
+	usageCh       chan usageEvent                    // in-flight scan progress channel
+	usageBudget   int                                // ambient-scan cap; 0 = ambient off
+	usageScanFull bool                               // the in-flight scan is the explicit FULL scan
 
-	// inline "more detail" sections (016 US3/US4): at most ONE renders at a time (budget
+	// inline "more detail" sections: at most ONE renders at a time (budget
 	// gate). detailSection selects which; the loads below back the tags/config sections.
 	detailSection detailSection
 	breakdownSel  int                   // selected child row in the usage breakdown
@@ -289,7 +290,7 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		imgProto:     imgProto,
 		armed:        initial.Writable,
 		ctxReadOnly:  initial.ReadOnly,
-		sortAsc:      true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
+		sortAsc:      true, // default to ascending (A→Z / smallest / oldest first)
 		paneVisible:  true, // details pane on by default; collapses on narrow terminals
 		keys:         defaultKeys(),
 		cache:        cache.New[*levelState](),
@@ -304,9 +305,9 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		height:       24,
 	}
 	// No active backend (nil store) — don't try to load buckets from a backend that does not
-	// exist. If connections already exist but none is active (no current-context/flag/env),
-	// open the connection manager so the user PICKS one in the UI. Otherwise (true first run,
-	// no connections yet) open the add-connection form (009). beginLoad is skipped — there is
+	// exist. If connections already exist but none is active (no current-context/flag/env)
+	// open the connection manager so the user PICKS one in the UI. Otherwise (true first run
+	// no connections yet) open the add-connection form. beginLoad is skipped — there is
 	// nothing to load until a context is chosen.
 	if m.raw == nil && connect != nil {
 		if len(contexts) > 0 {
@@ -351,8 +352,8 @@ func (m App) writable() bool { return m.armed && !m.ctxReadOnly }
 // mutating call is impossible while disarmed.
 func (m App) activeStore() storage.Storage { return storage.Guard(m.raw, m.writable()) }
 
-// Init kicks off the initial bucket load armed by New. On first run (no backend yet —
-// the add-connection form is open) there is nothing to load (009).
+// Init kicks off the initial bucket load armed by New. On first run (no backend yet
+// the add-connection form is open) there is nothing to load.
 func (m App) Init() tea.Cmd {
 	if m.raw == nil {
 		return nil
@@ -369,7 +370,7 @@ func (m *App) beginLoad() context.Context {
 	}
 	// A navigation/main load also supersedes any in-flight inline usage scan: cancel its
 	// own context and bump the usage generation so its late messages are dropped (016
-	// US2/FR-006, isolated from m.gen).
+	//, isolated from m.gen).
 	if m.usageCancel != nil {
 		m.usageCancel()
 		m.usageCancel = nil
@@ -399,7 +400,7 @@ func (m *App) cancelLoad() {
 // previous row), clears the stale pane data, and — for an object selection — schedules a
 // paneTick. Folders/levels need no fetch (instant summary), so no tick is scheduled.
 func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
-	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the new target (016 US2)
+	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the new target
 	m.paneGen++
 	m.paneMeta = nil
 	m.panePrev = nil
@@ -413,7 +414,7 @@ func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
 
 // onPaneTick fires the debounced pane fetch if the selection is unchanged (gen+key match)
 // and still on an object; otherwise the tick is for a scrolled-past row and is dropped
-// Pane loads use a background context — they are cheap, bounded,
+// Pane loads use a background context — they are cheap, bounded
 // and superseded by the generation check, so they never disturb the main load.
 func (m App) onPaneTick(msg paneTickMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.paneGen || msg.key != m.paneSelKey || m.paneSelKey == "" {
@@ -443,10 +444,10 @@ func (m App) highlightedBucketName() string {
 // afterBucketMove re-arms the debounced objects-zone load for the newly-highlighted bucket
 // It bumps bucketLoadGen (superseding any pending tick) and schedules a
 // fresh bucketTick. No load is issued in the Single tier (no objects zone there → the narrow
-// flow is unchanged and issues zero object listings, SC-007/SC-010) or when the cursor is on
+// flow is unchanged and issues zero object listings) or when the cursor is on
 // the "+ add bucket" row.
 func (m App) afterBucketMove() (tea.Model, tea.Cmd) {
-	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the highlighted bucket (016 US2)
+	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the highlighted bucket
 	if layoutTier(m.width) == tierSingle {
 		return m, usageCmd
 	}
@@ -513,7 +514,7 @@ func (m App) crossIntoObjects() (tea.Model, tea.Cmd) {
 	return m.loadObjectsLevel(b, "", "")
 }
 
-// toggleFocus flips focus between the bucket list and the objects zone:
+// toggleFocus flips focus between the bucket list and the objects zone
 // the symmetric Tab toggle. No objects zone exists in the Single tier, so it is inert there.
 func (m App) toggleFocus() (tea.Model, tea.Cmd) {
 	if layoutTier(m.width) == tierSingle {
@@ -526,10 +527,10 @@ func (m App) toggleFocus() (tea.Model, tea.Cmd) {
 	return m.crossIntoObjects()
 }
 
-// onObjectsKey handles keys while focus is in the objects zone (modeBuckets, multi-pane,
-// 011 US2). It reuses the level cursor/paging/drill primitives on m.level but stays in
+// onObjectsKey handles keys while focus is in the objects zone (modeBuckets,
+// multi-pane). It reuses the level cursor/paging/drill primitives on m.level but stays in
 // modeBuckets: a folder descends the objects zone, an object opens the full-screen view, and
-// back ascends or returns focus to the bucket list per FR-009 (search → ascend → return).
+// back ascends or returns focus to the bucket list per (search → ascend → return).
 func (m App) onObjectsKey(key string) (tea.Model, tea.Cmd) {
 	entries := m.treeEntries()
 	n := len(entries)
@@ -594,7 +595,7 @@ func (m App) onObjectsKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// objectsBack implements the FR-009 precedence for the objects zone: clear an active search,
+// objectsBack implements the precedence for the objects zone: clear an active search
 // else ascend one prefix, else (at the root) return focus to the bucket list.
 func (m App) objectsBack() (tea.Model, tea.Cmd) {
 	if m.search != "" {
@@ -607,7 +608,7 @@ func (m App) objectsBack() (tea.Model, tea.Cmd) {
 	return m.loadObjectsLevel(m.bucket, parentPrefix(m.prefix), "")
 }
 
-// objectsView renders the objects zone: the highlighted bucket's first level,
+// objectsView renders the objects zone: the highlighted bucket's first level
 // reusing the tree table render of m.level, with explicit loading/empty/error states.
 func (m App) objectsView(w, rows int) string {
 	if m.highlightedBucketName() == "" {
@@ -696,7 +697,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		p := msg.payload
 		m.prev = &p
-		m.rawPreview = false // 017 US5: the pretty/raw toggle is per-payload
+		m.rawPreview = false //: the pretty/raw toggle is per-payload
 		m.mode = modeObject
 		return m, nil
 
@@ -708,7 +709,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = msg.err
 		// A failed/denied list-all on the bucket list is the scoped-credentials case: offer
 		// the "+ add bucket" row so the user can reach a known bucket directly.
-		// Gate on m.bucket=="" so an objects-zone listing error (011 US1, which has a bucket
+		// Gate on m.bucket=="" so an objects-zone listing error (which has a bucket
 		// highlighted) is NOT mistaken for a list-all failure and does not flip bucketsScoped.
 		if m.mode == modeBuckets && m.bucket == "" {
 			m.bucketsScoped = true
@@ -805,8 +806,8 @@ func sanitizePaste(s string) string {
 	return s
 }
 
-// onPaste routes a bracketed-paste payload to the active text surface:
-// the search/command input, the add-connection form's focused field, the typed-confirm input,
+// onPaste routes a bracketed-paste payload to the active text surface
+// the search/command input, the add-connection form's focused field, the typed-confirm input
 // or an operation's destination-key / new-folder name entry. No-op when no text surface is
 // focused. The caret-aware surfaces (connForm, typed-confirm) insert at the caret; the plain
 // append-style surfaces (search/command/dest-key/name) append, matching their keystroke path.
@@ -876,7 +877,7 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The command bar / connection form own all keys while open (text input) — modal,
+	// The command bar / connection form own all keys while open (text input) — modal
 	// before the global bindings so typing "q"/":" is not intercepted.
 	if m.mode == modeCommand {
 		return m.onCommandKey(key, msg)
@@ -914,12 +915,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	// The field-select copy overlay owns navigation/Enter/Esc while open (017 US2).
+	// The field-select copy overlay owns navigation/Enter/Esc while open.
 	if m.fieldCopy != nil {
 		return m.onFieldCopyKey(key)
 	}
 
-	// The copy/share menu owns input while open (017 US3).
+	// The copy/share menu owns input while open.
 	if m.copyMenu != nil {
 		return m.onCopyMenuKey(key)
 	}
@@ -954,18 +955,18 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.toggleWrite()
 	}
 
-	// Reveal/inspect the full identifier of the current selection — read-only,
+	// Reveal/inspect the full identifier of the current selection — read-only
 	// globally available in the browse modes.
 	if matches(key, m.keys.Reveal) {
 		return m.openReveal()
 	}
 
-	// The copy/share menu — globally available in the browse modes + the card (017 US3).
+	// The copy/share menu — globally available in the browse modes + the card.
 	if matches(key, m.keys.CopyMenu) && (m.mode == modeBuckets || m.mode == modeTree || m.mode == modeObject || m.mode == modeHealth) {
 		return m.openCopyMenu()
 	}
 
-	// The operator health card (017 US4) — from the browse modes only.
+	// The operator health card — from the browse modes only.
 	if matches(key, m.keys.Health) && (m.mode == modeBuckets || m.mode == modeTree) {
 		return m.openHealth()
 	}
@@ -1127,7 +1128,7 @@ func (m App) onContextKey(key string) (tea.Model, tea.Cmd) {
 }
 
 // applyContext begins a switch to the named context. Resolving the backend can be slow
-// (a keychain unlock or an external credential command, 005 US6), so it runs OFF the
+// (a keychain unlock or an external credential command), so it runs OFF the
 // event loop — Update applies the result via contextResolvedMsg (Constitution II). A
 // no-op (back to buckets) when the context is already active or switching is disabled.
 func (m App) applyContext(target string) (tea.Model, tea.Cmd) {
@@ -1167,14 +1168,14 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.info = be
 	// Preserve the arm intent across the switch; re-derive the context lock. Switching
 	// to a writable context keeps write armed; switching to a readonly:true context
-	// forces read-only via writable().
+	// forces read-only via writable.
 	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
 	m.ctxName = msg.target
-	m.usageBudget = be.UsageScanBudget // 017 US1: the budget rides the resolved backend
+	m.usageBudget = be.UsageScanBudget //: the budget rides the resolved backend
 	m.cache.Clear()
-	m.usageResults.Clear() // 016 US2: usage totals are per-context — never bleed across a switch
-	m.mpuResults.Clear()   // 017 US4: the MPU probe cache is per-context too
+	m.usageResults.Clear() //: usage totals are per-context — never bleed across a switch
+	m.mpuResults.Clear()   //: the MPU probe cache is per-context too
 	m.healthKiB = healthKiBOrDefault(be.HealthSmallObjectKiB)
 	m.healthShare = healthShareOrDefault(be.HealthSmallObjectShare)
 	m.detailSection = sectNone
@@ -1246,7 +1247,7 @@ func (m App) View() tea.View {
 	w := clampW(m.width)
 
 	// The alt-screen help overlay renders without the footer, so the loud WRITE/RO
-	// badge is injected here too — it must be present on EVERY screen (005 FR-027,
+	// badge is injected here too — it must be present on EVERY screen
 	// write-toggle-contract C3).
 	badge := writeBadge(m.writable()) + "\n"
 
@@ -1267,8 +1268,8 @@ func (m App) View() tea.View {
 
 	// The always-visible filter forms reserve a 3-line band (a bordered input box) in the
 	// filterable browse modes (modeBuckets/modeTree); listWithPane stacks the form(s) under the
-	// list box(es), so the band is subtracted from the LIST, never the footer (015 FR-005,
-	// layout-budget-contract). The upload file browser takes over the body — no form there.
+	// list box(es), so the band is subtracted from the LIST, never the footer.
+	// -contract). The upload file browser takes over the body — no form there.
 	filterFieldH := 0
 	if (m.op == nil || m.op.phase != phaseBrowse) && (bodyMode == modeBuckets || bodyMode == modeTree) {
 		filterFieldH = 3
@@ -1338,13 +1339,13 @@ func (m App) View() tea.View {
 		body = m.revealView(w, bodyH)
 	}
 
-	// The field-select copy overlay (017 US2) overlays the body, centered.
+	// The field-select copy overlay overlays the body, centered.
 	if m.fieldCopy != nil {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.fieldCopyView(w, bodyH)
 	}
 
-	// The copy/share menu (017 US3) overlays the body, centered.
+	// The copy/share menu overlays the body, centered.
 	if m.copyMenu != nil {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.copyMenuView(w, bodyH)
@@ -1366,7 +1367,7 @@ const paneSplitMin = 100
 const fullTierMin = 130
 
 // tier classifies the browse layout by terminal width into the three normative tiers
-// (011): Full (≥130) renders buckets│objects│details; Dual (100–129) renders
+// : Full (≥130) renders buckets│objects│details; Dual (100–129) renders
 // buckets│objects with details collapsed; Single (<100) is the current single-column
 // mode-stack, unchanged.
 type tier int
@@ -1396,7 +1397,7 @@ func layoutTier(w int) tier {
 // table at the width it is given.
 func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList func(lw, dr int) string) string {
 	// Single tier (or a user-collapsed pane) renders the full-width list; the Dual/Full
-	// tiers add the side pane. US1/US3 differentiate the Dual objects zone
+	// tiers add the side pane. differentiate the Dual objects zone
 	// from the Full details zone; today both render the existing details pane.
 	// One-column layout (Single tier or a collapsed pane): the list box with the focused scope's
 	// filter form stacked beneath it (015 — the form replaces the old border filter chip).
@@ -1412,16 +1413,16 @@ func (m App) listWithPane(title, sel string, w, rows, dataRows int, renderList f
 		paneW = 24
 	}
 	// Miller-columns proportion for the bucket list: the buckets column is the
-	// NARROW one and the OBJECTS zone (the highlighted bucket's first level) takes the rest,
-	// so object names have room. The tree view keeps the wide list + thin details pane (006).
-	// Each list box carries its own always-visible filter form below it (015): the bucket and
+	// NARROW one and the OBJECTS zone (the highlighted bucket's first level) takes the rest
+	// so object names have room. The tree view keeps the wide list + thin details pane.
+	// Each list box carries its own always-visible filter form below it: the bucket and
 	// object forms sit side by side under their panes — both visible at once.
 	if m.mode == modeBuckets {
 		bucketW := m.bucketsColWidth(w, paneW)
 		bucketsBox := boxViewFocusChip(title, sel, "", m.modeChip(), renderList(bucketW-2, dataRows), bucketW, rows, m.focusZone == zoneBuckets)
 		bucketCol := lipgloss.JoinVertical(lipgloss.Left, bucketsBox, m.bucketFilterField(bucketW))
-		// Full tier (≥130): a third, non-focusable details zone (006 pane, preserved per 011 US3)
-		// joins buckets│objects; it adapts to focus (bucket meta vs object meta+preview). Dual:
+		// Full tier (≥130): a third, non-focusable details zone (006 pane, preserved per )
+		// joins buckets│objects; it adapts to focus (bucket meta vs object meta+preview). Dual
 		// the details zone collapses and the objects zone takes the rest.
 		if layoutTier(w) == tierFull && m.paneVisible {
 			detW := paneW
@@ -1454,7 +1455,7 @@ func (m App) modeChip() string {
 	return roStyle.Render("RO")
 }
 
-// bucketFilterField builds the always-visible, prominent filter FORM for the bucket list (015):
+// bucketFilterField builds the always-visible, prominent filter FORM for the bucket list
 // a bordered, labeled input under the bucket box. Active (accent) while the bucket pane holds
 // focus; editing (live input + caret) while its scope is being typed. The committed term is the
 // local name filter; the match count rides the box title above ("buckets[M/T]").
@@ -1463,10 +1464,10 @@ func (m App) bucketFilterField(w int) string {
 		m.focusZone == zoneBuckets, m.searching && m.filterIsBucketList())
 }
 
-// objectFilterField builds the always-visible, prominent filter FORM for an object level (015):
+// objectFilterField builds the always-visible, prominent filter FORM for an object level
 // a bordered, labeled input under the objects box. Active in the full-screen tree or while the
 // objects pane holds focus; editing while its scope is typed. The match count rides the box
-// title above ("objects[N]"); the level total is not fetched (paginated, FR-013).
+// title above ("objects[N]"); the level total is not fetched (paginated).
 func (m App) objectFilterField(w int) string {
 	return filterFieldView("objects", m.search, m.searchInput, w,
 		m.mode == modeTree || m.focusZone == zoneObjects, m.searching && !m.filterIsBucketList())
@@ -1534,7 +1535,7 @@ func (m App) objectsZoneTitle(w int) string {
 	if m.level != nil && m.bucket == b {
 		suffix = fmt.Sprintf("[%d]", m.level.count())
 	}
-	// The active filter term is shown on the objects box's border chip (013 US2), not appended
+	// The active filter term is shown on the objects box's border chip, not appended
 	// to the breadcrumb title.
 	return elideMiddle(path, max(8, w-6-lipgloss.Width(suffix))) + suffix
 }
@@ -1570,7 +1571,7 @@ func (m App) footerBlock(w int) string {
 }
 
 // searchActive reports whether a search/filter is applied or being typed (drives the
-// footer's esc-clear vs esc-back disambiguation, FR-009).
+// footer's esc-clear vs esc-back disambiguation).
 func (m App) searchActive() bool {
 	if m.filterIsBucketList() {
 		return m.bucketFilter != "" || m.searching
@@ -1600,7 +1601,7 @@ func (m App) statusLine(w int) string {
 			return m.opPromptLine(w)
 		}
 	}
-	// The filter input moved to the always-visible strip (015 FR-005); statusLine now carries
+	// The filter input moved to the always-visible strip; statusLine now carries
 	// only loading / notice / error / op-prompt, which coexist with an active filter.
 	if m.loading {
 		// Name what is loading; cancel is the back/escape key now.
@@ -1648,7 +1649,7 @@ func (m App) resourceTitle() string {
 		if m.level != nil && !m.level.complete {
 			more = "+"
 		}
-		// The active filter term is shown on the level box's border chip (013 US2), not appended
+		// The active filter term is shown on the level box's border chip, not appended
 		// to the breadcrumb title.
 		return fmt.Sprintf("%s[%d%s]", loc, n, more) // sort now advertised in the command bar
 	case modeContextSwitch:
@@ -1675,7 +1676,7 @@ func (m App) objectKind() string {
 	return ""
 }
 
-// selectionName is the centered, highlighted label on the box top border —
+// selectionName is the centered, highlighted label on the box top border
 // the currently selected item (k9s-style).
 func (m App) selectionName() string {
 	switch m.mode {

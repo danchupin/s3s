@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -50,13 +52,13 @@ func (m App) paneBucket(w int) string {
 	var sb strings.Builder
 	sb.WriteString(metaRow("Bucket", sanitizeLabel(b.Name), w))
 	sb.WriteString(metaRow("Created", formatDate(b.CreationDate), w))
-	if u := m.usageLine(b.Name, ""); u != "" {
+	if u := m.usageLine(b.Name, "", w); u != "" {
 		sb.WriteString(u + "\n")
 	}
 	if sec := m.detailSectionView(b.Name, "", w); sec != "" {
 		sb.WriteString("\n" + sec + "\n")
 	}
-	sb.WriteString(hintLabelStyle.Render(m.usageHints(b.Name, "") + sepDot + keyHint(m.keys.Enter, "open")))
+	sb.WriteString(hintLabelStyle.Render(truncate(m.usageHints(b.Name, "")+sepDot+keyHint(m.keys.Enter, "open"), w)))
 	return sb.String()
 }
 
@@ -70,25 +72,25 @@ func (m App) paneTree(w, rows int) string {
 		}
 		var sb strings.Builder
 		sb.WriteString(metaRow("Level", fmt.Sprintf("%d items", n), w))
-		if u := m.usageLine(m.bucket, m.prefix); u != "" {
+		if u := m.usageLine(m.bucket, m.prefix, w); u != "" {
 			sb.WriteString(u + "\n")
 		}
 		if sec := m.detailSectionView(m.bucket, m.prefix, w); sec != "" {
 			sb.WriteString("\n" + sec + "\n")
 		}
-		sb.WriteString(hintLabelStyle.Render(m.usageHints(m.bucket, m.prefix)))
+		sb.WriteString(hintLabelStyle.Render(truncate(m.usageHints(m.bucket, m.prefix), w)))
 		return strings.TrimRight(sb.String(), "\n")
 	}
 	if e.isDir {
 		var sb strings.Builder
 		sb.WriteString(metaRow("Folder", sanitizeLabel(e.label), w))
-		if u := m.usageLine(m.bucket, e.full); u != "" {
+		if u := m.usageLine(m.bucket, e.full, w); u != "" {
 			sb.WriteString(u + "\n")
 		}
 		if sec := m.detailSectionView(m.bucket, e.full, w); sec != "" {
 			sb.WriteString("\n" + sec + "\n")
 		}
-		sb.WriteString(hintLabelStyle.Render(m.usageHints(m.bucket, e.full) + sepDot + keyHint(m.keys.DeleteChord, "delete") + sepDot + keyHint(m.keys.Enter, "open")))
+		sb.WriteString(hintLabelStyle.Render(truncate(m.usageHints(m.bucket, e.full)+sepDot+keyHint(m.keys.DeleteChord, "delete")+sepDot+keyHint(m.keys.Enter, "open"), w)))
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
@@ -108,7 +110,7 @@ func (m App) paneTree(w, rows int) string {
 			sb.WriteString(dimCellStyle.Render(pad("Type", metaKeyWidth)) + dimCellStyle.Render("loading…") + "\n")
 		}
 	}
-	// US4 tags section (object) — shown only when toggled by MoreDetail.
+	// tags section (object) — shown only when toggled by MoreDetail.
 	if m.detailSection == sectTags {
 		sb.WriteString("\n" + m.detailTagsView(e.full, w) + "\n")
 	}
@@ -120,35 +122,55 @@ func (m App) paneTree(w, rows int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// usageLine renders the focused target's inline total — the cached report's
-// "total <size> · N objects", or a running "scanning…" line while the scan is in
-// flight, or "" when there is nothing to show (016 US2). A partial (budget-bounded or
-// cancelled) report renders as an explicit lower bound: "≥" on both figures plus a
-// "partial" text marker — text, not colour, carries the state (017 US1, NO_COLOR-safe).
-func (m App) usageLine(bucket, prefix string) string {
+// usageLine renders the focused target's inline usage within width w (NOTHING may
+// exceed it — overflow used to clip silently at the box border, finding 1).
+// Precedence: an IN-FLIGHT scan for this target outranks the cached entry — a full scan
+// running over a cached partial must be visibly alive, announcing itself and its running
+// totals ( finding 2); then the cached report (a partial as an explicit "≥" lower
+// bound + "partial" text marker — NO_COLOR-safe); else "".
+func (m App) usageLine(bucket, prefix string, w int) string {
 	key := m.usageKey(bucket, prefix)
-	if rep, ok := m.usageResults.Get(key); ok {
-		lb := ""
-		if !rep.Complete {
-			lb = "≥"
-		}
-		s := accentStyle.Render(fmt.Sprintf("total %s%s", lb, humanSize(rep.TotalSize))) +
-			dimCellStyle.Render(fmt.Sprintf("  ·  %s%d objects", lb, rep.TotalCount))
-		if !rep.Complete {
-			s += warnStyle.Render("  (partial)")
-		}
-		return s
-	}
 	if m.usageCh != nil && m.usageScanKey == key {
-		return dimCellStyle.Render(fmt.Sprintf("scanning… %d objects, %s so far",
-			m.usageProg.ScannedCount, humanSize(m.usageProg.ScannedSize)))
+		verb := "scanning…"
+		if m.usageScanFull {
+			verb = "full scan…"
+		}
+		return warnStyle.Render(truncate(fmt.Sprintf("%s %d obj · %s",
+			verb, m.usageProg.ScannedCount, humanSize(m.usageProg.ScannedSize)), w))
 	}
-	return ""
+	rep, ok := m.usageResults.Get(key)
+	if !ok {
+		return ""
+	}
+	lb := ""
+	if !rep.Complete {
+		lb = "≥"
+	}
+	size := lb + humanSize(rep.TotalSize)
+	objs := fmt.Sprintf("%s%d obj", lb, rep.TotalCount)
+	marker := ""
+	if !rep.Complete {
+		marker = " (partial)"
+	}
+	// Width guard: when the styled segments would overflow, degrade to one
+	// single-style truncated line — the "≥" survives at any width.
+	if lipgloss.Width(size+" · "+objs+marker) > w {
+		st := accentStyle
+		if !rep.Complete {
+			st = warnStyle
+		}
+		return st.Render(truncate(size+" · "+objs+marker, w))
+	}
+	s := accentStyle.Render(size) + dimCellStyle.Render(" · "+objs)
+	if marker != "" {
+		s += warnStyle.Render(marker)
+	}
+	return s
 }
 
 // usageHints assembles the pane's hint tail for a bucket/prefix target: the MoreDetail
 // hint plus — while the target's usage is absent or partial — the explicit full-scan
-// affordance (017 FR-001/FR-003).
+// affordance.
 func (m App) usageHints(bucket, prefix string) string {
 	h := keyHint(m.keys.MoreDetail, "detail")
 	if m.fullScanHintNeeded(bucket, prefix) {
@@ -157,8 +179,8 @@ func (m App) usageHints(bucket, prefix string) string {
 	return h
 }
 
-// detailSectionView renders the single open bucket/prefix detail section (US3 breakdown or
-// US4 config). The object tags section is rendered inline in paneTree.
+// detailSectionView renders the single open bucket/prefix detail section ( breakdown or
+// config). The object tags section is rendered inline in paneTree.
 func (m App) detailSectionView(bucket, prefix string, w int) string {
 	switch m.detailSection {
 	case sectBreakdown:
@@ -170,7 +192,7 @@ func (m App) detailSectionView(bucket, prefix string, w int) string {
 }
 
 // detailBreakdownView renders the ranked, largest-first child breakdown with a size + share
-// bar (US3). Overflow past the budget is summarised by a "… +N more (i to reveal)" line so
+// bar. Overflow past the budget is summarised by a "… +N more (i to reveal)" line so
 // nothing is silently clipped (constitution VI).
 func (m App) detailBreakdownView(bucket, prefix string, w int) string {
 	rep, ok := m.usageResults.Get(m.usageKey(bucket, prefix))
@@ -203,7 +225,7 @@ func (m App) detailBreakdownView(bucket, prefix string, w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// detailConfigView renders the bucket configuration tri-state (US4). Each item is a text
+// detailConfigView renders the bucket configuration tri-state. Each item is a text
 // label (none / unknown-denied / unsupported / a summary), distinguishable under NO_COLOR.
 func (m App) detailConfigView(w int) string {
 	if m.bucketCfg == nil {
@@ -221,7 +243,7 @@ func (m App) detailConfigView(w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// detailTagsView renders an object's tag key/values (US4): "loading…", "unknown (denied)",
+// detailTagsView renders an object's tag key/values: "loading…", "unknown (denied)"
 // "none", or the sorted pairs.
 func (m App) detailTagsView(key string, w int) string {
 	head := colHeadStyle.Render("tags") + "\n"
@@ -247,8 +269,8 @@ func (m App) detailTagsView(key string, w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// configLabel maps a tri-state config item to a NO_COLOR-distinguishable text label,
-// keeping the "none" / "unknown (denied)" / "unsupported" distinction explicit (FR-013).
+// configLabel maps a tri-state config item to a NO_COLOR-distinguishable text label
+// keeping the "none" / "unknown (denied)" / "unsupported" distinction explicit.
 func configLabel(it storage.ConfigItem) string {
 	switch it.State {
 	case storage.ConfigConfigured:

@@ -44,7 +44,7 @@ func driveUsageCmd(t *testing.T, m App, cmd tea.Cmd) App {
 
 // TestAmbientScanBudgetBounded: the dwell-tick scan is capped at the budget — a target
 // bigger than the budget yields a CACHED lower bound rendered with "≥" + "partial", and
-// the enumeration stops within one page of the cap (017 US1/FR-001/FR-002).
+// the enumeration stops within one page of the cap.
 func TestAmbientScanBudgetBounded(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 1500)
@@ -56,7 +56,7 @@ func TestAmbientScanBudgetBounded(t *testing.T) {
 
 	rep, ok := m.usageResults.Get(m.usageKey("b", ""))
 	if !ok {
-		t.Fatal("budget-bounded report must be cached (017 FR-002)")
+		t.Fatal("budget-bounded report must be cached")
 	}
 	if !rep.Bounded || rep.Complete {
 		t.Errorf("got Bounded=%v Complete=%v, want Bounded=true Complete=false", rep.Bounded, rep.Complete)
@@ -67,7 +67,7 @@ func TestAmbientScanBudgetBounded(t *testing.T) {
 	if f.UsagePages != 1 {
 		t.Errorf("UsagePages = %d, want 1 (stop within one page of the cap)", f.UsagePages)
 	}
-	line := stripANSI(m.usageLine("b", ""))
+	line := stripANSI(m.usageLine("b", "", 60))
 	if !strings.Contains(line, "≥") || !strings.Contains(line, "partial") {
 		t.Errorf("usageLine = %q, want a ≥ lower bound with a partial marker", line)
 	}
@@ -87,13 +87,13 @@ func TestAmbientScanBoundaryExact(t *testing.T) {
 	if !ok || rep.Bounded || !rep.Complete {
 		t.Fatalf("boundary scan: ok=%v rep=%+v, want exact (Complete, not Bounded)", ok, rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); strings.Contains(line, "≥") || strings.Contains(line, "partial") {
+	if line := stripANSI(m.usageLine("b", "", 60)); strings.Contains(line, "≥") || strings.Contains(line, "partial") {
 		t.Errorf("usageLine = %q, want NO lower-bound marker at the exact boundary", line)
 	}
 }
 
 // TestBudgetZeroDisablesAmbient: budget 0 ⇒ the dwell path arms nothing; cached results
-// still render (017 FR-006).
+// still render.
 func TestBudgetZeroDisablesAmbient(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 10)
@@ -108,14 +108,14 @@ func TestBudgetZeroDisablesAmbient(t *testing.T) {
 		t.Errorf("UsagePages = %d, want 0 (no enumeration)", f.UsagePages)
 	}
 	m.usageResults.Put(m.usageKey("b", ""), &storage.UsageReport{TotalSize: 7, TotalCount: 1, Complete: true})
-	if line := m.usageLine("b", ""); line == "" {
+	if line := m.usageLine("b", "", 60); line == "" {
 		t.Error("cached results must still render with ambient scanning off")
 	}
 }
 
 // TestAmbientPartialIsCacheHit: a cached partial is a HIT for the ambient path — dwell
 // renders it instantly and rescans nothing; only the explicit full scan upgrades it
-// (contracts/budgeted-usage-scan.md).
+// .
 func TestAmbientPartialIsCacheHit(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 10)
@@ -130,13 +130,13 @@ func TestAmbientPartialIsCacheHit(t *testing.T) {
 	if f.UsagePages != 0 {
 		t.Errorf("UsagePages = %d, want 0", f.UsagePages)
 	}
-	if line := stripANSI(m.usageLine("b", "")); !strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want the cached partial's ≥ totals", line)
 	}
 }
 
 // TestBackendBudgetPlumb: the resolved budget reaches the App via Backend, never via
-// config reads in the UI (017 T010, constitution I).
+// config reads in the UI (constitution I).
 func TestBackendBudgetPlumb(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "x")
@@ -151,7 +151,7 @@ func TestBackendBudgetPlumb(t *testing.T) {
 }
 
 // TestCancelledScanCachesLowerBound: a cancelled scan's partial progress IS cached and
-// renders as a lower bound — never discarded (017 FR-004, inverts 016).
+// renders as a lower bound — never discarded (inverts ).
 func TestCancelledScanCachesLowerBound(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "x")
@@ -164,12 +164,12 @@ func TestCancelledScanCachesLowerBound(t *testing.T) {
 
 	rep, ok := m.usageResults.Get(key)
 	if !ok {
-		t.Fatal("cancelled scan's partial progress must be cached (017 FR-004)")
+		t.Fatal("cancelled scan's partial progress must be cached")
 	}
 	if rep.TotalCount != 5 || rep.Complete {
 		t.Errorf("cached partial = %+v, want the 5-object lower bound", rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); !strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want ≥ for a cancelled partial", line)
 	}
 }
@@ -189,7 +189,7 @@ func TestCancelledEmptyScanNotCached(t *testing.T) {
 }
 
 // TestExactNeverOverwrittenByPartial: an exact entry survives a late partial for the
-// same key (017 data-model §2 transitions).
+// same key (017 transitions).
 func TestExactNeverOverwrittenByPartial(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "x")
@@ -206,7 +206,7 @@ func TestExactNeverOverwrittenByPartial(t *testing.T) {
 }
 
 // TestFullScanResultReplacesPartial: a completed full scan overwrites the partial entry
-// for its target (017 FR-005).
+// for its target.
 func TestFullScanResultReplacesPartial(t *testing.T) {
 	f := storage.NewFake()
 	f.Seed("b", "x")
@@ -221,7 +221,7 @@ func TestFullScanResultReplacesPartial(t *testing.T) {
 	if !ok || !rep.Complete || rep.TotalCount != 1500 {
 		t.Errorf("full result must replace the partial: %+v", rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want no marker after the full scan", line)
 	}
 }
