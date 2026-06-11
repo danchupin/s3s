@@ -9,10 +9,16 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same ref cancels the older in-flight run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -26,9 +32,10 @@ jobs:
         with:
           version: latest
 
-  test:
-    name: Test
+  static:
+    name: Static checks
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6
@@ -46,14 +53,68 @@ jobs:
       - name: go vet
         run: go vet ./...
 
+      - name: go mod tidy (verify clean)
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum \
+            || { echo "go.mod/go.sum not tidy — run 'go mod tidy' and commit"; exit 1; }
+
       - name: Read-only guard
         run: make check-readonly
 
-      - name: Unit tests
-        run: go test -race -coverprofile=coverage.out ./...
+  govulncheck:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...
 
-      - name: Integration tests (real MinIO via testcontainers)
-        run: go test -tags=integration ./internal/storage/...
+  test:
+    name: Test
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+
+      - name: Unit tests (race + coverage)
+        run: go test -race -coverprofile=coverage.out ./...
 
       - name: Build
         run: go build ./...
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: warn
+
+  integration:
+    name: Integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Integration tests (real MinIO via testcontainers)
+        run: go test -tags=integration ./internal/storage/...
