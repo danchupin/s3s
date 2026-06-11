@@ -72,6 +72,18 @@ MPU seed (`CreateMultipartUpload`+`UploadPart`, NO complete — seeder stays ins
 `internal/storage`); presign fetched by plain `http.Get`. Matrix in
 `contracts/storage-read-extension.md`.
 
+## Validation status (2026-06-11)
+
+- Unit suites: ALL GREEN (`make test` — storage/share/preview/config/ui incl. budget,
+  partial-cache, groups, copy-menu, presign-redaction, health-card sweeps, preview
+  toggles). Gates: fmt/vet/lint/check-readonly GREEN.
+- Integration (MinIO via Lima Docker): ALL GREEN in 13s — cap honored, distributions,
+  incomplete-MPU (exact-key — see the MinIO quirk note in
+  contracts/storage-read-extension.md), presign plain-http fetch + tamper rejection,
+  plus the 016 backlog (tags/config).
+- Manual validation below: PENDING — needs a human at a 130×24 terminal + an RGW
+  endpoint for the prefix-wide MPU check.
+
 ## Manual validation (release gate)
 
 1. Hover a huge bucket → pane shows `≥` within ~2 s, network quiet after; `A` runs full scan

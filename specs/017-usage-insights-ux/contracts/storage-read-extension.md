@@ -88,3 +88,10 @@ UI/test code outside `internal/storage` MUST reference only `ListIncompleteUploa
 
 `unsupported` for MPU: Fake + `classify` units only (MinIO implements the API) — same split as
 016.
+
+**MinIO quirk (discovered in T052)**: MinIO's `ListMultipartUploads` returns an upload only
+when the request prefix matches the EXACT object key — bucket-/prefix-wide listings come back
+empty (unlike Ceph RGW/AWS, which honor arbitrary prefixes). The integration test therefore
+exercises the exact-key path against MinIO; prefix-wide semantics are covered by the Fake
+units and the RGW manual validation (quickstart §Manual). On MinIO deployments the health
+card's MPU block may honestly report "none" for a prefix even when uploads dangle below it.

@@ -54,15 +54,29 @@ _Coming soon — a recording of context switching, tree navigation, and previews
   read-only, against production); multi-select objects (`space`) and act on the batch:
   bulk download (mirrors the key hierarchy into local subdirs), bulk delete, bulk copy,
   each with a truthful per-item succeeded/failed summary.
-- **Inline metadata & usage** — the details pane shows rich object metadata (version,
-  encryption + KMS key, replication, archival/restore, object-lock & legal-hold, lifecycle
-  expiration, content-handling headers) straight from the object's `HeadObject`, plus a
-  bucket/prefix total size + object count computed by a background, cancelable, cached
-  scan. Press `a` ("more detail") to expand a ranked largest-first breakdown of where the
-  space goes, an object's tags, or a bucket's configuration (versioning / encryption /
-  lifecycle / replication / public-access / location) — all on the main screen, no
-  separate view. Non-standard storage classes are marked in the listing (`i` reveals the
-  full class).
+- **Inline metadata & usage, cluster-safe** — the details pane shows rich object metadata
+  in named groups (identity & content / security & governance / delivery), with relative
+  + exact dates, a multipart-ETag explanation, and every field copyable in full. The
+  bucket/prefix total size + object count comes from a background scan that is
+  **budget-capped** (default 20 000 objects, `usageScanBudget` in the config; `0` turns
+  ambient scanning off) so hovering a 100M-object bucket never hammers the cluster:
+  bigger targets show an honest `≥` lower bound, and the **uncapped scan runs only on an
+  explicit `A`** (`:scan`) — with progress, cancellable, and partial progress is cached,
+  never thrown away. Press `a` ("more detail") to expand a ranked largest-first
+  breakdown, an object's tags, or a bucket's configuration. Non-standard storage classes
+  are marked in the listing (`i` reveals the full class).
+- **Operator health card** (`H` / `:health`) — one full-screen answer to "what is this
+  bucket made of": age and size histograms plus the storage-class spread (computed from
+  the same scan pass — zero extra requests), **incomplete multipart uploads** (count,
+  size, oldest age — the classic hidden cost), and a small-object index-pressure warning
+  (`healthSmallObjectKiB` / `healthSmallObjectShare` knobs). Denied/unsupported probes
+  say so explicitly — never rendered as a clean zero.
+- **Copy & share menu** (`Y` / `:copy`) — copy the S3 URI, a style-aware HTTPS URL, a
+  ready-to-run `aws s3api` download command, or a **presigned GET link** (15m/1h/24h/7d,
+  minted entirely client-side, never logged — with a warning when your credentials expire
+  before the link). Export the current usage/health report to CSV/JSON in your download
+  dir. Clipboard is best-effort OSC52 (works over SSH); every value can also be shown
+  full-screen for manual copy.
 - **Sortable lists** — sort any level by name, size, or last-modified and toggle
   direction (`s` / `S`); the sort persists across navigation.
 - **Two secure credential sources** — a context resolves its secret from exactly one of:
@@ -75,9 +89,11 @@ _Coming soon — a recording of context switching, tree navigation, and previews
   with manual refresh.
 - **Combined object view** — press `Enter` on an object to see its metadata and
   content side-by-side in one screen (no separate steps).
-- **Inline previews** — scrollable text and visual images (ANSI half-block,
-  works in any 24-bit terminal), bounded to the first 5 MiB with a truncation
-  notice; safe summary for binaries.
+- **Payload-aware previews** — JSON/NDJSON pretty-printed (toggle raw with `p`),
+  gzip transparently decompressed (bomb-safe, both sizes shown), binaries hex-dumped
+  with offset + ASCII columns, scrollable text, and visual images (ANSI half-block,
+  works in any 24-bit terminal) — all bounded to the first 5 MiB with a truncation
+  notice.
 - **Fast filter & search** — filter buckets by name instantly; server-side
   prefix search within a level (debounced, complete results — not just what's
   loaded).
@@ -183,6 +199,10 @@ contexts:
     cluster: minio-local
     user: dev
 current-context: local
+# optional knobs (017):
+# usageScanBudget: 20000        # ambient usage-scan cap in objects; 0 = explicit-only (A/:scan)
+# healthSmallObjectKiB: 128     # health-card small-object threshold
+# healthSmallObjectShare: 0.5   # warning fires above this share of small objects
 ```
 
 ```bash
@@ -317,6 +337,10 @@ read-only context (dimmed, `(w to arm)`) so the full capability set is always le
 | `s` / `S` | cycle the sort column (name/size/modified) · toggle direction |
 | `d` | download the selected object / marked set (a read — works read-only) |
 | `a` | more detail: expand usage breakdown · object tags · bucket config (a read) |
+| `A` | **full usage scan** (uncapped) of the focused bucket/folder — the only unbounded enumeration, always explicit |
+| `Y` | **copy/share menu**: S3 URI · HTTPS URL · download command · presigned link · export CSV/JSON |
+| `H` | **health card**: age/size/class histograms · incomplete multipart uploads · warnings |
+| `p` | object view: toggle pretty ↔ raw for JSON/NDJSON previews |
 | `r` | refresh the current list |
 | `y` · `u` · `+` | copy · upload · new folder (write mode; safe — bare key) |
 | `w` | **arm/disarm write** at runtime (confirm to arm; instant to disarm) |
@@ -356,10 +380,10 @@ Logs: `$XDG_STATE_HOME/s3s/s3s.log` (or `~/.local/state/s3s/s3s.log`).
 Larger items on the horizon (full list in [ROADMAP.md](./ROADMAP.md)):
 
 - Full-quality image preview via an external viewer.
-- Richer previews — syntax highlighting and a hex view for binaries.
-- Copy key / S3 URI / ETag to the clipboard.
-- Presigned URLs; bucket administration (policy/lifecycle/encryption/CORS);
-  object versioning management; incomplete-multipart-upload cleanup.
+- Syntax highlighting for text previews.
+- Bucket administration (policy/lifecycle/encryption/CORS); object versioning
+  management; incomplete-multipart-upload **cleanup** (surfacing them shipped in the
+  health card — aborting them belongs to the write iteration).
 
 ## Development
 
@@ -379,7 +403,10 @@ Integration tests `t.Skip` automatically when Docker is unreachable.
 - `internal/config` — kubectl-style YAML loader, `${ENV}` resolution, validation,
   and the `config init` wizard.
 - `internal/cache` — per-session, TTL-free level cache (manual refresh only).
-- `internal/preview` — text/image/binary classification and image rendering.
+- `internal/preview` — text/JSON/image/binary classification, pretty-print, gunzip,
+  hexdump, and image rendering.
+- `internal/share` — pure builders for copyable artifacts (URIs, URLs, command
+  snippets) and CSV/JSON report export.
 - `internal/logging` — file slog handler + a redacting `Secret` type.
 - `internal/ui` — Bubble Tea (v2) model; depends only on the storage interface.
 - `cmd/s3s` — wiring: load config → build storage → run the TUI.

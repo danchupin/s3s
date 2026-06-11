@@ -154,9 +154,9 @@ preview-rendering.md (obligations 1–6).
 
 ## Phase 8: Polish & Cross-Cutting
 
-- [ ] T050 [P] Update `README.md` — budget config, `Y`/`A`/`H`/`p` keys, health card, export, presigned links (read-only posture note)
-- [ ] T051 Full gates: `make fmt vet lint check-readonly test` — zero findings; verify no `Y/A/H/p` conflicts in help output
-- [ ] T052 `make test-integration` full matrix (Lima: `DOCKER_HOST` + `TESTCONTAINERS_RYUK_DISABLED=true`) — T017/T034/T043 plus the pending 016 T017/T031 backlog in one run
+- [X] T050 [P] Update `README.md` — budget config, `Y`/`A`/`H`/`p` keys, health card, export, presigned links (read-only posture note)
+- [X] T051 Full gates: `make fmt vet lint check-readonly test` — zero findings; verify no `Y/A/H/p` conflicts in help output
+- [X] T052 `make test-integration` full matrix (Lima: `DOCKER_HOST` + `TESTCONTAINERS_RYUK_DISABLED=true`) — T017/T034/T043 plus the pending 016 T017/T031 backlog in one run
 - [ ] T053 Manual validation per `specs/017-usage-insights-ux/quickstart.md` §Manual (huge-bucket hover quiet, 130×24+NO_COLOR, artifacts paste/run, MPU figures vs `mc ls -I`, gzip/NDJSON/hexdump, log free of presigned URLs) — record results in quickstart.md
 
 ---

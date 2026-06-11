@@ -118,7 +118,11 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 017-usage-insights-ux — PLANNED (spec+clarify+plan done; next /speckit-tasks). Plan:
+Active feature: 017-usage-insights-ux — IMPLEMENTED (T001-T052 done: unit+lint+vet+check-readonly green; MinIO
+integration green incl. 016 backlog; binary builds). Manual validation T044→T053 PENDING (130×24 human pass + RGW
+prefix-wide MPU check). MinIO QUIRK (T052): ListMultipartUploads returns uploads ONLY for prefix==exact key —
+bucket/prefix-wide listing EMPTY on MinIO (RGW/AWS honor prefixes); integration tests use exact-key path, prefix
+semantics covered by Fake units (contracts/storage-read-extension.md). Plan:
 specs/017-usage-insights-ux/plan.md. US1 P1 budgeted ambient scan (UsageOf gains maxObjects cap, default budget
 20000 via config usageScanBudget *int, 0=ambient off; Bounded lower-bound reports CACHED — inverts onUsageDone
 discard analyze.go:185-187; full scan ONLY via new 'A'/:scan single dispatcher; 'a'/:detail re-pointed at budgeted
