@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -39,6 +40,7 @@ type keyMap struct {
 	Command     []string // open the `:` command bar
 	Reveal      []string // reveal/inspect the full identifier of the selection
 	Tab         []string // toggle focus between zones in the two-pane browse
+	Plugins     []string // full-screen plugin status surface
 	Quit        []string
 	Help        []string
 }
@@ -76,6 +78,7 @@ func defaultKeys() keyMap {
 		Command:     []string{":"},          // open the `:` command bar
 		Reveal:      []string{"i"},          // inspect/reveal full identifier
 		Tab:         []string{"tab"},        // focus toggle between zones
+		Plugins:     []string{"P"},          // plugin status surface — shift-pair convention like y/Y
 		Quit:        []string{"ctrl+c", "q"},
 		Help:        []string{"?"},
 	}
@@ -205,8 +208,14 @@ func (m App) helpLines() []string {
 		conn("region", m.info.Region, segRegionStyle),
 		conn("user", m.info.User, segUserStyle),
 		conn("s3s ver", Version, dimCellStyle),
-		"",
-		dimCellStyle.Render("  press any key to close help"),
 	}
+	// Plugins section — only when declarations exist (zero-config sessions
+	// carry no plugin chrome anywhere).
+	if n := len(m.plugins); n > 0 {
+		lines = append(lines, "",
+			sec("Plugins")+dimCellStyle.Render(fmt.Sprintf("  (%d declared)", n)),
+			row(formatKeys(k.Plugins), "plugin status: outcomes · space toggle · r retry · Enter detail"))
+	}
+	lines = append(lines, "", dimCellStyle.Render("  press any key to close help"))
 	return lines
 }

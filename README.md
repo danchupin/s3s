@@ -197,6 +197,46 @@ that both define a `prod` context never share a secret.
 
 </details>
 
+### Plugins
+
+External capability providers — executables you declare that supply data the
+S3 protocol cannot: **bucket discovery** (e.g. a provisioning API listing the
+buckets you were granted, when credentials can't `ListBuckets` or the endpoint
+is domain-style-only) and **object metadata** (e.g. image-storage info keyed
+by an id encoded in the object key, shown as a `From <plugin>` group in the
+details pane). Strictly opt-in: no `plugins:` section, no plugin behavior.
+
+```yaml
+plugins:
+  - name: corp-discovery
+    capability: bucket-discovery
+    cmd: "s3s-corp-discovery --cluster prod"   # shlex argv, never a shell
+    timeout: 5s                                # optional, default 5s
+    connections: [prod-rgw]
+  - name: image-storage-meta
+    capability: object-metadata
+    cmd: "~/bin/image-storage-meta.sh"
+    match:
+      connections: [prod-rgw]
+      buckets: ["images-*"]                    # glob; empty = any
+      keyPattern: "^[0-9a-f]{32}"              # RE2; empty = any
+```
+
+A plugin reads one JSON request on stdin and writes one JSON response on
+stdout (contract v1 — see [`docs/plugins/`](docs/plugins/) for the exchange
+and two ready-to-copy stubs). Discovered names merge **additively** into the
+bucket list (pinned ∪ listed ∪ discovered); failures never degrade browsing —
+a transient notice points at the status surface (`P` / `:plugins`: per-plugin
+outcome, enable/disable persisted to config, retry).
+
+Security model: commands run as argv (never `sh -c`), only while the config
+file is owner-only-writable (`chmod 600`) and owned by you; the request
+carries identity context only (`accessKeyId` is the public identifier) — **the
+secret key is never passed** in any field, env var, or argument; all
+plugin-supplied text is sanitized before rendering; one log record per
+invocation captures facts (plugin, capability, target, duration, outcome) and
+never payloads or argv.
+
 ## Key bindings
 
 Arrows are primary; vim aliases (`h/j/k/l`, `g/G`) work everywhere. The full
@@ -215,6 +255,7 @@ keymap lives in the help overlay (`?`) and the always-visible command bar.
 | `d` | download the selected object / marked set (a read) |
 | `space` · `s`/`S` · `r` · `i` | multi-select · sort · refresh · reveal full identifier |
 | `w` | arm/disarm write (confirm to arm; instant to disarm) |
+| `P` | **plugin status** (shown only when plugins are declared): toggle · retry · error detail |
 | `c` · `1`–`9` | connections manager · jump to context by number |
 | `:` | command bar (`:scan`, `:health`, `:copy`, `:detail`, …) |
 | `?` · `q` | help · quit |

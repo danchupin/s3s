@@ -125,31 +125,28 @@ are white-box (`package ui`); drive the model with `deliver`/`press` helpers and
 assert on `App.View().Content`. Storage units use the in-memory `storage.Fake`.
 
 <!-- SPECKIT START -->
-Active feature: 017-usage-insights-ux — IMPLEMENTED (T001-T052 done: unit+lint+vet+check-readonly green; MinIO
-integration green incl. 016 backlog; binary builds). Manual validation T044→T053 PENDING (130×24 human pass + RGW
-prefix-wide MPU check). MinIO QUIRK (T052): ListMultipartUploads returns uploads ONLY for prefix==exact key —
-bucket/prefix-wide listing EMPTY on MinIO (RGW/AWS honor prefixes); integration tests use exact-key path, prefix
-semantics covered by Fake units (contracts/storage-read-extension.md). Plan:
-specs/017-usage-insights-ux/plan.md. US1 P1 budgeted ambient scan (UsageOf gains maxObjects cap, default budget
-20000 via config usageScanBudget *int, 0=ambient off; Bounded lower-bound reports CACHED — inverts onUsageDone
-discard analyze.go:185-187; full scan ONLY via new 'A'/:scan single dispatcher; 'a'/:detail re-pointed at budgeted
-scan, never unbounded). US2 P1 details-pane regroup (metaFieldRows → 4 named groups; relTime(now,t) dual dates w/
-injected clock; state matrix populated/—/omitted/unknown/denied/unsupported TEXT-distinct NO_COLOR-safe; multipart
-ETag ^32hex-N$ annotation; per-field copy). US3 P2 copy/share ('Y' focus-aware menu + :copy; NEW pure pkg
-internal/share: S3URI/HTTPURL(pathStyle-aware)/CLI+curl snippets/ExportCSV+JSON → DownloadDir temp+rename;
-storage.PresignGet via s3.NewPresignClient client-side, TTL presets 15m/1h(default)/24h/7d ONLY, warn on cred
-expiry < ttl, URL NEVER logged; clipboard = existing OSC52 reveal path + popup fallback). US4 P2 health card (NEW
-modeHealth full-screen 'H'/:health, Esc→prevMode; age/size/class [6]DistBucket histograms accumulated IN usageAgg
-same pass — zero extra requests; ListIncompleteUploads = ListMultipartUploads pages + ListParts sizing capped at
-first 100; tri-state reuse, honest-zero ≠ denied; small-object warning >50% < 128KiB configurable). US5 P3 preview
-(gzip magic-bytes detect, gunzip capped at preview.Limit 5MiB out, re-Classify; KindJSON/KindNDJSON pretty via
-json.Indent + 'p' raw toggle, silent raw fallback; hexdump for binary). Guard analysis: Presign*/List* verbs never
-match check-readonly regex; IncompleteUploads has no \b-anchored banned verb; SDK + MPU seeder stay in
-internal/storage. IV REQUIRED: cap honored / distributions / MPU seed (CreateMultipartUpload+UploadPart no
-complete) / presign plain-http fetch. Artifacts: spec.md (5 US, FR-001..029, SC-001..008, 4 clarifications),
-research.md D1-D15, data-model.md, quickstart.md (RED sets), contracts/ (budgeted-usage-scan, storage-read-
-extension, health-card-view, copy-share-menu, details-pane-groups, preview-rendering). Constitution v1.2.0 — no
-amendment; new keys Y/A/H/p free per keys.go:43-74.
+Active feature: 018-plugin-system — IMPLEMENTED (T001–T038 done; T039 manual human pass pending: 130×24 +
+narrow footer, NO_COLOR, enrichment copy flow, live chmod-666 refusal). External plugins = user-declared
+executables (explicit opt-in, `plugins:` config section), shlex argv exec (NEVER sh -c) + owner-only config
+gate, one JSON request stdin → one JSON response stdout, contractVersion=1, read cap 1MiB, default timeout 5s.
+NEW UI-agnostic pkg internal/plugin (envelope/runner/sanitize; UI depends on plugin.Runner, fakeRunner in ui
+tests). bucket-discovery: merge ALWAYS additive pinned ∪ listed ∪ discovered (mergeBuckets pure fn), invalid
+names discarded+counted, cap 5000; rides its OWN discGen (NOT m.gen — a level load must never drop a valid
+discovery), invalidated by refresh ('r') / context switch. object-metadata: legs join onPaneTick + openObject,
+"From <plugin>" groups append after native groups, caps 64 fields / 4096B values, enrichGen invalidation; a
+late result for a superseded SELECTION is still cached for its own key (usage-scan precedent) — refresh/switch
+drops fully before cache write. modePlugins ('P'/:plugins; hint + help section only when ≥1 declared):
+space=toggle via NEW Connector.SetPluginEnabled (optimistic, error→revert), r=retry last failed target,
+Enter=reveal full sanitized error; incompatible (contract≠1) ⇒ skipped for the session. Request ctx:
+name/endpoint/userLabel/accessKeyId — SECRET NEVER. Sanitize ALL plugin strings (plugin.Sanitize). Logging:
+invocation facts only, never payload/argv. config.Save now atomic (temp+rename) for ALL config mutations.
+Zero plugins ⇒ zero UI change; check-readonly green; MinIO suite green (25 integration PASS, 0 SKIP).
+Constitution v1.3.0 — no amendment.
+
+017-usage-insights-ux — IMPLEMENTED+MERGED (#24, #25); manual validation (130×24 human pass + RGW prefix-wide
+MPU check) still pending. MinIO QUIRK: ListMultipartUploads returns uploads ONLY for prefix==exact key —
+bucket/prefix-wide listing EMPTY on MinIO (RGW/AWS honor prefixes); integration tests use exact-key path,
+prefix semantics covered by Fake units. Keys taken by 017: Y/A/H/p.
 
 016-metadata-enrichment — IMPLEMENTED+MERGED (#23); MinIO integration (T017/T031) + manual validation (T044)
 still pending. 015 — #22. 014 — #20. conn-form cmd source — #21. 013 — PLANNED. 012 — #18. 011/010 — IMPLEMENTED.

@@ -92,12 +92,19 @@ func upsertContext(list []Context, v Context) []Context {
 	return append(list, v)
 }
 
-// Save writes config bytes to path (0600), creating parent dirs.
+// Save writes config bytes to path (0600), creating parent dirs. The write is
+// atomic — a temp file in the same directory renamed over the target — so a
+// crash mid-write can never leave a truncated config.
 func Save(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("config: create dir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return fmt.Errorf("config: write %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		return fmt.Errorf("config: write %s: %w", path, err)
 	}
 	return nil

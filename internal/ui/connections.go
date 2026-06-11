@@ -46,6 +46,11 @@ type Connector interface {
 	// AddBucket pins a bucket name to the named connection and returns the updated pinned
 	// bucket list. A CONFIG mutation (no keychain, no S3 write); idempotent.
 	AddBucket(ctx context.Context, ctxName, bucket string) ([]string, error)
+	// SetPluginEnabled flips the enabled flag of the named plugin declaration in
+	// the config file. A CONFIG mutation only — no keychain, no storage calls;
+	// idempotent. Mirrors AddBucket: executed off the event loop, optimistic UI
+	// update, error notice on failure.
+	SetPluginEnabled(ctx context.Context, name string, enabled bool) error
 }
 
 // connField indexes the editable form fields (the read-only flag and submit are handled

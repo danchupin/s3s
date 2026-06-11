@@ -50,6 +50,8 @@ func (m App) startFieldCopy() (tea.Model, tea.Cmd) {
 	for _, k := range sortedKeys(md.UserMetadata) {
 		rows = append(rows, metaField{label: k, value: md.UserMetadata[k]})
 	}
+	// Plugin enrichment fields are copyable like every native field.
+	rows = append(rows, m.enrichFieldRows(m.bucket, key)...)
 	m.fieldCopy = &fieldCopyState{key: key, rows: rows}
 	return m, nil
 }

@@ -193,6 +193,11 @@ func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 		m.usageResults.InvalidateBucket(m.ctxName, b)
 		m.mpuResults.InvalidateBucket(m.ctxName, b)
 	}
+	// Manual refresh is the discovery cache's invalidation event: drop this
+	// context's entries and re-invoke alongside the bucket reload.
+	(&m).invalidateDiscovery()
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
+	cmds := []tea.Cmd{loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick()}
+	cmds = append(cmds, (&m).discoveryLegs()...)
+	return m, tea.Batch(cmds...)
 }

@@ -11,9 +11,39 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/danchupin/s3s/internal/cache"
+	"github.com/danchupin/s3s/internal/plugin"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
+
+// discoverCmd invokes one bucket-discovery plugin off the event loop. It runs
+// under its own background lifetime (the plugin timeout bounds it) and reports
+// under the discovery generation it was dispatched with, so a level load never
+// cancels or strands a valid discovery result.
+func discoverCmd(r plugin.Runner, d plugin.Decl, conn plugin.Connection, ctxName string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		res := r.Invoke(context.Background(), d, plugin.Request{
+			ContractVersion: plugin.ContractVersion,
+			Capability:      plugin.BucketDiscovery,
+			Connection:      conn,
+		})
+		return discoveryDoneMsg{gen: gen, ctx: ctxName, plugin: d.Name, res: res}
+	}
+}
+
+// enrichCmd invokes one object-metadata plugin off the event loop for a single
+// object target, reporting under the enrichment generation.
+func enrichCmd(r plugin.Runner, d plugin.Decl, conn plugin.Connection, ctxName, bucket, key string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		res := r.Invoke(context.Background(), d, plugin.Request{
+			ContractVersion: plugin.ContractVersion,
+			Capability:      plugin.ObjectMetadata,
+			Connection:      conn,
+			Target:          &plugin.Target{Bucket: bucket, Key: key},
+		})
+		return enrichDoneMsg{gen: gen, ctx: ctxName, plugin: d.Name, bucket: bucket, key: key, res: res}
+	}
+}
 
 // spinnerInterval is the spinner animation tick.
 const spinnerInterval = 120 * time.Millisecond

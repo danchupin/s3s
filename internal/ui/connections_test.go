@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -25,6 +26,9 @@ type fakeConnector struct {
 	savedDraft  ConnDraft // last draft passed to Save (010 US3: assert Buckets)
 	deletedName string
 	addedBucket string // last bucket passed to AddBucket (010 US2)
+
+	pluginErr     error
+	pluginToggles []string // "name=enabled" records of SetPluginEnabled calls
 }
 
 func (c *fakeConnector) Test(_ context.Context, _ ConnDraft) error {
@@ -46,6 +50,11 @@ func (c *fakeConnector) Delete(_ context.Context, name string) ([]string, error)
 func (c *fakeConnector) AddBucket(_ context.Context, _, bucket string) ([]string, error) {
 	c.addedBucket = bucket
 	return c.addBuckets, c.addErr
+}
+
+func (c *fakeConnector) SetPluginEnabled(_ context.Context, name string, enabled bool) error {
+	c.pluginToggles = append(c.pluginToggles, fmt.Sprintf("%s=%v", name, enabled))
+	return c.pluginErr
 }
 
 func connApp(conn Connector, contexts []string) App {

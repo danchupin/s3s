@@ -16,6 +16,7 @@ import (
 
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/localfs"
+	"github.com/danchupin/s3s/internal/plugin"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -33,6 +34,7 @@ const (
 	modeConnForm    // add-connection form
 	modeAddBucket   // "+ add bucket" name input
 	modeHealth      // full-screen operator health card
+	modePlugins     // full-screen plugin status surface
 )
 
 // zone names which interactive column owns keyboard input in the multi-pane browse
@@ -117,6 +119,9 @@ type Backend struct {
 	// PinnedBuckets are the connection's declared bucket names. Non-empty ⇒ the
 	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
 	PinnedBuckets []string
+	// AccessKeyID is the connection's public credential identifier — passed to
+	// plugins as identity context (the secret never leaves its source).
+	AccessKeyID string
 }
 
 // Resolver rebuilds a Backend for a named context (context switch). May be nil
@@ -272,6 +277,21 @@ type App struct {
 	fbDir     string
 	fbEntries []localfs.Entry
 	fbSel     int
+
+	// plugin system (dormant when no plugins are declared): the runner seam, the
+	// per-plugin live states (pointer-shared), the session caches, and their
+	// invalidation generations. Discovery rides its OWN generation (discGen,
+	// bumped on refresh/context switch) so a level load never strands or drops a
+	// valid discovery result; enrichment likewise (enrichGen).
+	pluginRunner   plugin.Runner
+	plugins        []*pluginState
+	discCache      map[discKey]discEntry
+	discGen        int
+	enrichCache    map[enrichKey]enrichEntry
+	enrichInflight map[enrichKey]bool
+	enrichGen      int
+	pluginSel      int       // selection in the status surface
+	initPluginCmds []tea.Cmd // initial discovery legs, armed by WithPlugins, fired by Init
 }
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
@@ -358,7 +378,10 @@ func (m App) Init() tea.Cmd {
 	if m.raw == nil {
 		return nil
 	}
-	return tea.Batch(loadBuckets(m.loadCtx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
+	cmds := []tea.Cmd{loadBuckets(m.loadCtx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick()}
+	// Initial discovery legs were armed by WithPlugins (Init cannot mutate the model).
+	cmds = append(cmds, m.initPluginCmds...)
+	return tea.Batch(cmds...)
 }
 
 // beginLoad cancels any in-flight load, bumps the generation, and starts a fresh
@@ -425,10 +448,13 @@ func (m App) onPaneTick(msg paneTickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	st := m.activeStore()
-	return m, tea.Batch(
+	cmds := []tea.Cmd{
 		loadPaneMeta(context.Background(), st, m.bucket, e.full, m.paneGen),
 		loadPanePreview(context.Background(), st, m.bucket, e.full, e.obj.Size, m.paneGen),
-	)
+	}
+	// Matching metadata plugins join the same settled-selection load.
+	cmds = append(cmds, (&m).enrichLegs(m.bucket, e.full)...)
+	return m, tea.Batch(cmds...)
 }
 
 // highlightedBucketName returns the name of the bucket under the cursor, or "" when the
@@ -653,7 +679,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case spinnerTickMsg:
-		if m.loading {
+		if m.loading || m.discoveryRunning() {
 			m.spin = (m.spin + 1) % len(spinnerFrames)
 			// Count ticks during a running op so the progress bar appears only after a
 			// brief threshold — fast ops finish first and never flash.
@@ -674,6 +700,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Scoped: the "+ add bucket" row shows when this connection has pinned
 		// buckets OR list-all returned nothing — never on a working list-all with results.
 		m.bucketsScoped = len(m.info.PinnedBuckets) > 0 || len(msg.buckets) == 0
+		// Discovered names already cached for this context merge in additively.
+		(&m).applyDiscovered()
 		// Arm the objects-zone preview for the first bucket; no-op on a narrow tier.
 		return m.afterBucketMove()
 
@@ -713,6 +741,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// highlighted) is NOT mistaken for a list-all failure and does not flip bucketsScoped.
 		if m.mode == modeBuckets && m.bucket == "" {
 			m.bucketsScoped = true
+			// A denied list-all still shows whatever discovery already delivered.
+			(&m).applyDiscovered()
 		}
 		return m, nil
 
@@ -782,6 +812,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case contextResolvedMsg:
 		return m.onContextResolved(msg)
+
+	case discoveryDoneMsg:
+		return m.onDiscoveryDone(msg)
+
+	case enrichDoneMsg:
+		return m.onEnrichDone(msg)
+
+	case pluginToggledMsg:
+		return m.onPluginToggled(msg)
 
 	case searchFireMsg:
 		return m.onSearchFire(msg)
@@ -971,6 +1010,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openHealth()
 	}
 
+	// The plugin status surface — browse modes only, and only when plugins are
+	// declared (zero-config sessions keep P inert and hint-free).
+	if matches(key, m.keys.Plugins) && len(m.plugins) > 0 && (m.mode == modeBuckets || m.mode == modeTree) {
+		return m.openPlugins()
+	}
+
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
 	if matches(key, m.keys.Back) && m.loading {
 		(&m).cancelLoad()
@@ -995,6 +1040,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onContextKey(key)
 	case modeHealth:
 		return m.onHealthKey(key)
+	case modePlugins:
+		return m.onPluginsKey(key)
 	}
 	return m, nil
 }
@@ -1187,8 +1234,23 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.level = nil
 	m.sel = nil
 	m.mode = modeBuckets
+	// Plugin results never bleed across a switch: clear both session caches,
+	// bump their invalidation generations (in-flight results drop), and release
+	// the running flags so the spinner segment doesn't linger.
+	if m.pluginRunner != nil {
+		m.discCache = map[discKey]discEntry{}
+		m.enrichCache = map[enrichKey]enrichEntry{}
+		m.enrichInflight = map[enrichKey]bool{}
+		m.discGen++
+		m.enrichGen++
+		for _, st := range m.plugins {
+			st.discRunning = false
+		}
+	}
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
+	cmds := []tea.Cmd{loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick()}
+	cmds = append(cmds, (&m).discoveryLegs()...)
+	return m, tea.Batch(cmds...)
 }
 
 // clampSelection keeps selection indices within bounds after resize/data change.
@@ -1317,6 +1379,8 @@ func (m App) View() tea.View {
 		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
 	case modeHealth:
 		body = boxView("health", "", m.healthView(w-2, dataRows), w, rows)
+	case modePlugins:
+		body = boxView(fmt.Sprintf("plugins[%d]", len(m.plugins)), "", m.pluginsView(w-2, dataRows), w, rows)
 	}
 
 	// Binary-tier confirmation: a centered popup over the body (the typed tier
@@ -1600,6 +1664,11 @@ func (m App) statusLine(w int) string {
 		default:
 			return m.opPromptLine(w)
 		}
+	}
+	// In-flight discovery announces itself without blocking the (already usable)
+	// list; the main load's line wins while both run.
+	if !m.loading && m.mode == modeBuckets && m.discoveryRunning() {
+		return accentStyle.Render(spinnerFrames[m.spin%len(spinnerFrames)]) + dimCellStyle.Render(" discovering…")
 	}
 	// The filter input moved to the always-visible strip; statusLine now carries
 	// only loading / notice / error / op-prompt, which coexist with an active filter.
