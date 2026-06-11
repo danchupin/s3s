@@ -203,6 +203,71 @@ func TestHealthCommandOpens(t *testing.T) {
 	}
 }
 
+// TestHealthDiscoverableInHintBar: the health card is advertised in the always-visible
+// command bar on the bucket list AND in the level view — nobody should have to read the
+// docs to find `H` (T053 finding 3, constitution VII).
+func TestHealthDiscoverableInHintBar(t *testing.T) {
+	f := storage.NewFake()
+	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
+
+	m := withBuckets(f, []string{"ctx"}, nil)
+	m = deliver(m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	if v := stripANSI(viewOf(m)); !strings.Contains(v, "H  health") {
+		t.Errorf("bucket list must advertise the health key in the command bar:\n%s", v)
+	}
+
+	mt := treeApp(f, false)
+	mt = deliver(mt, tea.WindowSizeMsg{Width: 140, Height: 40})
+	if v := stripANSI(viewOf(mt)); !strings.Contains(v, "H  health") {
+		t.Errorf("level view must advertise the health key in the command bar:\n%s", v)
+	}
+}
+
+// TestHealthCardHintsLine: the card itself carries its key hints (full scan / export /
+// back) so the affordances are visible where they apply (T053 finding 4).
+func TestHealthCardHintsLine(t *testing.T) {
+	f := storage.NewFake()
+	f.SeedObject("b", "x", storage.FakeObject{Data: []byte("y")})
+	m := healthApp(t, f)
+
+	mm, cmd := pressCmd(m, "H")
+	m = drainBatch(t, mm, cmd)
+	v := stripANSI(viewOf(m))
+	for _, want := range []string{"A full scan", "Y export", "Esc back"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("health card must advertise %q:\n%s", want, v)
+		}
+	}
+}
+
+// TestHealthCardShowsLiveScanProgress: a full scan started FROM the card renders its
+// running totals in the card (T053 finding 4 — progress must be transparent).
+func TestHealthCardShowsLiveScanProgress(t *testing.T) {
+	f := storage.NewFake()
+	seedKeys(f, "b", 1500)
+	m := withBuckets(f, []string{"ctx"}, nil)
+	m = deliver(m, tea.WindowSizeMsg{Width: 140, Height: 40})
+	m.usageResults.Put(m.usageKey("b", ""), &storage.UsageReport{TotalSize: 10, TotalCount: 1000, Bounded: true})
+
+	mm, cmd := pressCmd(m, "H")
+	m = drainBatch(t, mm, cmd) // MPU probe only — usage is cached partial
+	mm2, scanCmd := m.Update(keyMsgFor("A"))
+	m = mm2.(App)
+	if scanCmd == nil {
+		t.Fatal("A inside the card must start the full scan")
+	}
+	msg := scanCmd()
+	ev, ok := msg.(usageProgressMsg)
+	if !ok {
+		t.Fatalf("first scan event = %#v, want usageProgressMsg", msg)
+	}
+	m = deliver(m, ev)
+	v := stripANSI(viewOf(m))
+	if !strings.Contains(v, "full scan") || !strings.Contains(v, "1000") {
+		t.Errorf("card must show the live full-scan totals:\n%s", v)
+	}
+}
+
 func mpuTime() time.Time { return time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC) }
 
 // drainBatch executes a cmd (possibly a tea.Batch) and applies every produced message

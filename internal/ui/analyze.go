@@ -163,6 +163,7 @@ func (m App) startUsageScan(bucket, prefix string, maxObjects int) (tea.Model, t
 	ctx, cancel := context.WithCancel(context.Background())
 	m.usageCancel = cancel
 	m.usageScanKey = m.usageKey(bucket, prefix)
+	m.usageScanFull = maxObjects == 0 // the pane/card announce a full scan distinctly
 	m.usageProg = storage.UsageProgress{}
 	ch := make(chan usageEvent, 8)
 	m.usageCh = ch

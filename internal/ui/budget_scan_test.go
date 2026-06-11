@@ -67,7 +67,7 @@ func TestAmbientScanBudgetBounded(t *testing.T) {
 	if f.UsagePages != 1 {
 		t.Errorf("UsagePages = %d, want 1 (stop within one page of the cap)", f.UsagePages)
 	}
-	line := stripANSI(m.usageLine("b", ""))
+	line := stripANSI(m.usageLine("b", "", 60))
 	if !strings.Contains(line, "≥") || !strings.Contains(line, "partial") {
 		t.Errorf("usageLine = %q, want a ≥ lower bound with a partial marker", line)
 	}
@@ -87,7 +87,7 @@ func TestAmbientScanBoundaryExact(t *testing.T) {
 	if !ok || rep.Bounded || !rep.Complete {
 		t.Fatalf("boundary scan: ok=%v rep=%+v, want exact (Complete, not Bounded)", ok, rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); strings.Contains(line, "≥") || strings.Contains(line, "partial") {
+	if line := stripANSI(m.usageLine("b", "", 60)); strings.Contains(line, "≥") || strings.Contains(line, "partial") {
 		t.Errorf("usageLine = %q, want NO lower-bound marker at the exact boundary", line)
 	}
 }
@@ -108,7 +108,7 @@ func TestBudgetZeroDisablesAmbient(t *testing.T) {
 		t.Errorf("UsagePages = %d, want 0 (no enumeration)", f.UsagePages)
 	}
 	m.usageResults.Put(m.usageKey("b", ""), &storage.UsageReport{TotalSize: 7, TotalCount: 1, Complete: true})
-	if line := m.usageLine("b", ""); line == "" {
+	if line := m.usageLine("b", "", 60); line == "" {
 		t.Error("cached results must still render with ambient scanning off")
 	}
 }
@@ -130,7 +130,7 @@ func TestAmbientPartialIsCacheHit(t *testing.T) {
 	if f.UsagePages != 0 {
 		t.Errorf("UsagePages = %d, want 0", f.UsagePages)
 	}
-	if line := stripANSI(m.usageLine("b", "")); !strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want the cached partial's ≥ totals", line)
 	}
 }
@@ -169,7 +169,7 @@ func TestCancelledScanCachesLowerBound(t *testing.T) {
 	if rep.TotalCount != 5 || rep.Complete {
 		t.Errorf("cached partial = %+v, want the 5-object lower bound", rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); !strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want ≥ for a cancelled partial", line)
 	}
 }
@@ -221,7 +221,7 @@ func TestFullScanResultReplacesPartial(t *testing.T) {
 	if !ok || !rep.Complete || rep.TotalCount != 1500 {
 		t.Errorf("full result must replace the partial: %+v", rep)
 	}
-	if line := stripANSI(m.usageLine("b", "")); strings.Contains(line, "≥") {
+	if line := stripANSI(m.usageLine("b", "", 60)); strings.Contains(line, "≥") {
 		t.Errorf("usageLine = %q, want no marker after the full scan", line)
 	}
 }

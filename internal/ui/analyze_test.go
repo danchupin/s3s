@@ -72,8 +72,8 @@ func TestInlineUsageTotalsCached(t *testing.T) {
 	if rep.Children[0].Name != "logs/" || rep.Children[1].Name != "big.bin" {
 		t.Errorf("children ranking: %+v", rep.Children)
 	}
-	if line := m.usageLine("b", ""); !strings.Contains(line, "total") || !strings.Contains(line, "3 objects") {
-		t.Errorf("usageLine = %q, want total + 3 objects", line)
+	if line := stripANSI(m.usageLine("b", "", 60)); !strings.Contains(line, "650 B") || !strings.Contains(line, "3 obj") {
+		t.Errorf("usageLine = %q, want size + 3 obj", line)
 	}
 }
 

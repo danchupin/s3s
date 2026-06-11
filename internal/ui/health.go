@@ -112,7 +112,7 @@ func (m App) healthView(w, rows int) string {
 	rep, hasRep := m.usageResults.Get(key)
 
 	head := []string{metaRow("Target", sanitizeLabel("s3://"+b+"/"+p), w)}
-	if totals := m.usageLine(b, p); totals != "" {
+	if totals := m.usageLine(b, p, w); totals != "" {
 		head = append(head, totals+"\n")
 	}
 	if hasRep && !rep.Complete {
@@ -136,6 +136,10 @@ func (m App) healthView(w, rows int) string {
 		}
 	}
 	sections = append(sections, healthSection{lines: m.mpuLines(key)})
+	// The card's own key hints — the affordances live where they apply (T053).
+	cardHints := keyHint(m.keys.FullScan, "full scan") + sepDot +
+		keyHint(m.keys.CopyMenu, "export") + sepDot + keyHint(m.keys.Back, "back")
+	sections = append(sections, healthSection{lines: []string{hintLabelStyle.Render(truncate(cardHints, w)) + "\n"}})
 
 	total := 0
 	for _, s := range sections {

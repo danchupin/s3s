@@ -50,10 +50,15 @@ func (m App) actionCatalog() []action {
 	// The explicit full scan is available wherever a bucket/prefix usage target exists
 	// (017 FR-003) — the ONLY entry point for unbounded enumeration besides `:scan`.
 	scanTarget := func(a App, _ selKind) bool { _, _, ok := a.fullScanTarget(); return ok }
+	healthTarget := func(a App, _ selKind) bool { _, _, ok := a.focusedUsageTarget(); return ok }
+	shareTarget := func(a App, _ selKind) bool { _, _, _, ok := a.copyMenuTarget(); return ok }
 	if m.mode == modeBuckets && m.focusZone == zoneBuckets {
 		return []action{
 			{binds: k.MoreDetail, label: "detail", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startMoreDetail},
 			{binds: k.FullScan, label: "full scan", avail: scanTarget, invoke: App.startFullScan},
+			{binds: k.Health, label: "health", avail: healthTarget, invoke: App.openHealth},
+			{binds: k.CopyMenu, label: "share", avail: shareTarget, invoke: App.openCopyMenu},
+			{binds: k.Reveal, label: "reveal", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.openReveal},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
 			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chordKeys: k.DeleteChord,
 				avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startRemoveBucket},
@@ -73,6 +78,10 @@ func (m App) actionCatalog() []action {
 		}},
 		{binds: k.MoreDetail, label: "detail", avail: always, invoke: App.startMoreDetail},
 		{binds: k.FullScan, label: "full scan", avail: scanTarget, invoke: App.startFullScan},
+		{binds: k.Health, label: "health", avail: healthTarget, invoke: App.openHealth},
+		{binds: k.CopyMenu, label: "share", avail: shareTarget, invoke: App.openCopyMenu},
+		{binds: k.Reveal, label: "reveal", avail: func(_ App, kind selKind) bool { return kind != selNone }, invoke: App.openReveal},
+		{binds: k.Mark, label: "mark", avail: func(_ App, kind selKind) bool { return kind == selObject }, invoke: func(a App) (tea.Model, tea.Cmd) { return a.toggleMark() }},
 		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chordKeys: k.DeleteChord, avail: deleteTarget, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkDelete()

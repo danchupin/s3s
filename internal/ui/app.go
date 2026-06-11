@@ -249,13 +249,14 @@ type App struct {
 	// background UsageOf scan whose totals + breakdown render in the details pane. The
 	// scan owns its OWN generation + cancel, ISOLATED from m.gen/loadCancel (the main
 	// load), so a level load never cancels a usage scan and vice-versa.
-	usageResults *cache.Cache[*storage.UsageReport] // session cache keyed by (ctx,bucket,prefix)
-	usageProg    storage.UsageProgress              // running partial during the active scan
-	usageScanKey cache.Key                          // target of the in-flight scan
-	usageGen     int                                // scan generation (NOT m.gen)
-	usageCancel  context.CancelFunc                 // cancels the in-flight scan's own ctx
-	usageCh      chan usageEvent                    // in-flight scan progress channel
-	usageBudget  int                                // ambient-scan cap (017 US1); 0 = ambient off
+	usageResults  *cache.Cache[*storage.UsageReport] // session cache keyed by (ctx,bucket,prefix)
+	usageProg     storage.UsageProgress              // running partial during the active scan
+	usageScanKey  cache.Key                          // target of the in-flight scan
+	usageGen      int                                // scan generation (NOT m.gen)
+	usageCancel   context.CancelFunc                 // cancels the in-flight scan's own ctx
+	usageCh       chan usageEvent                    // in-flight scan progress channel
+	usageBudget   int                                // ambient-scan cap (017 US1); 0 = ambient off
+	usageScanFull bool                               // the in-flight scan is the explicit FULL scan
 
 	// inline "more detail" sections (016 US3/US4): at most ONE renders at a time (budget
 	// gate). detailSection selects which; the loads below back the tags/config sections.

@@ -63,7 +63,8 @@ type infoField struct {
 // barGlobals is the always-present help/quit cue, rendered once at init (it never
 // changes per frame). Shared by the info column and the collapsed bar so the two never
 // drift.
-var barGlobals = keyStyle.Render("?") + " " + dimCellStyle.Render("help") +
+var barGlobals = keyStyle.Render(":") + " " + dimCellStyle.Render("cmds") +
+	barSep + keyStyle.Render("?") + " " + dimCellStyle.Render("help") +
 	barSep + keyStyle.Render("q") + " " + dimCellStyle.Render("quit")
 
 // readEntries builds the read block: open + search/filter, then the read (non-write)
@@ -204,13 +205,31 @@ func (m App) infoColumn() string {
 	return blockColumn(rows)
 }
 
-// entryColumn renders a column from its entries — no heading.
+// barColMaxRows caps a block's height so a richer action set widens the bar instead of
+// growing the footer past its height budget (T053: adding health/share/reveal/mark must
+// not scroll the list off). Matches the info column's natural height.
+const barColMaxRows = 7
+
+// entryColumn renders entries as a column, overflowing into ADDITIONAL side-by-side
+// columns past barColMaxRows rows — width absorbs growth, never footer height.
 func entryColumn(entries []barEntry) string {
-	rows := make([]string, 0, len(entries))
-	for _, e := range entries {
-		rows = append(rows, entryStyled(e))
+	cols := make([]string, 0, 2)
+	for start := 0; start < len(entries); start += barColMaxRows {
+		end := min(start+barColMaxRows, len(entries))
+		rows := make([]string, 0, end-start)
+		for _, e := range entries[start:end] {
+			rows = append(rows, entryStyled(e))
+		}
+		cols = append(cols, blockColumn(rows))
 	}
-	return blockColumn(rows)
+	if len(cols) == 0 {
+		return ""
+	}
+	out := cols[0]
+	for _, c := range cols[1:] {
+		out = lipgloss.JoinHorizontal(lipgloss.Top, out, "  ", c)
+	}
+	return out
 }
 
 // writeColumn renders the write block as a column. With no WRITE heading, the read-only cue
