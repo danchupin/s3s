@@ -113,6 +113,7 @@ func run() error {
 			Endpoint: cl.Endpoint, Region: cl.Region,
 			Writable: writeEnabled, ReadOnly: policy.ReadOnly,
 			DownloadDir:     cfg.DownloadDir,
+			PathStyle:       cl.PathStyle,
 			PinnedBuckets:   cl.Buckets,
 			UsageScanBudget: cfg.ResolvedUsageScanBudget(),
 		}, nil

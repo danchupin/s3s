@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
@@ -101,6 +103,23 @@ type usageTickMsg struct {
 	gen    int
 	bucket string
 	prefix string
+}
+
+// presignDoneMsg delivers a minted presigned link (017 US3). url is a bearer secret —
+// rendered + clipboard only, never logged. curl selects the curl-snippet form.
+type presignDoneMsg struct {
+	key  string
+	url  string
+	warn string
+	ttl  time.Duration
+	curl bool
+	err  error
+}
+
+// exportDoneMsg delivers the local report-export outcome (017 US3/FR-018).
+type exportDoneMsg struct {
+	path string
+	err  error
 }
 
 // objectTagsMsg / bucketConfigMsg deliver the lazily-loaded US4 detail loads, carrying the

@@ -104,6 +104,9 @@ type Backend struct {
 	Writable    bool   // initial write-arm intent (--write)
 	ReadOnly    bool   // context is readonly:true — never armable
 	DownloadDir string // default local download dir from config
+	// PathStyle mirrors the cluster's addressing style so copied HTTPS URLs match
+	// what the user's own tooling expects (017 US3/FR-014, research D12).
+	PathStyle bool
 	// UsageScanBudget caps the ambient usage scan in enumerated objects (017 US1):
 	// the RESOLVED config value (main applies the default); 0 = ambient scanning off.
 	UsageScanBudget int
@@ -214,6 +217,9 @@ type App struct {
 
 	// field-select copy overlay (017 US2/FR-012): non-nil while choosing a field
 	fieldCopy *fieldCopyState
+
+	// copy/share menu overlay (017 US3/FR-014): non-nil while open
+	copyMenu *copyMenuState
 
 	// now is the injectable clock for relative dates (017 D14); tests pin it.
 	now func() time.Time
@@ -690,6 +696,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageTickMsg:
 		return m.onUsageTick(msg)
 
+	case presignDoneMsg:
+		return m.onPresignDone(msg)
+
+	case exportDoneMsg:
+		return m.onExportDone(msg)
+
 	case objectTagsMsg:
 		return m.onObjectTags(msg)
 
@@ -870,6 +882,11 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onFieldCopyKey(key)
 	}
 
+	// The copy/share menu owns input while open (017 US3).
+	if m.copyMenu != nil {
+		return m.onCopyMenuKey(key)
+	}
+
 	// Global quit.
 	if matches(key, m.keys.Quit) {
 		(&m).cancelLoad()
@@ -904,6 +921,11 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	// globally available in the browse modes.
 	if matches(key, m.keys.Reveal) {
 		return m.openReveal()
+	}
+
+	// The copy/share menu — globally available in the browse modes (017 US3).
+	if matches(key, m.keys.CopyMenu) && (m.mode == modeBuckets || m.mode == modeTree || m.mode == modeObject) {
+		return m.openCopyMenu()
 	}
 
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
@@ -1271,6 +1293,12 @@ func (m App) View() tea.View {
 	if m.fieldCopy != nil {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.fieldCopyView(w, bodyH)
+	}
+
+	// The copy/share menu (017 US3) overlays the body, centered.
+	if m.copyMenu != nil {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.copyMenuView(w, bodyH)
 	}
 
 	// The filter forms live inside body (listWithPane stacks them under the list boxes), so the

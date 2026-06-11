@@ -40,9 +40,13 @@ type s3API interface {
 	DeleteBucket(context.Context, *s3.DeleteBucketInput, ...func(*s3.Options)) (*s3.DeleteBucketOutput, error)
 }
 
-// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation.
+// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation. presigner and
+// creds back PresignGet (017 US3): both are client-side facilities — nil in unit tests
+// that fake the api, always set by New.
 type s3Client struct {
-	api s3API
+	api       s3API
+	presigner *s3.PresignClient
+	creds     aws.CredentialsProvider
 }
 
 // New builds a Storage from a resolved (cluster + user) ClientConfig. Anonymous
@@ -90,7 +94,34 @@ func New(cc ClientConfig) (Storage, error) {
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
-	return &s3Client{api: client}, nil
+	return &s3Client{api: client, presigner: s3.NewPresignClient(client), creds: cfg.Credentials}, nil
+}
+
+// PresignGet mints a presigned GET URL client-side (017 US3/FR-015). No network call is
+// made; the URL is a bearer secret and is NEVER logged — only {bucket, key, ttl} is
+// (constitution V, FR-016).
+func (c *s3Client) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, string, error) {
+	if !ValidPresignTTL(ttl) {
+		return "", "", fmt.Errorf("%w: presign ttl must be one of 15m/1h/24h/7d", ErrInvalidConfig)
+	}
+	if c.presigner == nil {
+		return "", "", fmt.Errorf("%w: presigner unavailable", ErrInvalidConfig)
+	}
+	req, err := c.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, func(o *s3.PresignOptions) { o.Expires = ttl })
+	if err != nil {
+		return "", "", classify(err)
+	}
+	warn := ""
+	if c.creds != nil {
+		if cr, cerr := c.creds.Retrieve(ctx); cerr == nil && cr.CanExpire && cr.Expires.Before(time.Now().Add(ttl)) {
+			warn = "credentials expire before the link (" + cr.Expires.Format("2006-01-02 15:04") + ") — the link dies with them"
+		}
+	}
+	slog.Info("presign", "bucket", bucket, "key", key, "ttl", ttl.String())
+	return req.URL, warn, nil
 }
 
 func (c *s3Client) ListBuckets(ctx context.Context) ([]Bucket, error) {

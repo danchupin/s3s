@@ -144,6 +144,28 @@ type Storage interface {
 	// and classifies each as configured/none/denied/unsupported, so one failed
 	// sub-resource never fails the whole call. A read. 016 US4/FR-012/FR-013.
 	GetBucketConfiguration(ctx context.Context, bucket string) (BucketConfig, error)
+
+	// PresignGet mints a time-limited GET link for an object ENTIRELY client-side —
+	// no network call; the backend is untouched (a read-only capability). ttl MUST be
+	// one of the PresignTTLs presets (else ErrInvalidConfig). warn is non-empty when
+	// the active credentials expire before now+ttl. The returned URL is a bearer
+	// secret: implementations log only {bucket, key, ttl}, NEVER the URL
+	// (constitution V). 017 US3/FR-015..FR-017.
+	PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (url, warn string, err error)
+}
+
+// PresignTTLs are the only validity durations a presigned link may carry
+// (017 FR-015): 15 minutes, 1 hour (default), 24 hours, 7 days (the SigV4 maximum).
+var PresignTTLs = []time.Duration{15 * time.Minute, time.Hour, 24 * time.Hour, 7 * 24 * time.Hour}
+
+// ValidPresignTTL reports whether ttl is one of the allowed presets.
+func ValidPresignTTL(ttl time.Duration) bool {
+	for _, ok := range PresignTTLs {
+		if ttl == ok {
+			return true
+		}
+	}
+	return false
 }
 
 // ObjectTags is the tag set of one object (values, not just a count) — 016 US4/FR-011.

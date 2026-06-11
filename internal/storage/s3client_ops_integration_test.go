@@ -9,7 +9,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
+	"net/url"
 	"testing"
+	"time"
 )
 
 // TestIntegrationGetObjectFull downloads a multi-megabyte object and verifies the
@@ -93,6 +96,49 @@ func TestIntegrationUsageOfPagination(t *testing.T) {
 	}
 	if crep.Complete {
 		t.Error("cancelled UsageOf Complete = true, want false")
+	}
+}
+
+// TestIntegrationPresignGetFetchable mints a presigned link against the real MinIO and
+// fetches it with PLAIN http.Get (no SDK on the consumer side) — the link must deliver
+// the object bytes and carry the chosen expiry (017 US3/FR-015, T034).
+func TestIntegrationPresignGetFetchable(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "presign")
+	b.put(t, "presign", "share/доклад v+1.txt", "presigned-payload", "text/plain")
+
+	u, warn, err := b.store.PresignGet(context.Background(), "presign", "share/доклад v+1.txt", 15*time.Minute)
+	if err != nil {
+		t.Fatalf("PresignGet: %v", err)
+	}
+	if warn != "" {
+		t.Errorf("warn = %q, want empty for static creds", warn)
+	}
+	parsed, perr := url.Parse(u)
+	if perr != nil || parsed.Query().Get("X-Amz-Expires") != "900" {
+		t.Errorf("URL expiry: parse=%v X-Amz-Expires=%q, want 900", perr, parsed.Query().Get("X-Amz-Expires"))
+	}
+
+	resp, herr := http.Get(u) //nolint:gosec // the URL is minted above, not user input
+	if herr != nil {
+		t.Fatalf("plain http.Get(presigned): %v", herr)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("presigned GET status = %d, want 200", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "presigned-payload" {
+		t.Errorf("presigned body = %q", body)
+	}
+
+	// A tampered signature must be rejected — proves the backend validates the link.
+	bad := u[:len(u)-4] + "0000"
+	if resp2, err2 := http.Get(bad); err2 == nil { //nolint:gosec
+		_ = resp2.Body.Close()
+		if resp2.StatusCode == http.StatusOK {
+			t.Error("tampered signature was accepted")
+		}
 	}
 }
 

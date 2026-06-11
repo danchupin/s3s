@@ -32,6 +32,7 @@ func commandRegistry() []command {
 		{name: "connect", aliases: []string{"conn"}, invoke: App.openConnections},
 		{name: "detail", aliases: []string{"info", "du"}, invoke: App.startMoreDetail},
 		{name: "scan", invoke: App.startFullScan},
+		{name: "copy", aliases: []string{"share"}, invoke: App.openCopyMenu},
 		{name: "refresh", invoke: func(m App) (tea.Model, tea.Cmd) {
 			if m.mode == modeBuckets {
 				return m.refreshBuckets()

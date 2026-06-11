@@ -37,6 +37,9 @@ type Fake struct {
 	// UsageScanStart pins the age-histogram reference (zero ⇒ time.Now()) so
 	// distribution tests are deterministic (017 US4).
 	UsageScanStart time.Time
+	// PresignCredsExpireIn simulates credentials that expire after this duration
+	// (zero ⇒ never): PresignGet warns when a ttl outlives them (017 US3/FR-017).
+	PresignCredsExpireIn time.Duration
 }
 
 // FakeBucket is one seeded bucket.
@@ -523,6 +526,23 @@ func (f *Fake) GetBucketConfiguration(ctx context.Context, bucket string) (Bucke
 		}
 	}
 	return cfg, nil
+}
+
+// PresignGet mirrors the real client's client-side presign: TTL preset validation, a
+// deterministic URL embedding bucket/key/ttl, a cred-expiry warning — and ZERO backend
+// calls (017 US3/FR-015..FR-017).
+func (f *Fake) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if !ValidPresignTTL(ttl) {
+		return "", "", fmt.Errorf("%w: presign ttl must be one of 15m/1h/24h/7d", ErrInvalidConfig)
+	}
+	warn := ""
+	if f.PresignCredsExpireIn > 0 && f.PresignCredsExpireIn < ttl {
+		warn = "credentials expire before the link — the link dies with them"
+	}
+	return fmt.Sprintf("https://fake.presign/%s/%s?ttl=%d", bucket, key, int(ttl.Seconds())), warn, nil
 }
 
 // defConfigState normalises a zero-value ConfigItem (State == "") to ConfigNone.
