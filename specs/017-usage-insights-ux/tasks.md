@@ -141,12 +141,12 @@ never reads as zero (contract health-card-view.md, obligations 1–7).
 **Independent Test**: JSON/gzip/NDJSON/binary fixtures render per contract
 preview-rendering.md (obligations 1–6).
 
-- [ ] T044 [P] [US5] RED: gzip units in `internal/preview/gzip_test.go` — golden small payload; high-ratio bomb capped at `Limit` with `Truncated`; `.gz` hint + bad magic → silent raw; gzipped JSON re-classifies to pretty
-- [ ] T045 [P] [US5] RED: pretty units in `internal/preview/pretty_test.go` — JSON golden (2-space indent); raw toggle returns byte-identical original; invalid JSON → raw, no error text; NDJSON 3 records in order; one bad line → whole payload raw
-- [ ] T046 [P] [US5] RED: hexdump golden (offset+hex+ASCII, non-printables, header summary preserved) in `internal/preview/hex_test.go`
-- [ ] T047 [US5] GREEN: `internal/preview/gzip.go` (magic-bytes detect + `io.LimitReader` cap + `Compressed` metadata), `KindJSON`/`KindNDJSON` split + pretty in `internal/preview/text.go`, `internal/preview/hex.go`
-- [ ] T048 [P] [US5] RED: toggle UI tests in `internal/ui/preview_toggle_test.go` — `p` flips pretty↔raw in `modeObject`; state resets on next object; no-op for text/image kinds; hint advertised
-- [ ] T049 [US5] GREEN: `keys.RawToggle = "p"` in `internal/ui/keys.go` + `modeObject` wiring (`rawPreview` reset on load) in `internal/ui/app.go` + hintbar row in `internal/ui/hintbar.go`
+- [X] T044 [P] [US5] RED: gzip units in `internal/preview/gzip_test.go` — golden small payload; high-ratio bomb capped at `Limit` with `Truncated`; `.gz` hint + bad magic → silent raw; gzipped JSON re-classifies to pretty
+- [X] T045 [P] [US5] RED: pretty units in `internal/preview/pretty_test.go` — JSON golden (2-space indent); raw toggle returns byte-identical original; invalid JSON → raw, no error text; NDJSON 3 records in order; one bad line → whole payload raw
+- [X] T046 [P] [US5] RED: hexdump golden (offset+hex+ASCII, non-printables, header summary preserved) in `internal/preview/hex_test.go`
+- [X] T047 [US5] GREEN: `internal/preview/gzip.go` (magic-bytes detect + `io.LimitReader` cap + `Compressed` metadata), `KindJSON`/`KindNDJSON` split + pretty in `internal/preview/text.go`, `internal/preview/hex.go`
+- [X] T048 [P] [US5] RED: toggle UI tests in `internal/ui/preview_toggle_test.go` — `p` flips pretty↔raw in `modeObject`; state resets on next object; no-op for text/image kinds; hint advertised
+- [X] T049 [US5] GREEN: `keys.RawToggle = "p"` in `internal/ui/keys.go` + `modeObject` wiring (`rawPreview` reset on load) in `internal/ui/app.go` + hintbar row in `internal/ui/hintbar.go`
 
 **Checkpoint**: all 5 stories complete.
 

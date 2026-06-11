@@ -22,6 +22,7 @@ type keyMap struct {
 	FullScan    []string // 017: explicit UNCAPPED usage scan — the only unbounded path
 	CopyMenu    []string // 017: copy/share menu (URI / URL / command / presigned / export)
 	Health      []string // 017: full-screen operator health card
+	RawToggle   []string // 017: pretty↔raw preview toggle (JSON/NDJSON, modeObject)
 	Download    []string // download the selected object / marked set — read
 	NewFolder   []string // create an empty folder (write mode)
 	Delete      []string // delete the selected object (write mode)
@@ -58,6 +59,7 @@ func defaultKeys() keyMap {
 		FullScan:    []string{"A"}, // shift-variant of "more detail": the explicit full usage scan (017)
 		CopyMenu:    []string{"Y"}, // copy/share menu — the yank family ("y" is the write-copy)
 		Health:      []string{"H"}, // operator health card (full-screen)
+		RawToggle:   []string{"p"}, // pretty↔raw preview toggle in the object view
 		Download:    []string{"d"}, // download — read, works read-only
 		NewFolder:   []string{"+"},
 		Delete:      []string{"x"}, // k9s-style delete; frees "d" for download
@@ -174,6 +176,7 @@ func (m App) helpLines() []string {
 		row(formatKeys(k.FullScan), "full usage scan (uncapped) of the focused bucket/folder"),
 		row(formatKeys(k.CopyMenu), "copy/share: URI · URL · command · presigned link · export"),
 		row(formatKeys(k.Health), "health card: age/size/class histograms · incomplete uploads"),
+		row(formatKeys(k.RawToggle), "object view: toggle pretty ↔ raw for JSON/NDJSON previews"),
 		row(formatKeys(k.Refresh), "reload the current list"),
 		row(formatKeys(k.NewFolder), "create a folder") + wtag,
 		row(formatKeys(k.Upload), "upload a local file") + wtag,

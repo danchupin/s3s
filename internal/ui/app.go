@@ -167,9 +167,10 @@ type App struct {
 	objReturn mode
 
 	// metadata / preview panes
-	meta    *storage.ObjectMetadata
-	prev    *preview.Payload
-	prevOff int
+	meta       *storage.ObjectMetadata
+	prev       *preview.Payload
+	prevOff    int
+	rawPreview bool // 017 US5: pretty↔raw toggle; reset per payload
 
 	// context switcher
 	ctxSel int
@@ -695,6 +696,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		p := msg.payload
 		m.prev = &p
+		m.rawPreview = false // 017 US5: the pretty/raw toggle is per-payload
 		m.mode = modeObject
 		return m, nil
 
