@@ -75,16 +75,21 @@ type searchFireMsg struct {
 // usageProgressMsg delivers one running-totals tick during a usage scan. It carries the
 // scan's OWN channel so the handler always re-arms the SAME channel — even a superseded
 // scan drains to its done event and never strands the producer (016 II, no goroutine leak).
+// key identifies the scan's target so the chain can stamp it onto the terminal msg.
 type usageProgressMsg struct {
 	gen int
 	p   storage.UsageProgress
 	ch  chan usageEvent
+	key cache.Key
 }
 
-// usageDoneMsg delivers the terminal usage report (or error). A cancelled scan carries a
-// partial report with Complete=false.
+// usageDoneMsg delivers the terminal usage report (or error). A cancelled or
+// budget-bounded scan carries a partial report with Complete=false. key is the target
+// the scan was started for: a late (superseded-gen) report is still cached THERE — the
+// data is valid for that target even when the view has moved on (017 FR-004).
 type usageDoneMsg struct {
 	gen    int
+	key    cache.Key
 	report storage.UsageReport
 	err    error
 }

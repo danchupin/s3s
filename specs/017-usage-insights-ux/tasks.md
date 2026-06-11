@@ -22,7 +22,7 @@ phase is an independently testable increment.
 
 **Purpose**: clean baseline; no project scaffolding needed (existing module).
 
-- [ ] T001 Verify baseline green on branch: `make test fmt vet lint check-readonly` all pass; record `go test ./... -count=1` time as reference (no file changes)
+- [X] T001 Verify baseline green on branch: `make test fmt vet lint check-readonly` all pass; record `go test ./... -count=1` time as reference (no file changes)
 
 ---
 
@@ -31,12 +31,12 @@ phase is an independently testable increment.
 **Purpose**: the `UsageOf` contract change (cap + distributions) — blocks US1 (cap/Bounded) AND
 US4 (distributions). One atomic signature change, compile-break first (quickstart US1 RED-1).
 
-- [ ] T002 RED: budget-cap unit tests in `internal/storage/usage_budget_test.go` — Fake seeded budget+1 objects → `Bounded=true`, listed pages ≤ ⌈(budget+999)/1000⌉ (Fake page counter); seeded == budget exactly → `Complete=true, Bounded=false`; `maxObjects=0` → unlimited; cancelled ctx → partial + ctx.Err() (unchanged)
-- [ ] T003 [P] RED: distribution unit tests in `internal/storage/usage_dist_test.go` — seeded known age/size/class mix → exact `AgeDist`/`SizeDist`/`ClassDist` buckets (boundaries per data-model §2); Σ dist counts == `TotalCount`, Σ sizes == `TotalSize`; empty class → `STANDARD`; `ScanStart` injectable in Fake
-- [ ] T004 GREEN: change `Storage.UsageOf` signature (+`maxObjects int`) and extend `UsageReport` (+`Bounded`, `ScanStart`, `AgeDist`, `SizeDist`, `ClassDist`, new `DistBucket`) in `internal/storage/storage.go`
-- [ ] T005 GREEN: cap enforcement (stop within one page of `maxObjects`) + single-pass histogram accumulation in `usageAgg` in `internal/storage/s3client.go`
-- [ ] T006 GREEN: `Fake.UsageOf` cap + distributions + pages-listed counter + seedable `ScanStart` in `internal/storage/fake.go`
-- [ ] T007 Restore compile of existing callers with NO behavior change: `startUsageScan` passes `maxObjects=0` temporarily in `internal/ui/analyze.go`; adjust existing usage tests' call sites (`internal/ui/analyze_test.go`, `internal/storage` tests)
+- [X] T002 RED: budget-cap unit tests in `internal/storage/usage_budget_test.go` — Fake seeded budget+1 objects → `Bounded=true`, listed pages ≤ ⌈(budget+999)/1000⌉ (Fake page counter); seeded == budget exactly → `Complete=true, Bounded=false`; `maxObjects=0` → unlimited; cancelled ctx → partial + ctx.Err() (unchanged)
+- [X] T003 [P] RED: distribution unit tests in `internal/storage/usage_dist_test.go` — seeded known age/size/class mix → exact `AgeDist`/`SizeDist`/`ClassDist` buckets (boundaries per data-model §2); Σ dist counts == `TotalCount`, Σ sizes == `TotalSize`; empty class → `STANDARD`; `ScanStart` injectable in Fake
+- [X] T004 GREEN: change `Storage.UsageOf` signature (+`maxObjects int`) and extend `UsageReport` (+`Bounded`, `ScanStart`, `AgeDist`, `SizeDist`, `ClassDist`, new `DistBucket`) in `internal/storage/storage.go`
+- [X] T005 GREEN: cap enforcement (stop within one page of `maxObjects`) + single-pass histogram accumulation in `usageAgg` in `internal/storage/s3client.go`
+- [X] T006 GREEN: `Fake.UsageOf` cap + distributions + pages-listed counter + seedable `ScanStart` in `internal/storage/fake.go`
+- [X] T007 Restore compile of existing callers with NO behavior change: `startUsageScan` passes `maxObjects=0` temporarily in `internal/ui/analyze.go`; adjust existing usage tests' call sites (`internal/ui/analyze_test.go`, `internal/storage` tests)
 
 **Checkpoint**: `make test check-readonly` green; T002/T003 pass; UI behaves exactly as 016.
 
@@ -51,16 +51,16 @@ bounds; full scan only via `A`/`:scan`; `a` never starts unbounded work.
 page cap; `A` full-scans with progress; cancel keeps the lower bound (contract
 budgeted-usage-scan.md, test obligations 1–7).
 
-- [ ] T008 [US1] RED: `usageScanBudget` config tests in `internal/config/config_test.go` — absent → nil → default 20000 at resolve; `0` accepted (ambient off); negative → validation error
-- [ ] T009 [US1] GREEN: `Config.UsageScanBudget *int` (YAML `usageScanBudget`) + validation in `internal/config/config.go`
-- [ ] T010 [US1] GREEN: plumb resolved budget into the UI — `App` field set in `New()` via `cmd/s3s/main.go` wiring (UI never reads config files)
-- [ ] T011 [P] [US1] RED: budgeted ambient-scan UI tests in `internal/ui/budget_scan_test.go` — dwell on uncached big target → `≥`+`partial` in `View().Content`, Fake page counter ≤ cap; boundary (count==budget) → no `≥`; `budget=0` → dwell arms nothing, cached results still render; dwell on a target with a cached PARTIAL → `≥` renders instantly, zero new pages (partial is a cache HIT for ambient purposes — only `A`/`:scan` upgrades it)
-- [ ] T012 [P] [US1] RED: partial-caching tests — cancel mid-scan → cache holds lower bound, revisit renders `≥` instantly with zero new pages; exact never overwritten by partial; full-scan completion replaces partial; superseded-gen report still cached under its own `usageScanKey`; update discard expectations in `internal/ui/inline_usage_resilience_test.go`
-- [ ] T013 [P] [US1] RED: full-scan dispatcher tests in `internal/ui/full_scan_test.go` — `A` and `:scan` invoke ONE dispatcher; progress totals stream; cancellable; `a`/`:detail` on uncached target runs BUDGETED scan only (page counter) + affordance line present
-- [ ] T014 [US1] GREEN: budget plumb through `armUsageScan`/`onUsageTick`/`startUsageScan`; `startFullScan` (maxObjects=0) under `usageGen`; `onUsageDone` caches exact AND `Bounded` AND cancelled reports (drop the discard at the 016 `analyze.go:185-187` branch) in `internal/ui/analyze.go`
-- [ ] T015 [US1] GREEN: `keys.FullScan = "A"` in `internal/ui/keys.go` + help row; `:scan` entry → `startFullScan` in `internal/ui/command.go`; affordance hint in `internal/ui/hintbar.go`
-- [ ] T016 [US1] GREEN: pane lower-bound rendering (`≥` totals, `partial` text marker, `A full scan` affordance via `keyHint`) in `internal/ui/pane.go`
-- [ ] T017 [US1] Integration test: cap honored against real MinIO pagination (seed > budget, assert `Bounded` + request count) in `internal/storage/s3client_integration_test.go`
+- [X] T008 [US1] RED: `usageScanBudget` config tests in `internal/config/config_test.go` — absent → nil → default 20000 at resolve; `0` accepted (ambient off); negative → validation error
+- [X] T009 [US1] GREEN: `Config.UsageScanBudget *int` (YAML `usageScanBudget`) + validation in `internal/config/config.go`
+- [X] T010 [US1] GREEN: plumb resolved budget into the UI — `App` field set in `New()` via `cmd/s3s/main.go` wiring (UI never reads config files)
+- [X] T011 [P] [US1] RED: budgeted ambient-scan UI tests in `internal/ui/budget_scan_test.go` — dwell on uncached big target → `≥`+`partial` in `View().Content`, Fake page counter ≤ cap; boundary (count==budget) → no `≥`; `budget=0` → dwell arms nothing, cached results still render; dwell on a target with a cached PARTIAL → `≥` renders instantly, zero new pages (partial is a cache HIT for ambient purposes — only `A`/`:scan` upgrades it)
+- [X] T012 [P] [US1] RED: partial-caching tests — cancel mid-scan → cache holds lower bound, revisit renders `≥` instantly with zero new pages; exact never overwritten by partial; full-scan completion replaces partial; superseded-gen report still cached under its own `usageScanKey`; update discard expectations in `internal/ui/inline_usage_resilience_test.go`
+- [X] T013 [P] [US1] RED: full-scan dispatcher tests in `internal/ui/full_scan_test.go` — `A` and `:scan` invoke ONE dispatcher; progress totals stream; cancellable; `a`/`:detail` on uncached target runs BUDGETED scan only (page counter) + affordance line present
+- [X] T014 [US1] GREEN: budget plumb through `armUsageScan`/`onUsageTick`/`startUsageScan`; `startFullScan` (maxObjects=0) under `usageGen`; `onUsageDone` caches exact AND `Bounded` AND cancelled reports (drop the discard at the 016 `analyze.go:185-187` branch) in `internal/ui/analyze.go`
+- [X] T015 [US1] GREEN: `keys.FullScan = "A"` in `internal/ui/keys.go` + help row; `:scan` entry → `startFullScan` in `internal/ui/command.go`; affordance hint in `internal/ui/hintbar.go`
+- [X] T016 [US1] GREEN: pane lower-bound rendering (`≥` totals, `partial` text marker, `A full scan` affordance via `keyHint`) in `internal/ui/pane.go`
+- [X] T017 [US1] Integration test: cap honored against real MinIO pagination (seed > budget, assert `Bounded` + request count) in `internal/storage/s3client_integration_test.go`
 
 **Checkpoint**: US1 fully functional — cluster-safety fix delivered. MVP shippable.
 
@@ -77,14 +77,14 @@ Caveat: per-field copy (spec US2 scenario 4) is verified via direct dispatcher i
 white-box tests; the user-facing entry ("copy a field…" menu item) ships in US3/T032. US2 alone
 delivers machinery + tests, not the menu entry — acceptable because phases execute US2→US3.
 
-- [ ] T018 [P] [US2] RED: grouped-render + state-matrix + multipart-ETag tests in `internal/ui/metadata_groups_test.go` — 4 group headers in stable order; empty groups omitted; `unknown` ≠ `—` ≠ `denied` ≠ `unsupported` by TEXT; same assertions under NO_COLOR; ETag `32hex-N` → `(multipart, N parts — not a content hash)`, plain ETag unannotated
-- [ ] T019 [P] [US2] RED: `relTime` unit + dual-date render tests in `internal/ui/reltime_test.go` — fixed `now` → `just now/Nm/Nh/Nd/Nmo/Ny ago` table; Modified row carries BOTH relative and exact `formatDate` forms
-- [ ] T020 [P] [US2] RED: per-field copy tests in `internal/ui/field_copy_test.go` — field-select over visible rows; Enter emits OSC52 cmd with FULL untruncated value (long KMS ARN); footer confirms label; Esc exits without copy
-- [ ] T021 [P] [US2] RED: extend the 130×24 height sweep for grouped layout + all states seeded in `internal/ui/metadata_legibility_test.go` — every value present in `View().Content` OR revealable
-- [ ] T022 [US2] GREEN: regroup `metaFieldRows` into 4 ordered groups with `colHeadStyle` headers + state rendering table in `internal/ui/metadata.go`
-- [ ] T023 [US2] GREEN: `relTime(now, t)` helper + `App.now func() time.Time` injection (default `time.Now`, fixed in tests) in `internal/ui/metadata.go` + `internal/ui/app.go`
-- [ ] T024 [US2] GREEN: multipart-ETag annotation (`^"?[0-9a-f]{32}-(\d+)"?$`) in `internal/ui/metadata.go`
-- [ ] T025 [US2] GREEN: field-select copy machinery (state machine + OSC52 emit via the reveal path; directly invokable — menu entry wired in US3/T032) in `internal/ui/fieldcopy.go`
+- [X] T018 [P] [US2] RED: grouped-render + state-matrix + multipart-ETag tests in `internal/ui/metadata_groups_test.go` — 4 group headers in stable order; empty groups omitted; `unknown` ≠ `—` ≠ `denied` ≠ `unsupported` by TEXT; same assertions under NO_COLOR; ETag `32hex-N` → `(multipart, N parts — not a content hash)`, plain ETag unannotated
+- [X] T019 [P] [US2] RED: `relTime` unit + dual-date render tests in `internal/ui/reltime_test.go` — fixed `now` → `just now/Nm/Nh/Nd/Nmo/Ny ago` table; Modified row carries BOTH relative and exact `formatDate` forms
+- [X] T020 [P] [US2] RED: per-field copy tests in `internal/ui/field_copy_test.go` — field-select over visible rows; Enter emits OSC52 cmd with FULL untruncated value (long KMS ARN); footer confirms label; Esc exits without copy
+- [X] T021 [P] [US2] RED: extend the 130×24 height sweep for grouped layout + all states seeded in `internal/ui/metadata_legibility_test.go` — every value present in `View().Content` OR revealable
+- [X] T022 [US2] GREEN: regroup `metaFieldRows` into 4 ordered groups with `colHeadStyle` headers + state rendering table in `internal/ui/metadata.go`
+- [X] T023 [US2] GREEN: `relTime(now, t)` helper + `App.now func() time.Time` injection (default `time.Now`, fixed in tests) in `internal/ui/metadata.go` + `internal/ui/app.go`
+- [X] T024 [US2] GREEN: multipart-ETag annotation (`^"?[0-9a-f]{32}-(\d+)"?$`) in `internal/ui/metadata.go`
+- [X] T025 [US2] GREEN: field-select copy machinery (state machine + OSC52 emit via the reveal path; directly invokable — menu entry wired in US3/T032) in `internal/ui/fieldcopy.go`
 
 **Checkpoint**: US1+US2 = both P1 stories done; pane readable, identifiers copyable.
 

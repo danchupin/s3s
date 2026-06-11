@@ -125,11 +125,15 @@ type Storage interface {
 	// 005 FR-001/FR-002.
 	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, error)
 
-	// UsageOf recursively aggregates every object under prefix: total size/count and
-	// an immediate-child breakdown ranked largest-first. onProgress (nil-safe) gets
-	// running totals; a cancelled ctx returns the partial report (Complete=false) with
-	// ctx.Err(). A read. 005 FR-008..FR-012.
-	UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error)
+	// UsageOf recursively aggregates every object under prefix: total size/count, an
+	// immediate-child breakdown ranked largest-first, and age/size/storage-class
+	// distributions gathered in the SAME pass (017 US4 — no extra requests).
+	// maxObjects > 0 caps the enumeration: the scan stops within one listing page of
+	// reaching the cap and the report carries Bounded=true / Complete=false (a lower
+	// bound, NOT an error). maxObjects == 0 scans everything. onProgress (nil-safe)
+	// gets running totals; a cancelled ctx returns the partial report (Complete=false,
+	// Bounded=false) with ctx.Err(). A read. 005 FR-008..FR-012, 017 FR-001..FR-005.
+	UsageOf(ctx context.Context, bucket, prefix string, maxObjects int, onProgress func(UsageProgress)) (UsageReport, error)
 
 	// GetObjectTagging returns the object's tag key/value pairs (values, not just the
 	// count). An empty Tags map = "no tags". A read. 016 US4/FR-011.
@@ -189,8 +193,24 @@ type UsageChild struct {
 	Count int    // object count beneath this child
 }
 
+// DistBucket is one histogram bucket of a usage distribution (017 US4).
+type DistBucket struct {
+	Count int   // objects in this bucket
+	Size  int64 // bytes in this bucket
+}
+
+// Fixed histogram boundaries (017 research D5). Index i of UsageReport.AgeDist /
+// SizeDist corresponds to label index i here — the single source for the UI and
+// report export, so rows can never drift from the data.
+var (
+	AgeBucketLabels  = [6]string{"<1d", "1–7d", "7–30d", "30–90d", "90–365d", ">1y"}
+	SizeBucketLabels = [6]string{"<128KiB", "128KiB–1MiB", "1–16MiB", "16–128MiB", "128MiB–1GiB", "≥1GiB"}
+)
+
 // UsageReport is the aggregate result of UsageOf for one prefix. Children are ranked
-// by Size descending (ties by Name). Complete is false when the scan was cancelled.
+// by Size descending (ties by Name). Complete is false when the scan was cancelled OR
+// capped; Bounded is true only when the maxObjects cap stopped it (totals are then an
+// explicit lower bound). Complete==true && Bounded==true never occurs (017 data-model §2).
 type UsageReport struct {
 	Bucket     string
 	Prefix     string
@@ -198,6 +218,13 @@ type UsageReport struct {
 	TotalCount int
 	Children   []UsageChild
 	Complete   bool
+
+	// 017: budget + same-pass distributions.
+	Bounded   bool                  // stopped at the maxObjects cap — lower bound
+	ScanStart time.Time             // age-histogram reference point
+	AgeDist   [6]DistBucket         // boundaries per AgeBucketLabels
+	SizeDist  [6]DistBucket         // boundaries per SizeBucketLabels
+	ClassDist map[string]DistBucket // key = storage class ("" normalized to STANDARD)
 }
 
 // UsageProgress is a running tick emitted during a long UsageOf scan (005 FR-011).

@@ -29,6 +29,14 @@ type Fake struct {
 	// Call counters (test assertions, e.g. "0 ListBuckets calls for a pinned connection").
 	ListBucketsCalls int
 	ListLevelCalls   int
+
+	// 017 US1: UsageOf models pagination in chunks of DefaultMaxKeys; UsagePages
+	// counts simulated pages so budget tests can assert the enumeration stopped
+	// within one page of the cap.
+	UsagePages int
+	// UsageScanStart pins the age-histogram reference (zero ⇒ time.Now()) so
+	// distribution tests are deterministic (017 US4).
+	UsageScanStart time.Time
 }
 
 // FakeBucket is one seeded bucket.
@@ -46,7 +54,10 @@ type FakeBucket struct {
 
 // FakeObject is one seeded object.
 type FakeObject struct {
-	Data         []byte
+	Data []byte
+	// Size overrides the effective object size when > 0 (len(Data) otherwise), so
+	// tests can model multi-GiB objects without allocating (017 distribution tests).
+	Size         int64
 	ContentType  string
 	StorageClass string
 	ETag         string
@@ -179,7 +190,7 @@ func (f *Fake) ListLevel(ctx context.Context, q LevelQuery) (Page, error) {
 		o := b.Objects[k]
 		objs = append(objs, ObjectRef{
 			Key:          k,
-			Size:         int64(len(o.Data)),
+			Size:         o.effSize(),
 			LastModified: o.LastModified,
 			StorageClass: o.StorageClass,
 		})
@@ -213,7 +224,7 @@ func (f *Fake) HeadObject(ctx context.Context, bucket, key string) (ObjectMetada
 	}
 	return ObjectMetadata{
 		Key:          key,
-		Size:         int64(len(o.Data)),
+		Size:         o.effSize(),
 		LastModified: o.LastModified,
 		ContentType:  o.ContentType,
 		StorageClass: o.StorageClass,
@@ -398,13 +409,29 @@ func (f *Fake) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser
 	return io.NopCloser(bytes.NewReader(o.Data)), nil
 }
 
+// effSize is the effective object size: the Size override when set, else len(Data).
+func (o FakeObject) effSize() int64 {
+	if o.Size > 0 {
+		return o.Size
+	}
+	return int64(len(o.Data))
+}
+
 // UsageOf recursively aggregates objects under prefix with the shared usageAgg, so
-// the Fake ranks children identically to the real client (005 FR-008/FR-009).
-func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
-	agg := newUsageAgg(bucket, prefix)
+// the Fake ranks children and buckets distributions identically to the real client
+// (005 FR-008/FR-009, 017 US1/US4). Pagination is modelled in chunks of
+// DefaultMaxKeys: UsagePages counts pages, and the maxObjects cap is checked at page
+// boundaries exactly like the real client (truncation first — a cap reached on the
+// final page is exact).
+func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, maxObjects int, onProgress func(UsageProgress)) (UsageReport, error) {
+	scanStart := f.UsageScanStart
+	if scanStart.IsZero() {
+		scanStart = time.Now()
+	}
+	agg := newUsageAgg(bucket, prefix, scanStart)
 	b, ok := f.Buckets[bucket]
 	if !ok {
-		return agg.report(false), fmt.Errorf("usage %q: %w", bucket, ErrNotFound)
+		return agg.report(false, false), fmt.Errorf("usage %q: %w", bucket, ErrNotFound)
 	}
 	keys := make([]string, 0, len(b.Objects))
 	for k := range b.Objects {
@@ -413,16 +440,31 @@ func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress fu
 		}
 	}
 	sort.Strings(keys)
-	for _, k := range keys {
-		if err := ctx.Err(); err != nil {
-			return agg.report(false), err
+	pageSize := int(DefaultMaxKeys)
+	for start := 0; start < len(keys); start += pageSize {
+		end := start + pageSize
+		if end > len(keys) {
+			end = len(keys)
 		}
-		agg.add(k, int64(len(b.Objects[k].Data)))
+		f.UsagePages++
+		for _, k := range keys[start:end] {
+			if err := ctx.Err(); err != nil {
+				return agg.report(false, false), err
+			}
+			o := b.Objects[k]
+			agg.add(k, o.effSize(), o.LastModified, o.StorageClass)
+		}
 		if onProgress != nil {
 			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
 		}
+		if end == len(keys) {
+			break // final page — exact even when the cap was just reached
+		}
+		if maxObjects > 0 && agg.totalCount >= maxObjects {
+			return agg.report(false, true), nil
+		}
 	}
-	return agg.report(true), nil
+	return agg.report(true, false), nil
 }
 
 // GetObjectTagging returns the seeded tags for an object (016 US4). TagsDenied → 403.

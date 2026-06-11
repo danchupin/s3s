@@ -18,7 +18,7 @@ func TestMetaFieldRowsEnrichedOmitAndGated(t *testing.T) {
 		VersionID: "v1", SSEAlgorithm: "aws:kms", SSEKMSKeyID: "key-123",
 		ObjectLockMode: "GOVERNANCE", // ObjectLockLegalHold + ReplicationStatus left empty
 	}
-	out := metaFieldRows(md, 80)
+	out := metaFieldRows(md, 80, testNow)
 	for _, want := range []string{"Version", "v1", "Encryption", "aws:kms", "KMS key", "key-123", "Lock", "GOVERNANCE", "Legal hold", "unknown"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("metaFieldRows missing %q:\n%s", want, out)
@@ -35,7 +35,7 @@ func TestMetaFieldRowsEnrichedOmitAndGated(t *testing.T) {
 // "unknown" (absence is information, FR-003).
 func TestMetaFieldRowsPlainGatedUnknown(t *testing.T) {
 	md := storage.ObjectMetadata{Key: "k", ContentType: "text/plain", StorageClass: "STANDARD"}
-	out := metaFieldRows(md, 80)
+	out := metaFieldRows(md, 80, testNow)
 	if !strings.Contains(out, "Lock") || !strings.Contains(out, "Legal hold") || strings.Count(out, "unknown") < 2 {
 		t.Errorf("plain object must always show gated Lock + Legal hold as unknown:\n%s", out)
 	}

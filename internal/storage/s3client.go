@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -236,15 +237,18 @@ func (c *s3Client) GetObject(ctx context.Context, bucket, key string) (io.ReadCl
 }
 
 // UsageOf recursively lists every object under prefix (delimiter-less, paginated)
-// and aggregates totals plus an immediate-child breakdown ranked largest-first. A
-// read (005 FR-008..FR-012). onProgress (nil-safe) receives running totals; a
-// cancelled ctx returns the partial report with Complete=false and ctx.Err().
-func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
-	agg := newUsageAgg(bucket, prefix)
+// and aggregates totals, an immediate-child breakdown ranked largest-first, and
+// age/size/class distributions in the same pass. A read (005 FR-008..FR-012,
+// 017 FR-001/FR-020). maxObjects > 0 stops the enumeration within one page of the
+// cap and reports Bounded=true (a lower bound, nil error). onProgress (nil-safe)
+// receives running totals; a cancelled ctx returns the partial report with
+// Complete=false and ctx.Err().
+func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, maxObjects int, onProgress func(UsageProgress)) (UsageReport, error) {
+	agg := newUsageAgg(bucket, prefix, time.Now())
 	var token *string
 	for {
 		if err := ctx.Err(); err != nil {
-			return agg.report(false), err
+			return agg.report(false, false), err
 		}
 		in := &s3.ListObjectsV2Input{
 			Bucket:            aws.String(bucket),
@@ -255,20 +259,25 @@ func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, onProgres
 		}
 		out, err := c.api.ListObjectsV2(ctx, in)
 		if err != nil {
-			return agg.report(false), classify(err)
+			return agg.report(false, false), classify(err)
 		}
 		for _, o := range out.Contents {
-			agg.add(aws.ToString(o.Key), aws.ToInt64(o.Size))
+			agg.add(aws.ToString(o.Key), aws.ToInt64(o.Size), aws.ToTime(o.LastModified), string(o.StorageClass))
 		}
 		if onProgress != nil {
 			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
 		}
+		// Truncation first: a cap reached on the FINAL page is an exact result, not a
+		// lower bound (017 boundary edge case).
 		if !aws.ToBool(out.IsTruncated) {
 			break
 		}
+		if maxObjects > 0 && agg.totalCount >= maxObjects {
+			return agg.report(false, true), nil
+		}
 		token = out.NextContinuationToken
 	}
-	return agg.report(true), nil
+	return agg.report(true, false), nil
 }
 
 // GetObjectTagging returns the object's tag key/value pairs (016 US4/FR-011).

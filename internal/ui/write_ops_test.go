@@ -20,7 +20,7 @@ import (
 // treeApp builds an App in modeTree on bucket "b" with the fake's level loaded,
 // writable per the flag. White-box: it sets the level state directly.
 func treeApp(f *storage.Fake, writable bool) App {
-	m := New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x", Writable: writable},
+	m := New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "x", Writable: writable, UsageScanBudget: 20000},
 		"ctx", []string{"ctx"}, nil, nil, preview.ProtoNone)
 	bs, _ := f.ListBuckets(context.Background())
 	m = deliver(m, bucketsMsg{gen: m.gen, buckets: bs})

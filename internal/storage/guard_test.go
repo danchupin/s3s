@@ -88,7 +88,7 @@ func TestGuardDelegatesNewReads(t *testing.T) {
 	}
 	_ = rc.Close()
 
-	rep, err := ro.UsageOf(context.Background(), "b", "", nil)
+	rep, err := ro.UsageOf(context.Background(), "b", "", 0, nil)
 	if err != nil {
 		t.Fatalf("guarded UsageOf = %v, want pass-through", err)
 	}

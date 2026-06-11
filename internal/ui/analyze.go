@@ -70,7 +70,10 @@ func (m App) usageKey(bucket, prefix string) cache.Key {
 // armUsageScan cancels any in-flight scan, bumps the usage generation, and (when the
 // focused target is uncached and the pane is visible) schedules a dwell tick so rapid
 // transit through a list spawns no scan (016 US2/FR-005/FR-006). Mutates the receiver;
-// returns the tick cmd (or nil). Cached targets are shown immediately by the pane.
+// returns the tick cmd (or nil). Cached targets — INCLUDING budget-bounded partials —
+// are shown immediately by the pane: ambient rescanning a partial would only reproduce
+// the same bound; the explicit full scan (A/:scan) upgrades it (017 US1). A zero budget
+// disables the ambient path entirely (017 FR-006).
 func (m *App) armUsageScan() tea.Cmd {
 	if m.usageCancel != nil {
 		m.usageCancel()
@@ -84,18 +87,22 @@ func (m *App) armUsageScan() tea.Cmd {
 	if layoutTier(m.width) == tierSingle { // no details pane in the single tier — nothing to show
 		return nil
 	}
+	if m.usageBudget == 0 {
+		return nil // ambient scanning disabled — explicit-only mode (017 FR-006)
+	}
 	b, p, ok := m.focusedUsageTarget()
 	if !ok {
 		return nil
 	}
 	if _, hit := m.usageResults.Get(m.usageKey(b, p)); hit {
-		return nil // cached → instant, no scan (SC-007)
+		return nil // cached (exact or partial) → instant, no scan (SC-007, 017)
 	}
 	return usageTickCmd(m.usageGen, b, p)
 }
 
-// onUsageTick starts the scan once the selection has settled on the same target and the
-// scan generation is current (016 US2). A tick for a scrolled-past target is dropped.
+// onUsageTick starts the BUDGETED scan once the selection has settled on the same target
+// and the scan generation is current (016 US2, 017 US1). A tick for a scrolled-past
+// target is dropped.
 func (m App) onUsageTick(msg usageTickMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.usageGen {
 		return m, nil // superseded by a later move
@@ -107,13 +114,46 @@ func (m App) onUsageTick(msg usageTickMsg) (tea.Model, tea.Cmd) {
 	if _, hit := m.usageResults.Get(m.usageKey(b, p)); hit {
 		return m, nil // became cached
 	}
-	return m.startUsageScan(b, p)
+	return m.startUsageScan(b, p, m.usageBudget)
+}
+
+// fullScanTarget resolves the explicit scan's (bucket, prefix): the focused usage
+// target when one exists, else the CURRENT LEVEL — an object selection has no
+// per-object usage, but the level it sits in does, so `A` works in flat buckets too.
+func (m App) fullScanTarget() (bucket, prefix string, ok bool) {
+	if b, p, found := m.focusedUsageTarget(); found {
+		return b, p, true
+	}
+	if m.inLevel() && m.bucket != "" {
+		return m.bucket, m.prefix, true
+	}
+	return "", "", false
+}
+
+// startFullScan is the dedicated explicit full-scan dispatcher — the ONLY path that may
+// start an unbounded enumeration (017 FR-003). Bound to the FullScan key and the `:scan`
+// command (one target — they cannot drift, the FR-019 pattern). No-op without any
+// bucket/prefix target (e.g. the empty bucket list).
+func (m App) startFullScan() (tea.Model, tea.Cmd) {
+	b, p, ok := m.fullScanTarget()
+	if !ok {
+		return m, nil
+	}
+	return m.startUsageScan(b, p, 0)
+}
+
+// fullScanHintNeeded reports whether the target's usage is absent or partial — exactly
+// when the `A full scan` affordance must be visible (017 FR-001/FR-003).
+func (m App) fullScanHintNeeded(bucket, prefix string) bool {
+	rep, ok := m.usageResults.Get(m.usageKey(bucket, prefix))
+	return !ok || !rep.Complete
 }
 
 // startUsageScan launches a background UsageOf scan for (bucket, prefix) under the current
-// usageGen with its OWN cancelable context (NOT beginLoad/m.gen). Progress + the terminal
-// report stream back stamped with usageGen.
-func (m App) startUsageScan(bucket, prefix string) (tea.Model, tea.Cmd) {
+// usageGen with its OWN cancelable context (NOT beginLoad/m.gen). maxObjects bounds the
+// enumeration (0 = the explicit full scan). Progress + the terminal report stream back
+// stamped with usageGen and the target's cache key.
+func (m App) startUsageScan(bucket, prefix string, maxObjects int) (tea.Model, tea.Cmd) {
 	if m.usageCancel != nil {
 		m.usageCancel()
 	}
@@ -124,18 +164,18 @@ func (m App) startUsageScan(bucket, prefix string) (tea.Model, tea.Cmd) {
 	m.usageProg = storage.UsageProgress{}
 	ch := make(chan usageEvent, 8)
 	m.usageCh = ch
-	return m, analyzeCmd(ctx, m.activeStore(), bucket, prefix, ch, gen)
+	return m, analyzeCmd(ctx, m.activeStore(), bucket, prefix, maxObjects, m.usageScanKey, ch, gen)
 }
 
 // analyzeCmd runs UsageOf off the event loop, streaming running totals and a terminal
 // report on ch (constitution II). The goroutine always reaches its terminal send because a
 // cancelled ctx makes UsageOf return promptly; the consumer (waitForUsage) drains ch
 // regardless of generation, so the producer never strands on a full channel.
-func analyzeCmd(ctx context.Context, st storage.Storage, bucket, prefix string, ch chan usageEvent, gen int) tea.Cmd {
+func analyzeCmd(ctx context.Context, st storage.Storage, bucket, prefix string, maxObjects int, key cache.Key, ch chan usageEvent, gen int) tea.Cmd {
 	return func() tea.Msg {
 		go func() {
 			defer close(ch)
-			rep, err := st.UsageOf(ctx, bucket, prefix, func(p storage.UsageProgress) {
+			rep, err := st.UsageOf(ctx, bucket, prefix, maxObjects, func(p storage.UsageProgress) {
 				select {
 				case ch <- usageEvent{progress: p}:
 				default: // drop a tick rather than stall the scan
@@ -143,19 +183,19 @@ func analyzeCmd(ctx context.Context, st storage.Storage, bucket, prefix string, 
 			})
 			ch <- usageEvent{done: true, report: rep, err: err}
 		}()
-		return waitForUsage(ch, gen)()
+		return waitForUsage(ch, gen, key)()
 	}
 }
 
 // waitForUsage reads ONE scan event, re-arming until the terminal done event. The progress
 // message carries ch so the handler always re-arms the SAME channel (drain discipline).
-func waitForUsage(ch chan usageEvent, gen int) tea.Cmd {
+func waitForUsage(ch chan usageEvent, gen int, key cache.Key) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok || ev.done {
-			return usageDoneMsg{gen: gen, report: ev.report, err: ev.err}
+			return usageDoneMsg{gen: gen, key: key, report: ev.report, err: ev.err}
 		}
-		return usageProgressMsg{gen: gen, p: ev.progress, ch: ch}
+		return usageProgressMsg{gen: gen, p: ev.progress, ch: ch, key: key}
 	}
 }
 
@@ -169,24 +209,32 @@ func (m App) onUsageProgress(msg usageProgressMsg) (tea.Model, tea.Cmd) {
 	if msg.ch == nil {
 		return m, nil
 	}
-	return m, waitForUsage(msg.ch, msg.gen)
+	return m, waitForUsage(msg.ch, msg.gen, msg.key)
 }
 
-// onUsageDone stores a completed report in the session cache for the still-focused target.
-// A superseded scan (gen mismatch — i.e. the user navigated, which cancels the ctx) is
-// dropped; its partial/cancelled report is never cached. A backend error leaves no entry
-// (usage is ancillary — it never hijacks the main view's error).
+// onUsageDone caches the terminal report under the TARGET key it was scanned for —
+// exact, budget-bounded, or cancelled-with-progress alike: partial work is never
+// discarded (017 FR-002/FR-004, inverts the 016 drop). Even a superseded-generation
+// report is cached (its data is valid for its own key; only the VIEW is gen-guarded).
+// Exceptions: a backend error leaves no entry (usage is ancillary — it never hijacks
+// the main view's error), an exact entry is never overwritten by a partial (FR-005),
+// and a zero-progress cancellation taught us nothing.
 func (m App) onUsageDone(msg usageDoneMsg) (tea.Model, tea.Cmd) {
-	if msg.gen != m.usageGen {
-		return m, nil
+	if msg.gen == m.usageGen {
+		m.usageCancel = nil
+		m.usageCh = nil
 	}
-	m.usageCancel = nil
-	m.usageCh = nil
 	if msg.err != nil && !errorsIsCanceled(msg.err) {
 		return m, nil
 	}
 	rep := msg.report
-	m.usageResults.Put(m.usageScanKey, &rep)
+	if !rep.Complete && rep.TotalCount == 0 && rep.TotalSize == 0 {
+		return m, nil // nothing learned — a zero lower bound is noise
+	}
+	if prev, ok := m.usageResults.Get(msg.key); ok && prev.Complete && !rep.Complete {
+		return m, nil // exact stays; a partial never downgrades it (017 FR-005)
+	}
+	m.usageResults.Put(msg.key, &rep)
 	return m, nil
 }
 
@@ -223,10 +271,12 @@ func (m App) startMoreDetail() (tea.Model, tea.Cmd) {
 	default:
 		m.detailSection = sectBreakdown
 		m.breakdownSel = 0
-		// Ensure a scan ran (or is running) for this target so the breakdown has data.
+		// Ensure data exists (or is being gathered) for the breakdown — at most a
+		// BUDGETED scan: expanding detail must never start unbounded work; the full
+		// scan has its own explicit action (017 FR-003).
 		key := m.usageKey(b, p)
 		if _, hit := m.usageResults.Get(key); !hit && (m.usageCh == nil || m.usageScanKey != key) {
-			return m.startUsageScan(b, p)
+			return m.startUsageScan(b, p, m.usageBudget)
 		}
 		return m, nil
 	}

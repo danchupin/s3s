@@ -64,7 +64,7 @@ func TestIntegrationUsageOfPagination(t *testing.T) {
 	}
 	b.put(t, "usage", "top.bin", "0123456789", "") // 10 bytes, direct object
 
-	rep, err := b.store.UsageOf(context.Background(), "usage", "", nil)
+	rep, err := b.store.UsageOf(context.Background(), "usage", "", 0, nil)
 	if err != nil {
 		t.Fatalf("UsageOf: %v", err)
 	}
@@ -87,11 +87,44 @@ func TestIntegrationUsageOfPagination(t *testing.T) {
 	// Cancelled scan: partial + Complete=false.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	crep, cerr := b.store.UsageOf(ctx, "usage", "", nil)
+	crep, cerr := b.store.UsageOf(ctx, "usage", "", 0, nil)
 	if cerr == nil {
 		t.Error("cancelled UsageOf returned nil error")
 	}
 	if crep.Complete {
 		t.Error("cancelled UsageOf Complete = true, want false")
+	}
+}
+
+// TestIntegrationUsageOfBudgetCap seeds more keys than the cap and verifies the real
+// client stops within one ListObjectsV2 page of maxObjects, reporting an honest lower
+// bound — and that the uncapped scan of the same bucket is exact (017 US1/FR-001, T017).
+func TestIntegrationUsageOfBudgetCap(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "usagecap")
+
+	const n = 1200 // > one 1000-key page
+	for i := 0; i < n; i++ {
+		b.put(t, "usagecap", fmt.Sprintf("k/%04d.txt", i), "x", "")
+	}
+
+	rep, err := b.store.UsageOf(context.Background(), "usagecap", "", 1000, nil)
+	if err != nil {
+		t.Fatalf("UsageOf(capped): %v", err)
+	}
+	if !rep.Bounded || rep.Complete {
+		t.Errorf("capped scan: Bounded=%v Complete=%v, want Bounded=true Complete=false", rep.Bounded, rep.Complete)
+	}
+	// Stop within one page of the cap: the first 1000-key page reaches the cap.
+	if rep.TotalCount != 1000 {
+		t.Errorf("capped TotalCount = %d, want exactly one page (1000)", rep.TotalCount)
+	}
+
+	full, err := b.store.UsageOf(context.Background(), "usagecap", "", 0, nil)
+	if err != nil {
+		t.Fatalf("UsageOf(full): %v", err)
+	}
+	if !full.Complete || full.Bounded || full.TotalCount != n {
+		t.Errorf("full scan = %+v, want exact %d objects", full, n)
 	}
 }

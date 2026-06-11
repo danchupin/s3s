@@ -40,7 +40,7 @@ func TestUsageOfTotalsAndRanking(t *testing.T) {
 	f.SeedObject("b", "big.bin", FakeObject{Data: make([]byte, 250)})
 	f.SeedObject("b", "small.txt", FakeObject{Data: make([]byte, 10)})
 
-	rep, err := f.UsageOf(context.Background(), "b", "", nil)
+	rep, err := f.UsageOf(context.Background(), "b", "", 0, nil)
 	if err != nil {
 		t.Fatalf("UsageOf error: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestUsageOfTotalsAndRanking(t *testing.T) {
 func TestUsageOfEmptyPrefix(t *testing.T) {
 	f := NewFake()
 	f.Seed("b") // no objects
-	rep, err := f.UsageOf(context.Background(), "b", "nothing/", nil)
+	rep, err := f.UsageOf(context.Background(), "b", "nothing/", 0, nil)
 	if err != nil {
 		t.Fatalf("UsageOf(empty) error: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestUsageOfNestedPrefix(t *testing.T) {
 	f.SeedObject("b", "logs/2026/x.log", FakeObject{Data: make([]byte, 60)})
 	f.SeedObject("b", "other/y.bin", FakeObject{Data: make([]byte, 99)})
 
-	rep, err := f.UsageOf(context.Background(), "b", "logs/", nil)
+	rep, err := f.UsageOf(context.Background(), "b", "logs/", 0, nil)
 	if err != nil {
 		t.Fatalf("UsageOf error: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestUsageOfCancelled(t *testing.T) {
 	f.SeedObject("b", "a", FakeObject{Data: make([]byte, 1)})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	rep, err := f.UsageOf(ctx, "b", "", nil)
+	rep, err := f.UsageOf(ctx, "b", "", 0, nil)
 	if !errors.Is(err, context.Canceled) {
 		t.Errorf("err = %v, want context.Canceled", err)
 	}
