@@ -144,6 +144,7 @@ func (m App) refresh() (tea.Model, tea.Cmd) {
 	m.cache.Invalidate(key)
 	m.usageResults.Invalidate(m.usageKey(m.bucket, m.prefix)) // 016 US2/FR-007: 'r' rescans usage too
 	m.mpuResults.Invalidate(m.usageKey(m.bucket, m.prefix))   // 017 US4: the MPU probe rides the same refresh
+	(&m).invalidateEnrichment(m.bucket)                       // plugin metadata re-invokes on the next settle
 	m.level = nil
 	m.treeSel = 0
 	ctx := (&m).beginLoad()
@@ -182,11 +183,14 @@ func (m App) openObject(o *storage.ObjectRef) (tea.Model, tea.Cmd) {
 	m.objReturn = m.mode
 	m.mode = modeObject
 	ctx := (&m).beginLoad()
-	return m, tea.Batch(
+	cmds := []tea.Cmd{
 		loadMetadata(ctx, m.activeStore(), m.bucket, o.Key, m.gen),
 		loadPreview(ctx, m.activeStore(), m.bucket, o.Key, "", o.Size, m.gen),
 		spinnerTick(),
-	)
+	}
+	// Matching metadata plugins join the object open under the same view.
+	cmds = append(cmds, (&m).enrichLegs(m.bucket, o.Key)...)
+	return m, tea.Batch(cmds...)
 }
 
 // onLevel merges a freshly-loaded page into the current level and caches it.

@@ -110,6 +110,10 @@ func (m App) paneTree(w, rows int) string {
 			sb.WriteString(dimCellStyle.Render(pad("Type", metaKeyWidth)) + dimCellStyle.Render("loading…") + "\n")
 		}
 	}
+	// Attributed plugin groups follow the native metadata block.
+	if pg := m.enrichGroupsView(m.bucket, e.full, w); pg != "" {
+		sb.WriteString("\n" + pg + "\n")
+	}
 	// tags section (object) — shown only when toggled by MoreDetail.
 	if m.detailSection == sectTags {
 		sb.WriteString("\n" + m.detailTagsView(e.full, w) + "\n")

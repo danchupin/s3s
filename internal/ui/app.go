@@ -448,10 +448,13 @@ func (m App) onPaneTick(msg paneTickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	st := m.activeStore()
-	return m, tea.Batch(
+	cmds := []tea.Cmd{
 		loadPaneMeta(context.Background(), st, m.bucket, e.full, m.paneGen),
 		loadPanePreview(context.Background(), st, m.bucket, e.full, e.obj.Size, m.paneGen),
-	)
+	}
+	// Matching metadata plugins join the same settled-selection load.
+	cmds = append(cmds, (&m).enrichLegs(m.bucket, e.full)...)
+	return m, tea.Batch(cmds...)
 }
 
 // highlightedBucketName returns the name of the bucket under the cursor, or "" when the

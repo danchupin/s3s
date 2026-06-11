@@ -210,6 +210,10 @@ func (m App) metaPane(w int) string {
 			b.WriteString(metaRow(sanitizeLabel(k), sanitizeLabel(md.UserMetadata[k]), w))
 		}
 	}
+	// Attributed plugin groups follow every native group (provenance on-screen).
+	if pg := m.enrichGroupsView(m.bucket, md.Key, w); pg != "" {
+		b.WriteString("\n" + pg + "\n")
+	}
 	return strings.TrimRight(b.String(), "\n")
 }
 

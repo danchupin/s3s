@@ -275,9 +275,151 @@ func (m *App) pluginFailNotice(st *pluginState, reason string) {
 		st.decl.Name, reason, glyph(firstBind(m.keys.Plugins)))
 }
 
-// onEnrichDone applies one object-metadata invocation outcome (US2).
+// enrichApplies reports whether a metadata plugin should run for an object:
+// enabled, available, compatible, and the object inside its match scope.
+func (m App) enrichApplies(st *pluginState, bucket, key string) bool {
+	return st.enabled && st.unavailable == "" && st.incompatible == 0 &&
+		st.decl.Capability == string(plugin.ObjectMetadata) &&
+		st.decl.Match != nil && st.decl.Match.Matches(m.ctxName, bucket, key)
+}
+
+// enrichLegs returns one command per matching metadata plugin for the object,
+// skipping cache hits and targets already in flight — rapid repeated selection
+// of one object coalesces to a single invocation per (plugin, target).
+func (m *App) enrichLegs(bucket, key string) []tea.Cmd {
+	if m.pluginRunner == nil || bucket == "" || key == "" {
+		return nil
+	}
+	var cmds []tea.Cmd
+	for _, st := range m.plugins {
+		if !m.enrichApplies(st, bucket, key) {
+			continue
+		}
+		k := enrichKey{m.ctxName, st.decl.Name, bucket, key}
+		if _, ok := m.enrichCache[k]; ok {
+			continue
+		}
+		if m.enrichInflight[k] {
+			continue
+		}
+		m.enrichInflight[k] = true
+		cmds = append(cmds, enrichCmd(m.pluginRunner, runnerDecl(st.decl), m.pluginConn(), m.ctxName, bucket, key, m.enrichGen))
+	}
+	return cmds
+}
+
+// invalidateEnrichment drops the active context's cached enrichment for one
+// bucket and bumps the enrichment generation: in-flight results from before
+// the refresh are dropped before the cache is ever written.
+func (m *App) invalidateEnrichment(bucket string) {
+	for k := range m.enrichCache {
+		if k.ctx == m.ctxName && k.bucket == bucket {
+			delete(m.enrichCache, k)
+		}
+	}
+	for k := range m.enrichInflight {
+		if k.ctx == m.ctxName && k.bucket == bucket {
+			delete(m.enrichInflight, k)
+		}
+	}
+	m.enrichGen++
+}
+
+// onEnrichDone applies one object-metadata invocation outcome. A result from a
+// superseded enrichment generation is dropped entirely; a result for a
+// no-longer-selected object is still cached for its own key (the data is valid
+// there — render simply doesn't show it), mirroring the usage-scan rule.
 func (m App) onEnrichDone(msg enrichDoneMsg) (tea.Model, tea.Cmd) {
+	st := m.pluginByName(msg.plugin)
+	if st == nil {
+		return m, nil
+	}
+	if msg.gen != m.enrichGen {
+		return m, nil // superseded by refresh/context switch — never cached
+	}
+	k := enrichKey{msg.ctx, msg.plugin, msg.bucket, msg.key}
+	delete(m.enrichInflight, k)
+	st.hasRun = true
+	st.lastOutcome = msg.res.Outcome
+	st.lastErr = msg.res.ErrDetail
+	st.lastDur = msg.res.Duration
+	st.lastAtTime = m.now()
+	st.lastBucket, st.lastKey = msg.bucket, msg.key
+
+	switch msg.res.Outcome {
+	case plugin.OutcomeOK:
+		fields, truncated := plugin.CapFields(msg.res.Fields)
+		m.enrichCache[k] = enrichEntry{fields: fields, truncated: truncated}
+	case plugin.OutcomeIncompatible:
+		st.incompatible = msg.res.Incompatible
+		m.enrichCache[k] = enrichEntry{failed: pluginFailReason(msg.res)}
+	default:
+		if msg.res.Unavailable {
+			st.unavailable = "executable not found"
+		}
+		m.enrichCache[k] = enrichEntry{failed: pluginFailReason(msg.res)}
+	}
 	return m, nil
+}
+
+// enrichGroupsView renders the attributed plugin groups for an object,
+// appended after the native metadata groups: `From <plugin>` per matching
+// plugin in declaration order, with text-distinct states — pending while in
+// flight, fields when populated, an explicit empty state, failed: <reason>.
+// Out-of-scope objects render nothing (and were never invoked).
+func (m App) enrichGroupsView(bucket, key string, w int) string {
+	if m.pluginRunner == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, st := range m.plugins {
+		if !m.enrichApplies(st, bucket, key) {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(colHeadStyle.Render("From "+sanitizeLabel(st.decl.Name)) + "\n")
+		e, ok := m.enrichCache[enrichKey{m.ctxName, st.decl.Name, bucket, key}]
+		switch {
+		case !ok:
+			b.WriteString(dimCellStyle.Render("pending") + "\n")
+		case e.failed != "":
+			b.WriteString(errStyle.Render(truncate("failed: "+e.failed, max(1, w))) + "\n")
+		case len(e.fields) == 0:
+			b.WriteString(emptyStyle.Render("— (empty)") + "\n")
+		default:
+			for _, fl := range e.fields {
+				b.WriteString(metaRow(fl.Name, fl.Value, w))
+			}
+			if e.truncated {
+				b.WriteString(dimCellStyle.Render(fmt.Sprintf("… first %d fields shown", plugin.MaxFields)) + "\n")
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// enrichFieldRows exposes the populated plugin fields to the per-field copy
+// overlay — the same stored (sanitized, capped) values the pane renders.
+func (m App) enrichFieldRows(bucket, key string) []metaField {
+	if m.pluginRunner == nil {
+		return nil
+	}
+	var rows []metaField
+	for _, st := range m.plugins {
+		if !m.enrichApplies(st, bucket, key) {
+			continue
+		}
+		e, ok := m.enrichCache[enrichKey{m.ctxName, st.decl.Name, bucket, key}]
+		if !ok || e.failed != "" {
+			continue
+		}
+		for _, fl := range e.fields {
+			rows = append(rows, metaField{label: fl.Name, value: fl.Value})
+		}
+	}
+	return rows
 }
 
 // onPluginToggled applies the toggle persistence outcome (US3).

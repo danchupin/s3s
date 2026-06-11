@@ -93,18 +93,18 @@ show the group with fields after pending; non-matching object ⇒ no group, no i
 
 ### Tests (write first, confirm failing)
 
-- [ ] T019 [P] [US2] `MatchRule.Matches` tests in `internal/config/plugins_test.go`: connection + bucket-glob + keyPattern combinations; empty buckets/keyPattern ⇒ wildcard; non-match ⇒ false
-- [ ] T020 [P] [US2] Group lifecycle tests in `internal/ui/plugins_test.go`: `pending` state on selection, populated fields in plugin order under `From <plugin>` header; `failed: <reason>` text-distinct from empty-result state; NO_COLOR pass; non-matching object renders no group and triggers zero invocations (fake counter)
-- [ ] T021 [P] [US2] Copy/reveal/caps tests in `internal/ui/plugins_test.go`: plugin fields flow through the existing per-field copy path; >4096B value truncated with marker and fully revealable; >64 fields truncated with indication
-- [ ] T022 [P] [US2] Staleness/cache/multi tests in `internal/ui/plugins_test.go`: selection change before result ⇒ late result dropped; reselect hits cache; two matching plugins ⇒ two groups in declaration order; rapid repeated selection of the same object yields at most one in-flight invocation (fake counter = 1 until the result lands)
+- [X] T019 [P] [US2] `MatchRule.Matches` tests in `internal/config/plugins_test.go`: connection + bucket-glob + keyPattern combinations; empty buckets/keyPattern ⇒ wildcard; non-match ⇒ false
+- [X] T020 [P] [US2] Group lifecycle tests in `internal/ui/plugins_test.go`: `pending` state on selection, populated fields in plugin order under `From <plugin>` header; `failed: <reason>` text-distinct from empty-result state; NO_COLOR pass; non-matching object renders no group and triggers zero invocations (fake counter)
+- [X] T021 [P] [US2] Copy/reveal/caps tests in `internal/ui/plugins_test.go`: plugin fields flow through the existing per-field copy path; >4096B value truncated with marker and fully revealable; >64 fields truncated with indication
+- [X] T022 [P] [US2] Staleness/cache/multi tests in `internal/ui/plugins_test.go`: selection change before result ⇒ late result dropped; reselect hits cache; two matching plugins ⇒ two groups in declaration order; rapid repeated selection of the same object yields at most one in-flight invocation (fake counter = 1 until the result lands)
 
 ### Implementation
 
-- [ ] T023 [US2] `MatchRule.Matches(connection, bucket, key)` (globs + compiled RE2) in `internal/config/plugins.go` (greens T019)
-- [ ] T024 [US2] `enrichCmd` (gen-carrying) in `internal/ui/commands.go` + `enrichDoneMsg` in `internal/ui/messages.go`
-- [ ] T025 [US2] Details group rendering in `internal/ui/metadata.go` (existing metadata-group renderer) + `internal/ui/pane.go` (details-pane variant) + `internal/ui/plugins.go`: `From <plugin>` group appended after existing groups, state texts (pending / populated / empty / failed), per-field reveal/copy wiring, truncation markers (greens T020, T021)
-- [ ] T026 [US2] Enrichment dispatch in `internal/ui/app.go`: join the debounced selection load and the full-screen object open, scope matching before invocation, session cache keyed (context, plugin, bucket, key), gen guard, single in-flight invocation per (plugin, target) — repeat triggers coalesce (greens T022)
-- [ ] T027 [P] [US2] Example stub `docs/plugins/image-storage-meta.sh` (image id from key → image-storage query → fields mapping)
+- [X] T023 [US2] `MatchRule.Matches(connection, bucket, key)` (globs + compiled RE2) in `internal/config/plugins.go` (greens T019)
+- [X] T024 [US2] `enrichCmd` (gen-carrying) in `internal/ui/commands.go` + `enrichDoneMsg` in `internal/ui/messages.go`
+- [X] T025 [US2] Details group rendering in `internal/ui/metadata.go` (existing metadata-group renderer) + `internal/ui/pane.go` (details-pane variant) + `internal/ui/plugins.go`: `From <plugin>` group appended after existing groups, state texts (pending / populated / empty / failed), per-field reveal/copy wiring, truncation markers (greens T020, T021)
+- [X] T026 [US2] Enrichment dispatch in `internal/ui/app.go`: join the debounced selection load and the full-screen object open, scope matching before invocation, session cache keyed (context, plugin, bucket, key), gen guard, single in-flight invocation per (plugin, target) — repeat triggers coalesce (greens T022)
+- [X] T027 [P] [US2] Example stub `docs/plugins/image-storage-meta.sh` (image id from key → image-storage query → fields mapping)
 
 **Checkpoint**: US1 + US2 work independently; browsing without plugins unchanged.
 

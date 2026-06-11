@@ -155,6 +155,40 @@ func TestPluginsUnknownConnectionIsWarningOnly(t *testing.T) {
 	}
 }
 
+func TestMatchRuleMatches(t *testing.T) {
+	cases := []struct {
+		name string
+		rule MatchRule
+		conn, bucket, key string
+		want bool
+	}{
+		{"full match", MatchRule{Connections: []string{"prod"}, Buckets: []string{"images-*"}, KeyPattern: "^[0-9a-f]{4}"},
+			"prod", "images-prod", "0af3.jpg", true},
+		{"wrong connection", MatchRule{Connections: []string{"prod"}, Buckets: []string{"images-*"}},
+			"stage", "images-prod", "k", false},
+		{"glob miss", MatchRule{Connections: []string{"prod"}, Buckets: []string{"images-*"}},
+			"prod", "logs", "k", false},
+		{"key pattern miss", MatchRule{Connections: []string{"prod"}, KeyPattern: "^[0-9a-f]{4}"},
+			"prod", "any", "not-hex.jpg", false},
+		{"empty buckets is wildcard", MatchRule{Connections: []string{"prod"}},
+			"prod", "anything", "any-key", true},
+		{"empty keyPattern is wildcard", MatchRule{Connections: []string{"prod"}, Buckets: []string{"b*"}},
+			"prod", "bx", "whatever", true},
+		{"second glob hits", MatchRule{Connections: []string{"prod"}, Buckets: []string{"logs-*", "images-*"}},
+			"prod", "images-prod", "k", true},
+		{"unanchored pattern searches", MatchRule{Connections: []string{"prod"}, KeyPattern: "thumb"},
+			"prod", "b", "photos/thumb/1.jpg", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := tc.rule
+			if got := r.Matches(tc.conn, tc.bucket, tc.key); got != tc.want {
+				t.Errorf("Matches(%q,%q,%q) = %v, want %v", tc.conn, tc.bucket, tc.key, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestPluginsAbsentSectionLoads(t *testing.T) {
 	cfg, err := loadPlugins(t, pluginsYAML(""))
 	if err != nil {
