@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"time"
+
 	"github.com/danchupin/s3s/internal/cache"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
@@ -75,16 +77,21 @@ type searchFireMsg struct {
 // usageProgressMsg delivers one running-totals tick during a usage scan. It carries the
 // scan's OWN channel so the handler always re-arms the SAME channel — even a superseded
 // scan drains to its done event and never strands the producer (016 II, no goroutine leak).
+// key identifies the scan's target so the chain can stamp it onto the terminal msg.
 type usageProgressMsg struct {
 	gen int
 	p   storage.UsageProgress
 	ch  chan usageEvent
+	key cache.Key
 }
 
-// usageDoneMsg delivers the terminal usage report (or error). A cancelled scan carries a
-// partial report with Complete=false.
+// usageDoneMsg delivers the terminal usage report (or error). A cancelled or
+// budget-bounded scan carries a partial report with Complete=false. key is the target
+// the scan was started for: a late (superseded-gen) report is still cached THERE — the
+// data is valid for that target even when the view has moved on (017 FR-004).
 type usageDoneMsg struct {
 	gen    int
+	key    cache.Key
 	report storage.UsageReport
 	err    error
 }
@@ -96,6 +103,32 @@ type usageTickMsg struct {
 	gen    int
 	bucket string
 	prefix string
+}
+
+// presignDoneMsg delivers a minted presigned link (017 US3). url is a bearer secret —
+// rendered + clipboard only, never logged. curl selects the curl-snippet form.
+type presignDoneMsg struct {
+	key  string
+	url  string
+	warn string
+	ttl  time.Duration
+	curl bool
+	err  error
+}
+
+// exportDoneMsg delivers the local report-export outcome (017 US3/FR-018).
+type exportDoneMsg struct {
+	path string
+	err  error
+}
+
+// incompleteUploadsMsg delivers the health card's MPU probe result (017 US4),
+// generation-guarded like every lazy detail load.
+type incompleteUploadsMsg struct {
+	gen int
+	key cache.Key
+	res storage.IncompleteUploads
+	err error
 }
 
 // objectTagsMsg / bucketConfigMsg deliver the lazily-loaded US4 detail loads, carrying the

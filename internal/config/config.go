@@ -31,8 +31,45 @@ type Config struct {
 	Contexts       []Context `yaml:"contexts"`
 	CurrentContext string    `yaml:"current-context"`
 	DownloadDir    string    `yaml:"downloadDir,omitempty"` // default local download dir (005 FR-007)
+	// UsageScanBudget caps the ambient (hover) usage scan in enumerated objects
+	// (017 US1/FR-006). nil ⇒ DefaultUsageScanBudget; 0 ⇒ ambient scanning off
+	// (explicit-only); negative ⇒ invalid.
+	UsageScanBudget *int `yaml:"usageScanBudget,omitempty"`
+	// Health-card small-object warning knobs (017 US4/FR-023): the warning fires when
+	// more than HealthSmallObjectShare of enumerated objects fall below
+	// HealthSmallObjectKiB. Zero values resolve to the 128 KiB / 0.5 defaults.
+	HealthSmallObjectKiB   int     `yaml:"healthSmallObjectKiB,omitempty"`
+	HealthSmallObjectShare float64 `yaml:"healthSmallObjectShare,omitempty"`
 
 	path string // source file path (set by Load) — for the cmd-source owner-only gate
+}
+
+// ResolvedHealthSmallObjectKiB applies the 128 KiB default (017 D8).
+func (c *Config) ResolvedHealthSmallObjectKiB() int {
+	if c.HealthSmallObjectKiB == 0 {
+		return 128
+	}
+	return c.HealthSmallObjectKiB
+}
+
+// ResolvedHealthSmallObjectShare applies the 0.5 default (017 D8).
+func (c *Config) ResolvedHealthSmallObjectShare() float64 {
+	if c.HealthSmallObjectShare == 0 {
+		return 0.5
+	}
+	return c.HealthSmallObjectShare
+}
+
+// DefaultUsageScanBudget is the ambient usage-scan cap when usageScanBudget is absent
+// (≈20 listing pages — 017 research D2).
+const DefaultUsageScanBudget = 20000
+
+// ResolvedUsageScanBudget applies the default for an absent usageScanBudget.
+func (c *Config) ResolvedUsageScanBudget() int {
+	if c.UsageScanBudget == nil {
+		return DefaultUsageScanBudget
+	}
+	return *c.UsageScanBudget
 }
 
 // Path returns the file this config was loaded from (empty for an in-memory config).
@@ -179,6 +216,16 @@ func (c *Config) Validate() error {
 	allEmpty := len(c.Clusters) == 0 && len(c.Users) == 0 && len(c.Contexts) == 0
 	if !allEmpty && (len(c.Clusters) == 0 || len(c.Users) == 0 || len(c.Contexts) == 0) {
 		return fmt.Errorf("%w: need at least one cluster, user, and context", ErrInvalid)
+	}
+
+	if c.UsageScanBudget != nil && *c.UsageScanBudget < 0 {
+		return fmt.Errorf("%w: usageScanBudget must be >= 0", ErrInvalid)
+	}
+	if c.HealthSmallObjectKiB < 0 {
+		return fmt.Errorf("%w: healthSmallObjectKiB must be >= 0", ErrInvalid)
+	}
+	if c.HealthSmallObjectShare < 0 || c.HealthSmallObjectShare > 1 {
+		return fmt.Errorf("%w: healthSmallObjectShare must be within (0,1]", ErrInvalid)
 	}
 
 	clusters := map[string]bool{}

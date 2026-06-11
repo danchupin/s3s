@@ -112,8 +112,12 @@ func run() error {
 			Store: st, Cluster: cl.Name, User: userLabel,
 			Endpoint: cl.Endpoint, Region: cl.Region,
 			Writable: writeEnabled, ReadOnly: policy.ReadOnly,
-			DownloadDir:   cfg.DownloadDir,
-			PinnedBuckets: cl.Buckets,
+			DownloadDir:            cfg.DownloadDir,
+			PathStyle:              cl.PathStyle,
+			PinnedBuckets:          cl.Buckets,
+			UsageScanBudget:        cfg.ResolvedUsageScanBudget(),
+			HealthSmallObjectKiB:   cfg.ResolvedHealthSmallObjectKiB(),
+			HealthSmallObjectShare: cfg.ResolvedHealthSmallObjectShare(),
 		}, nil
 	}
 

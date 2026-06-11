@@ -13,9 +13,10 @@ import (
 
 // --- test helpers ---
 
-// newApp builds a test App with a fake store and no image protocol.
+// newApp builds a test App with a fake store, the production-default usage budget, and
+// no image protocol.
 func newApp(f *storage.Fake, contexts []string, resolve Resolver) App {
-	return New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x"},
+	return New(Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x", UsageScanBudget: 20000},
 		"ctx", contexts, resolve, nil, preview.ProtoNone)
 }
 

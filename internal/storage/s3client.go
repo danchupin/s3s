@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
@@ -33,15 +34,21 @@ type s3API interface {
 	GetBucketReplication(context.Context, *s3.GetBucketReplicationInput, ...func(*s3.Options)) (*s3.GetBucketReplicationOutput, error)
 	GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error)
 	GetBucketLocation(context.Context, *s3.GetBucketLocationInput, ...func(*s3.Options)) (*s3.GetBucketLocationOutput, error)
+	ListMultipartUploads(context.Context, *s3.ListMultipartUploadsInput, ...func(*s3.Options)) (*s3.ListMultipartUploadsOutput, error)
+	ListParts(context.Context, *s3.ListPartsInput, ...func(*s3.Options)) (*s3.ListPartsOutput, error)
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	CopyObject(context.Context, *s3.CopyObjectInput, ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
 	DeleteBucket(context.Context, *s3.DeleteBucketInput, ...func(*s3.Options)) (*s3.DeleteBucketOutput, error)
 }
 
-// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation.
+// s3Client is the aws-sdk-go-v2 backed Storage + Mutator implementation. presigner and
+// creds back PresignGet (017 US3): both are client-side facilities — nil in unit tests
+// that fake the api, always set by New.
 type s3Client struct {
-	api s3API
+	api       s3API
+	presigner *s3.PresignClient
+	creds     aws.CredentialsProvider
 }
 
 // New builds a Storage from a resolved (cluster + user) ClientConfig. Anonymous
@@ -89,7 +96,34 @@ func New(cc ClientConfig) (Storage, error) {
 		o.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
 		o.ResponseChecksumValidation = aws.ResponseChecksumValidationWhenRequired
 	})
-	return &s3Client{api: client}, nil
+	return &s3Client{api: client, presigner: s3.NewPresignClient(client), creds: cfg.Credentials}, nil
+}
+
+// PresignGet mints a presigned GET URL client-side (017 US3/FR-015). No network call is
+// made; the URL is a bearer secret and is NEVER logged — only {bucket, key, ttl} is
+// (constitution V, FR-016).
+func (c *s3Client) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, string, error) {
+	if !ValidPresignTTL(ttl) {
+		return "", "", fmt.Errorf("%w: presign ttl must be one of 15m/1h/24h/7d", ErrInvalidConfig)
+	}
+	if c.presigner == nil {
+		return "", "", fmt.Errorf("%w: presigner unavailable", ErrInvalidConfig)
+	}
+	req, err := c.presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, func(o *s3.PresignOptions) { o.Expires = ttl })
+	if err != nil {
+		return "", "", classify(err)
+	}
+	warn := ""
+	if c.creds != nil {
+		if cr, cerr := c.creds.Retrieve(ctx); cerr == nil && cr.CanExpire && cr.Expires.Before(time.Now().Add(ttl)) {
+			warn = "credentials expire before the link (" + cr.Expires.Format("2006-01-02 15:04") + ") — the link dies with them"
+		}
+	}
+	slog.Info("presign", "bucket", bucket, "key", key, "ttl", ttl.String())
+	return req.URL, warn, nil
 }
 
 func (c *s3Client) ListBuckets(ctx context.Context) ([]Bucket, error) {
@@ -236,15 +270,18 @@ func (c *s3Client) GetObject(ctx context.Context, bucket, key string) (io.ReadCl
 }
 
 // UsageOf recursively lists every object under prefix (delimiter-less, paginated)
-// and aggregates totals plus an immediate-child breakdown ranked largest-first. A
-// read (005 FR-008..FR-012). onProgress (nil-safe) receives running totals; a
-// cancelled ctx returns the partial report with Complete=false and ctx.Err().
-func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
-	agg := newUsageAgg(bucket, prefix)
+// and aggregates totals, an immediate-child breakdown ranked largest-first, and
+// age/size/class distributions in the same pass. A read (005 FR-008..FR-012,
+// 017 FR-001/FR-020). maxObjects > 0 stops the enumeration within one page of the
+// cap and reports Bounded=true (a lower bound, nil error). onProgress (nil-safe)
+// receives running totals; a cancelled ctx returns the partial report with
+// Complete=false and ctx.Err().
+func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, maxObjects int, onProgress func(UsageProgress)) (UsageReport, error) {
+	agg := newUsageAgg(bucket, prefix, time.Now())
 	var token *string
 	for {
 		if err := ctx.Err(); err != nil {
-			return agg.report(false), err
+			return agg.report(false, false), err
 		}
 		in := &s3.ListObjectsV2Input{
 			Bucket:            aws.String(bucket),
@@ -255,20 +292,118 @@ func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, onProgres
 		}
 		out, err := c.api.ListObjectsV2(ctx, in)
 		if err != nil {
-			return agg.report(false), classify(err)
+			return agg.report(false, false), classify(err)
 		}
 		for _, o := range out.Contents {
-			agg.add(aws.ToString(o.Key), aws.ToInt64(o.Size))
+			agg.add(aws.ToString(o.Key), aws.ToInt64(o.Size), aws.ToTime(o.LastModified), string(o.StorageClass))
 		}
 		if onProgress != nil {
 			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
 		}
+		// Truncation first: a cap reached on the FINAL page is an exact result, not a
+		// lower bound (017 boundary edge case).
 		if !aws.ToBool(out.IsTruncated) {
 			break
 		}
+		if maxObjects > 0 && agg.totalCount >= maxObjects {
+			return agg.report(false, true), nil
+		}
 		token = out.NextContinuationToken
 	}
-	return agg.report(true), nil
+	return agg.report(true, false), nil
+}
+
+// incompleteSizingCap bounds the per-upload ListParts size enrichment: a dangling-MPU
+// population is typically tens, so 100 covers the real case at ≤100 extra requests —
+// an unbounded fan-out would recreate the US1 problem on a different API (research D6).
+const incompleteSizingCap = 100
+
+// ListIncompleteUploads paginates ListMultipartUploads under prefix and size-enriches
+// the first incompleteSizingCap uploads via ListParts (017 US4/FR-021). Denied and
+// not-implemented map to tri-states, never to a zero result (FR-022).
+func (c *s3Client) ListIncompleteUploads(ctx context.Context, bucket, prefix string) (IncompleteUploads, error) {
+	out := IncompleteUploads{Bucket: bucket, Prefix: prefix}
+	var keyMarker, idMarker *string
+	type up struct {
+		key, id string
+	}
+	var uploads []up
+	for {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		in := &s3.ListMultipartUploadsInput{
+			Bucket:         aws.String(bucket),
+			KeyMarker:      keyMarker,
+			UploadIdMarker: idMarker,
+		}
+		if prefix != "" {
+			in.Prefix = aws.String(prefix)
+		}
+		page, err := c.api.ListMultipartUploads(ctx, in)
+		if err != nil {
+			return classifyIncomplete(out, err)
+		}
+		for _, u := range page.Uploads {
+			out.Count++
+			if t := aws.ToTime(u.Initiated); out.OldestInitiated.IsZero() || t.Before(out.OldestInitiated) {
+				out.OldestInitiated = t
+			}
+			if len(uploads) < incompleteSizingCap {
+				uploads = append(uploads, up{key: aws.ToString(u.Key), id: aws.ToString(u.UploadId)})
+			}
+		}
+		if !aws.ToBool(page.IsTruncated) {
+			break
+		}
+		keyMarker = page.NextKeyMarker
+		idMarker = page.NextUploadIdMarker
+	}
+	for _, u := range uploads {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		var partMarker *string
+		for {
+			parts, err := c.api.ListParts(ctx, &s3.ListPartsInput{
+				Bucket: aws.String(bucket), Key: aws.String(u.key), UploadId: aws.String(u.id),
+				PartNumberMarker: partMarker,
+			})
+			if err != nil {
+				break // sizing is best-effort; counting stays exact
+			}
+			for _, p := range parts.Parts {
+				out.TotalSize += aws.ToInt64(p.Size)
+			}
+			if !aws.ToBool(parts.IsTruncated) {
+				break
+			}
+			partMarker = parts.NextPartNumberMarker
+		}
+		out.SizedCount++
+	}
+	if out.Count == 0 {
+		out.State = ConfigNone
+	} else {
+		out.State = ConfigConfigured
+	}
+	return out, nil
+}
+
+// classifyIncomplete maps a listing failure to the tri-state (denied/unsupported) or
+// returns the classified error for everything else — never a silent zero (FR-022).
+func classifyIncomplete(out IncompleteUploads, err error) (IncompleteUploads, error) {
+	c := classify(err)
+	switch {
+	case errors.Is(c, ErrAccessDenied):
+		out.State = ConfigDenied
+		return out, nil
+	case errors.Is(c, ErrUnsupported):
+		out.State = ConfigUnsupported
+		return out, nil
+	default:
+		return out, c
+	}
 }
 
 // GetObjectTagging returns the object's tag key/value pairs (016 US4/FR-011).

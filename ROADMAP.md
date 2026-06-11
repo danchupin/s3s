@@ -5,6 +5,18 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## Done
 
+- **Budgeted usage, insights & details UX (017)** — the ambient usage scan is capped by a
+  configurable budget (`usageScanBudget`, default 20 000 objects; honest `≥` lower bounds,
+  partial progress cached, the uncapped scan only via an explicit `A`/`:scan`); the details
+  pane regrouped into named sections with dual dates, text-distinct field states, a
+  multipart-ETag explanation, and per-field copy; a `Y` copy/share menu (S3 URI, style-aware
+  HTTPS URL, aws-cli snippet, client-side presigned GET links, CSV/JSON report export — new
+  pure `internal/share` package); a full-screen `H` operator health card (age/size/class
+  histograms from the same scan pass, incomplete multipart uploads, small-object
+  index-pressure warning); payload-aware previews (pretty JSON/NDJSON with a raw toggle,
+  transparent capped gunzip, hexdump for binaries). See `specs/017-usage-insights-ux/`.
+  (Manual validation at 130×24 + a prefix-wide MPU check on real RGW still TODO; note the
+  MinIO `ListMultipartUploads` exact-key quirk in `contracts/storage-read-extension.md`.)
 - **Credential sources simplification & config-path override (014)** — narrowed the four
   credential sources to **two**: the OS keychain (the prompted default; macOS Keychain /
   Windows Credential Manager / Linux Secret Service) and an external `cmd`. Removed the
@@ -44,12 +56,11 @@ known bug — these are enhancements. Ordered roughly by value.
   in-frame. Add a key (e.g. `o`) that opens the selected image in the OS viewer
   (`open` on macOS, `xdg-open` on Linux) from a temp file, or shells out to
   `imgcat`/`kitten icat`. Keep half-block as the inline default.
-- [ ] **Richer content preview.** Syntax highlighting for JSON/YAML/code; a
-  hex-dump view for binary objects instead of just a summary line.
+- [ ] **Syntax highlighting** for JSON/YAML/code previews (pretty-print + hexdump
+  shipped in 017; highlighting needs a palette-role-safe approach).
 - [ ] **Visible context numbers for the digit shortcut.** `1-9` switches context,
   but the numbered list was removed from the UI; surface the numbers somewhere
   (e.g. in the context switcher rows or a compact footer hint).
-- [ ] **Copy-to-clipboard.** Yank the selected key / full s3 URI / ETag.
 - [ ] **Edit any connection.** The connections manager can switch / add / delete
   (006), but a saved connection cannot be edited — a wrong endpoint, region, or
   credential forces delete-and-re-add. Add an edit action (e.g. `e` on a row in the
@@ -57,6 +68,15 @@ known bug — these are enhancements. Ordered roughly by value.
   existing cluster/user/context, re-running the same reachability test + save-anyway
   override, and persisting back to the same config entry (secret left untouched unless
   re-entered). Reuse the existing form (`modeConnForm`) rather than a parallel surface.
+
+## Write iteration (next major arc)
+
+- [ ] **Incomplete-multipart-upload cleanup.** 017 surfaces dangling MPUs in the health
+  card; aborting them is a mutation and belongs to the write iteration (explicit
+  confirmation + pre-execution logging per constitution V).
+- [ ] **Bucket administration.** Policy / lifecycle / encryption / CORS management.
+- [ ] **Object versioning management.** Browse versions and delete markers (read side),
+  restore/permanently-delete (write side).
 
 ## Core
 

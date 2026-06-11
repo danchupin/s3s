@@ -29,6 +29,29 @@ type Fake struct {
 	// Call counters (test assertions, e.g. "0 ListBuckets calls for a pinned connection").
 	ListBucketsCalls int
 	ListLevelCalls   int
+
+	// 017 US1: UsageOf models pagination in chunks of DefaultMaxKeys; UsagePages
+	// counts simulated pages so budget tests can assert the enumeration stopped
+	// within one page of the cap.
+	UsagePages int
+	// UsageScanStart pins the age-histogram reference (zero ⇒ time.Now()) so
+	// distribution tests are deterministic (017 US4).
+	UsageScanStart time.Time
+	// PresignCredsExpireIn simulates credentials that expire after this duration
+	// (zero ⇒ never): PresignGet warns when a ttl outlives them (017 US3/FR-017).
+	PresignCredsExpireIn time.Duration
+	// FailListUploads / UnsupportedListUploads force the incomplete-multipart probe
+	// into its denied / unsupported tri-states (017 US4/FR-022; unsupported is
+	// untestable on MinIO — the Fake is its unit-test home, the 016 split).
+	FailListUploads        bool
+	UnsupportedListUploads bool
+}
+
+// FakeIncompleteUpload is one seeded in-progress multipart upload (017 US4).
+type FakeIncompleteUpload struct {
+	Key       string
+	Initiated time.Time
+	PartSizes []int64
 }
 
 // FakeBucket is one seeded bucket.
@@ -42,11 +65,17 @@ type FakeBucket struct {
 	// publicaccessblock|location) — MinIO can't produce this, so it is unit-tested here.
 	BucketConfig          BucketConfig
 	UnsupportedGetConfigs map[string]bool
+
+	// IncompleteUploads are the bucket's seeded in-progress multipart uploads (017 US4).
+	IncompleteUploads []FakeIncompleteUpload
 }
 
 // FakeObject is one seeded object.
 type FakeObject struct {
-	Data         []byte
+	Data []byte
+	// Size overrides the effective object size when > 0 (len(Data) otherwise), so
+	// tests can model multi-GiB objects without allocating (017 distribution tests).
+	Size         int64
 	ContentType  string
 	StorageClass string
 	ETag         string
@@ -179,7 +208,7 @@ func (f *Fake) ListLevel(ctx context.Context, q LevelQuery) (Page, error) {
 		o := b.Objects[k]
 		objs = append(objs, ObjectRef{
 			Key:          k,
-			Size:         int64(len(o.Data)),
+			Size:         o.effSize(),
 			LastModified: o.LastModified,
 			StorageClass: o.StorageClass,
 		})
@@ -213,7 +242,7 @@ func (f *Fake) HeadObject(ctx context.Context, bucket, key string) (ObjectMetada
 	}
 	return ObjectMetadata{
 		Key:          key,
-		Size:         int64(len(o.Data)),
+		Size:         o.effSize(),
 		LastModified: o.LastModified,
 		ContentType:  o.ContentType,
 		StorageClass: o.StorageClass,
@@ -398,13 +427,29 @@ func (f *Fake) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser
 	return io.NopCloser(bytes.NewReader(o.Data)), nil
 }
 
+// effSize is the effective object size: the Size override when set, else len(Data).
+func (o FakeObject) effSize() int64 {
+	if o.Size > 0 {
+		return o.Size
+	}
+	return int64(len(o.Data))
+}
+
 // UsageOf recursively aggregates objects under prefix with the shared usageAgg, so
-// the Fake ranks children identically to the real client (005 FR-008/FR-009).
-func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress func(UsageProgress)) (UsageReport, error) {
-	agg := newUsageAgg(bucket, prefix)
+// the Fake ranks children and buckets distributions identically to the real client
+// (005 FR-008/FR-009, 017 US1/US4). Pagination is modelled in chunks of
+// DefaultMaxKeys: UsagePages counts pages, and the maxObjects cap is checked at page
+// boundaries exactly like the real client (truncation first — a cap reached on the
+// final page is exact).
+func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, maxObjects int, onProgress func(UsageProgress)) (UsageReport, error) {
+	scanStart := f.UsageScanStart
+	if scanStart.IsZero() {
+		scanStart = time.Now()
+	}
+	agg := newUsageAgg(bucket, prefix, scanStart)
 	b, ok := f.Buckets[bucket]
 	if !ok {
-		return agg.report(false), fmt.Errorf("usage %q: %w", bucket, ErrNotFound)
+		return agg.report(false, false), fmt.Errorf("usage %q: %w", bucket, ErrNotFound)
 	}
 	keys := make([]string, 0, len(b.Objects))
 	for k := range b.Objects {
@@ -413,16 +458,31 @@ func (f *Fake) UsageOf(ctx context.Context, bucket, prefix string, onProgress fu
 		}
 	}
 	sort.Strings(keys)
-	for _, k := range keys {
-		if err := ctx.Err(); err != nil {
-			return agg.report(false), err
+	pageSize := int(DefaultMaxKeys)
+	for start := 0; start < len(keys); start += pageSize {
+		end := start + pageSize
+		if end > len(keys) {
+			end = len(keys)
 		}
-		agg.add(k, int64(len(b.Objects[k].Data)))
+		f.UsagePages++
+		for _, k := range keys[start:end] {
+			if err := ctx.Err(); err != nil {
+				return agg.report(false, false), err
+			}
+			o := b.Objects[k]
+			agg.add(k, o.effSize(), o.LastModified, o.StorageClass)
+		}
 		if onProgress != nil {
 			onProgress(UsageProgress{ScannedCount: agg.totalCount, ScannedSize: agg.totalSize})
 		}
+		if end == len(keys) {
+			break // final page — exact even when the cap was just reached
+		}
+		if maxObjects > 0 && agg.totalCount >= maxObjects {
+			return agg.report(false, true), nil
+		}
 	}
-	return agg.report(true), nil
+	return agg.report(true, false), nil
 }
 
 // GetObjectTagging returns the seeded tags for an object (016 US4). TagsDenied → 403.
@@ -481,6 +541,81 @@ func (f *Fake) GetBucketConfiguration(ctx context.Context, bucket string) (Bucke
 		}
 	}
 	return cfg, nil
+}
+
+// SeedIncompleteUpload adds one in-progress multipart upload to the bucket (creating
+// the bucket if needed).
+func (f *Fake) SeedIncompleteUpload(bucket string, u FakeIncompleteUpload) {
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		b = &FakeBucket{Objects: map[string]FakeObject{}}
+		f.Buckets[bucket] = b
+	}
+	b.IncompleteUploads = append(b.IncompleteUploads, u)
+}
+
+// ListIncompleteUploads mirrors the real client: prefix-scoped counting (never capped),
+// sizing capped at the first 100 uploads in key order, tri-state classification
+// (017 US4/FR-021/FR-022).
+func (f *Fake) ListIncompleteUploads(ctx context.Context, bucket, prefix string) (IncompleteUploads, error) {
+	out := IncompleteUploads{Bucket: bucket, Prefix: prefix}
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	if f.FailListUploads {
+		out.State = ConfigDenied
+		return out, nil
+	}
+	if f.UnsupportedListUploads {
+		out.State = ConfigUnsupported
+		return out, nil
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return out, fmt.Errorf("uploads %q: %w", bucket, ErrNotFound)
+	}
+	matched := make([]FakeIncompleteUpload, 0, len(b.IncompleteUploads))
+	for _, u := range b.IncompleteUploads {
+		if strings.HasPrefix(u.Key, prefix) {
+			matched = append(matched, u)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Key < matched[j].Key })
+	for i, u := range matched {
+		out.Count++
+		if out.OldestInitiated.IsZero() || u.Initiated.Before(out.OldestInitiated) {
+			out.OldestInitiated = u.Initiated
+		}
+		if i < incompleteSizingCap {
+			for _, s := range u.PartSizes {
+				out.TotalSize += s
+			}
+			out.SizedCount++
+		}
+	}
+	if out.Count == 0 {
+		out.State = ConfigNone
+	} else {
+		out.State = ConfigConfigured
+	}
+	return out, nil
+}
+
+// PresignGet mirrors the real client's client-side presign: TTL preset validation, a
+// deterministic URL embedding bucket/key/ttl, a cred-expiry warning — and ZERO backend
+// calls (017 US3/FR-015..FR-017).
+func (f *Fake) PresignGet(ctx context.Context, bucket, key string, ttl time.Duration) (string, string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", "", err
+	}
+	if !ValidPresignTTL(ttl) {
+		return "", "", fmt.Errorf("%w: presign ttl must be one of 15m/1h/24h/7d", ErrInvalidConfig)
+	}
+	warn := ""
+	if f.PresignCredsExpireIn > 0 && f.PresignCredsExpireIn < ttl {
+		warn = "credentials expire before the link — the link dies with them"
+	}
+	return fmt.Sprintf("https://fake.presign/%s/%s?ttl=%d", bucket, key, int(ttl.Seconds())), warn, nil
 }
 
 // defConfigState normalises a zero-value ConfigItem (State == "") to ConfigNone.

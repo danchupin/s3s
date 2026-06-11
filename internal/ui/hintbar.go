@@ -47,9 +47,13 @@ func (m App) actionCatalog() []action {
 	// The bucket LIST gets the bucket catalog; the objects zone (focus crossed in) gets the
 	// SAME object/level catalog as the full-screen tree — so per-item actions
 	// dispatch identically in both.
+	// The explicit full scan is available wherever a bucket/prefix usage target exists
+	// (017 FR-003) — the ONLY entry point for unbounded enumeration besides `:scan`.
+	scanTarget := func(a App, _ selKind) bool { _, _, ok := a.fullScanTarget(); return ok }
 	if m.mode == modeBuckets && m.focusZone == zoneBuckets {
 		return []action{
 			{binds: k.MoreDetail, label: "detail", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startMoreDetail},
+			{binds: k.FullScan, label: "full scan", avail: scanTarget, invoke: App.startFullScan},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
 			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chordKeys: k.DeleteChord,
 				avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startRemoveBucket},
@@ -68,6 +72,7 @@ func (m App) actionCatalog() []action {
 			return a.startDownload()
 		}},
 		{binds: k.MoreDetail, label: "detail", avail: always, invoke: App.startMoreDetail},
+		{binds: k.FullScan, label: "full scan", avail: scanTarget, invoke: App.startFullScan},
 		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chordKeys: k.DeleteChord, avail: deleteTarget, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkDelete()
@@ -177,6 +182,7 @@ func (m App) actionLabel(a action) string {
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	if b := m.highlightedBucketName(); b != "" {
 		m.usageResults.InvalidateBucket(m.ctxName, b)
+		m.mpuResults.InvalidateBucket(m.ctxName, b) // 017 US4
 	}
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())

@@ -56,7 +56,7 @@ func (m App) paneBucket(w int) string {
 	if sec := m.detailSectionView(b.Name, "", w); sec != "" {
 		sb.WriteString("\n" + sec + "\n")
 	}
-	sb.WriteString(hintLabelStyle.Render(keyHint(m.keys.MoreDetail, "detail") + sepDot + keyHint(m.keys.Enter, "open")))
+	sb.WriteString(hintLabelStyle.Render(m.usageHints(b.Name, "") + sepDot + keyHint(m.keys.Enter, "open")))
 	return sb.String()
 }
 
@@ -76,7 +76,7 @@ func (m App) paneTree(w, rows int) string {
 		if sec := m.detailSectionView(m.bucket, m.prefix, w); sec != "" {
 			sb.WriteString("\n" + sec + "\n")
 		}
-		sb.WriteString(hintLabelStyle.Render(keyHint(m.keys.MoreDetail, "detail")))
+		sb.WriteString(hintLabelStyle.Render(m.usageHints(m.bucket, m.prefix)))
 		return strings.TrimRight(sb.String(), "\n")
 	}
 	if e.isDir {
@@ -88,7 +88,7 @@ func (m App) paneTree(w, rows int) string {
 		if sec := m.detailSectionView(m.bucket, e.full, w); sec != "" {
 			sb.WriteString("\n" + sec + "\n")
 		}
-		sb.WriteString(hintLabelStyle.Render(keyHint(m.keys.MoreDetail, "detail") + sepDot + keyHint(m.keys.DeleteChord, "delete") + sepDot + keyHint(m.keys.Enter, "open")))
+		sb.WriteString(hintLabelStyle.Render(m.usageHints(m.bucket, e.full) + sepDot + keyHint(m.keys.DeleteChord, "delete") + sepDot + keyHint(m.keys.Enter, "open")))
 		return strings.TrimRight(sb.String(), "\n")
 	}
 
@@ -97,7 +97,7 @@ func (m App) paneTree(w, rows int) string {
 	// fields); until then show the instantly-known list fields so the pane is never blank.
 	var sb strings.Builder
 	if m.paneMeta != nil && m.paneSelKey == e.full {
-		sb.WriteString(metaFieldRows(*m.paneMeta, w))
+		sb.WriteString(metaFieldRows(*m.paneMeta, w, m.now()))
 	} else {
 		sb.WriteString(metaRow("Key", sanitizeLabel(e.label), w))
 		if e.obj != nil {
@@ -121,13 +121,19 @@ func (m App) paneTree(w, rows int) string {
 }
 
 // usageLine renders the focused target's inline total — the cached report's
-// "total <size> · N objects" (with a partial marker), or a running "scanning…" line while
-// the scan is in flight, or "" when there is nothing to show (016 US2).
+// "total <size> · N objects", or a running "scanning…" line while the scan is in
+// flight, or "" when there is nothing to show (016 US2). A partial (budget-bounded or
+// cancelled) report renders as an explicit lower bound: "≥" on both figures plus a
+// "partial" text marker — text, not colour, carries the state (017 US1, NO_COLOR-safe).
 func (m App) usageLine(bucket, prefix string) string {
 	key := m.usageKey(bucket, prefix)
 	if rep, ok := m.usageResults.Get(key); ok {
-		s := accentStyle.Render(fmt.Sprintf("total %s", humanSize(rep.TotalSize))) +
-			dimCellStyle.Render(fmt.Sprintf("  ·  %d objects", rep.TotalCount))
+		lb := ""
+		if !rep.Complete {
+			lb = "≥"
+		}
+		s := accentStyle.Render(fmt.Sprintf("total %s%s", lb, humanSize(rep.TotalSize))) +
+			dimCellStyle.Render(fmt.Sprintf("  ·  %s%d objects", lb, rep.TotalCount))
 		if !rep.Complete {
 			s += warnStyle.Render("  (partial)")
 		}
@@ -138,6 +144,17 @@ func (m App) usageLine(bucket, prefix string) string {
 			m.usageProg.ScannedCount, humanSize(m.usageProg.ScannedSize)))
 	}
 	return ""
+}
+
+// usageHints assembles the pane's hint tail for a bucket/prefix target: the MoreDetail
+// hint plus — while the target's usage is absent or partial — the explicit full-scan
+// affordance (017 FR-001/FR-003).
+func (m App) usageHints(bucket, prefix string) string {
+	h := keyHint(m.keys.MoreDetail, "detail")
+	if m.fullScanHintNeeded(bucket, prefix) {
+		h += sepDot + keyHint(m.keys.FullScan, "full scan")
+	}
+	return h
 }
 
 // detailSectionView renders the single open bucket/prefix detail section (US3 breakdown or

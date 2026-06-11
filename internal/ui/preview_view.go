@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,7 +10,8 @@ import (
 	"github.com/danchupin/s3s/internal/preview"
 )
 
-// onObjectKey handles the combined object view: scroll content, Esc/← back.
+// onObjectKey handles the combined object view: scroll content, pretty↔raw toggle,
+// Esc/← back.
 func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 	switch {
 	case matches(key, m.keys.Back):
@@ -17,6 +19,7 @@ func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 		m.meta = nil
 		m.prev = nil
 		m.prevOff = 0
+		m.rawPreview = false
 	case matches(key, m.keys.Down):
 		m.prevOff++
 	case matches(key, m.keys.Up):
@@ -25,6 +28,12 @@ func (m App) onObjectKey(key string) (tea.Model, tea.Cmd) {
 		}
 	case matches(key, m.keys.Top):
 		m.prevOff = 0
+	case matches(key, m.keys.RawToggle):
+		// Pretty↔raw applies only to the JSON kinds (017 US5/FR-025) — inert otherwise.
+		if m.prev != nil && (m.prev.Kind == preview.KindJSON || m.prev.Kind == preview.KindNDJSON) {
+			m.rawPreview = !m.rawPreview
+			m.prevOff = 0
+		}
 	}
 	return m, nil
 }
@@ -95,9 +104,24 @@ func (m App) contentPane(w, rows int) string {
 	if p.Truncated {
 		head = warnStyle.Render("[truncated at 5 MiB]") + "\n"
 	}
+	// A transparently decompressed payload names both sizes (017 US5/FR-026).
+	if p.Compressed != nil {
+		head += dimCellStyle.Render(truncate(fmt.Sprintf("gzip: %s compressed → %s shown",
+			humanSize(p.Compressed.From), humanSize(int64(len(p.Data)))), w)) + "\n"
+	}
 
 	switch p.Kind {
 	case preview.KindText:
+		return head + m.renderTextPreview(p, w, rows)
+	case preview.KindJSON, preview.KindNDJSON:
+		// Pretty by default; `p` toggles the byte-identical raw form (017 FR-025).
+		if !m.rawPreview {
+			if pretty, ok := preview.Pretty(*p); ok {
+				head += dimCellStyle.Render(keyHint(m.keys.RawToggle, "raw")) + "\n"
+				return head + textPreviewLines([]byte(pretty), m.prevOff, w, rows)
+			}
+		}
+		head += dimCellStyle.Render(keyHint(m.keys.RawToggle, "pretty")) + "\n"
 		return head + m.renderTextPreview(p, w, rows)
 	case preview.KindImage:
 		if w < 1 {
@@ -109,7 +133,9 @@ func (m App) contentPane(w, rows int) string {
 		}
 		return head + img
 	default:
-		return head + wrapText(preview.Summary(*p), w)
+		// Binary: the summary stays as the header; the body is the hex dump (FR-027).
+		head += dimCellStyle.Render(wrapText(preview.Summary(*p), w)) + "\n"
+		return head + textPreviewLines([]byte(preview.HexDump(p.Data)), m.prevOff, w, rows)
 	}
 }
 

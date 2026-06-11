@@ -14,7 +14,7 @@ import (
 // each progress msg (the drain discipline the production handler uses).
 func driveUsageScan(t *testing.T, m App, bucket, prefix string) App {
 	t.Helper()
-	mm, cmd := m.startUsageScan(bucket, prefix)
+	mm, cmd := m.startUsageScan(bucket, prefix, 0)
 	m = mm.(App)
 	if cmd == nil {
 		t.Fatal("startUsageScan returned no cmd")
@@ -28,7 +28,7 @@ func driveUsageScan(t *testing.T, m App, bucket, prefix string) App {
 			if ev.ch == nil {
 				t.Fatal("usageProgressMsg missing its channel (drain would leak)")
 			}
-			msg = waitForUsage(ev.ch, ev.gen)()
+			msg = waitForUsage(ev.ch, ev.gen, ev.key)()
 		case usageDoneMsg:
 			mm, _ := m.Update(ev)
 			return mm.(App)
@@ -46,7 +46,7 @@ func scanToDone(t *testing.T, cmd tea.Cmd) usageDoneMsg {
 	for {
 		switch ev := msg.(type) {
 		case usageProgressMsg:
-			msg = waitForUsage(ev.ch, ev.gen)()
+			msg = waitForUsage(ev.ch, ev.gen, ev.key)()
 		case usageDoneMsg:
 			return ev
 		default:
@@ -77,23 +77,26 @@ func TestInlineUsageTotalsCached(t *testing.T) {
 	}
 }
 
-// TestUsageGenerationIsolation: a scan's late terminal report is NOT cached after the user
-// navigates (beginLoad bumps usageGen + cancels), so a superseded target never overwrites
-// the view (016 US2/FR-006/FR-016).
-func TestUsageGenerationIsolation(t *testing.T) {
+// TestSupersededScanReportCached (017 INVERTS the 016 discard): a scan's late terminal
+// report carries data valid for ITS OWN target key — it is cached there even after the
+// user navigated on (gen mismatch). The VIEW stays generation-guarded; only the work is
+// no longer thrown away (017 US1/FR-004).
+func TestSupersededScanReportCached(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "x", storage.FakeObject{Data: make([]byte, 10)})
 	m := treeApp(f, false)
 
-	mm, cmd := m.startUsageScan("b", "")
+	mm, cmd := m.startUsageScan("b", "", 0)
 	m = mm.(App)
+	key := m.usageScanKey
 	done := scanToDone(t, cmd) // raw terminal msg, stamped the scan's gen
 
 	(&m).beginLoad() // navigation supersedes the scan: usageGen++ + cancel
 	mm, _ = m.Update(done)
 	m = mm.(App)
-	if _, ok := m.usageResults.Get(m.usageKey("b", "")); ok {
-		t.Error("a superseded scan's report must NOT be cached")
+	rep, ok := m.usageResults.Get(key)
+	if !ok || rep.TotalCount != 1 {
+		t.Errorf("superseded scan's report must be cached under its own key: ok=%v rep=%+v", ok, rep)
 	}
 }
 

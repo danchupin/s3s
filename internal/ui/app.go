@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -31,6 +32,7 @@ const (
 	modeConnections // in-app connection manager list — 006 US4
 	modeConnForm    // add-connection form — 006 US4
 	modeAddBucket   // "+ add bucket" name input — 010 US2
+	modeHealth      // full-screen operator health card — 017 US4
 )
 
 // zone names which interactive column owns keyboard input in the multi-pane browse
@@ -103,6 +105,15 @@ type Backend struct {
 	Writable    bool   // initial write-arm intent (--write)
 	ReadOnly    bool   // context is readonly:true — never armable
 	DownloadDir string // default local download dir from config
+	// PathStyle mirrors the cluster's addressing style so copied HTTPS URLs match
+	// what the user's own tooling expects (017 US3/FR-014, research D12).
+	PathStyle bool
+	// UsageScanBudget caps the ambient usage scan in enumerated objects (017 US1):
+	// the RESOLVED config value (main applies the default); 0 = ambient scanning off.
+	UsageScanBudget int
+	// Health-card small-object warning knobs (017 US4/FR-023); zero ⇒ 128 KiB / 0.5.
+	HealthSmallObjectKiB   int
+	HealthSmallObjectShare float64
 	// PinnedBuckets are the connection's declared bucket names (010). Non-empty ⇒ the
 	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
 	PinnedBuckets []string
@@ -156,9 +167,10 @@ type App struct {
 	objReturn mode
 
 	// metadata / preview panes
-	meta    *storage.ObjectMetadata
-	prev    *preview.Payload
-	prevOff int
+	meta       *storage.ObjectMetadata
+	prev       *preview.Payload
+	prevOff    int
+	rawPreview bool // 017 US5: pretty↔raw toggle; reset per payload
 
 	// context switcher
 	ctxSel int
@@ -208,6 +220,24 @@ type App struct {
 	// reveal/inspect popup: non-nil while showing the full identifier of a selection
 	reveal *revealState
 
+	// field-select copy overlay (017 US2/FR-012): non-nil while choosing a field
+	fieldCopy *fieldCopyState
+
+	// copy/share menu overlay (017 US3/FR-014): non-nil while open
+	copyMenu *copyMenuState
+
+	// health card (017 US4): target, probe lifecycle, MPU session cache, warning knobs
+	healthBucket string
+	healthPrefix string
+	healthGen    int                                      // MPU-probe generation
+	healthCancel context.CancelFunc                       // cancels the in-flight probe
+	mpuResults   *cache.Cache[*storage.IncompleteUploads] // keyed like usageResults
+	healthKiB    int                                      // small-object threshold (KiB)
+	healthShare  float64                                  // warning share threshold
+
+	// now is the injectable clock for relative dates (017 D14); tests pin it.
+	now func() time.Time
+
 	// multi-select: marked OBJECT keys in the current level, cleared on nav
 	sel map[string]bool
 
@@ -225,6 +255,7 @@ type App struct {
 	usageGen     int                                // scan generation (NOT m.gen)
 	usageCancel  context.CancelFunc                 // cancels the in-flight scan's own ctx
 	usageCh      chan usageEvent                    // in-flight scan progress channel
+	usageBudget  int                                // ambient-scan cap (017 US1); 0 = ambient off
 
 	// inline "more detail" sections (016 US3/US4): at most ONE renders at a time (budget
 	// gate). detailSection selects which; the loads below back the tags/config sections.
@@ -263,6 +294,11 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		keys:         defaultKeys(),
 		cache:        cache.New[*levelState](),
 		usageResults: cache.New[*storage.UsageReport](),
+		usageBudget:  initial.UsageScanBudget,
+		mpuResults:   cache.New[*storage.IncompleteUploads](),
+		healthKiB:    healthKiBOrDefault(initial.HealthSmallObjectKiB),
+		healthShare:  healthShareOrDefault(initial.HealthSmallObjectShare),
+		now:          time.Now,
 		mode:         modeBuckets,
 		width:        80,
 		height:       24,
@@ -286,6 +322,22 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 	// on the model the program actually keeps.
 	(&m).beginLoad()
 	return m
+}
+
+// healthKiBOrDefault / healthShareOrDefault apply the 017 D8 defaults for zero-valued
+// Backend knobs (test helpers and older callers construct Backend without them).
+func healthKiBOrDefault(v int) int {
+	if v == 0 {
+		return 128
+	}
+	return v
+}
+
+func healthShareOrDefault(v float64) float64 {
+	if v == 0 {
+		return 0.5
+	}
+	return v
 }
 
 // writable reports whether mutations are currently permitted: the session is armed
@@ -644,6 +696,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loading = false
 		p := msg.payload
 		m.prev = &p
+		m.rawPreview = false // 017 US5: the pretty/raw toggle is per-payload
 		m.mode = modeObject
 		return m, nil
 
@@ -676,6 +729,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case usageTickMsg:
 		return m.onUsageTick(msg)
+
+	case presignDoneMsg:
+		return m.onPresignDone(msg)
+
+	case incompleteUploadsMsg:
+		return m.onIncompleteUploads(msg)
+
+	case exportDoneMsg:
+		return m.onExportDone(msg)
 
 	case objectTagsMsg:
 		return m.onObjectTags(msg)
@@ -852,6 +914,16 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
+	// The field-select copy overlay owns navigation/Enter/Esc while open (017 US2).
+	if m.fieldCopy != nil {
+		return m.onFieldCopyKey(key)
+	}
+
+	// The copy/share menu owns input while open (017 US3).
+	if m.copyMenu != nil {
+		return m.onCopyMenuKey(key)
+	}
+
 	// Global quit.
 	if matches(key, m.keys.Quit) {
 		(&m).cancelLoad()
@@ -888,6 +960,16 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openReveal()
 	}
 
+	// The copy/share menu — globally available in the browse modes + the card (017 US3).
+	if matches(key, m.keys.CopyMenu) && (m.mode == modeBuckets || m.mode == modeTree || m.mode == modeObject || m.mode == modeHealth) {
+		return m.openCopyMenu()
+	}
+
+	// The operator health card (017 US4) — from the browse modes only.
+	if matches(key, m.keys.Health) && (m.mode == modeBuckets || m.mode == modeTree) {
+		return m.openHealth()
+	}
+
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
 	if matches(key, m.keys.Back) && m.loading {
 		(&m).cancelLoad()
@@ -910,6 +992,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
+	case modeHealth:
+		return m.onHealthKey(key)
 	}
 	return m, nil
 }
@@ -1087,8 +1171,12 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.ctxReadOnly = be.ReadOnly
 	m.op = nil
 	m.ctxName = msg.target
+	m.usageBudget = be.UsageScanBudget // 017 US1: the budget rides the resolved backend
 	m.cache.Clear()
 	m.usageResults.Clear() // 016 US2: usage totals are per-context — never bleed across a switch
+	m.mpuResults.Clear()   // 017 US4: the MPU probe cache is per-context too
+	m.healthKiB = healthKiBOrDefault(be.HealthSmallObjectKiB)
+	m.healthShare = healthShareOrDefault(be.HealthSmallObjectShare)
 	m.detailSection = sectNone
 	m.objectTags, m.bucketCfg, m.tagsErr = nil, nil, nil
 	m.buckets = nil
@@ -1226,6 +1314,8 @@ func (m App) View() tea.View {
 		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
 	case modeAddBucket:
 		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
+	case modeHealth:
+		body = boxView("health", "", m.healthView(w-2, dataRows), w, rows)
 	}
 
 	// Binary-tier confirmation: a centered popup over the body (the typed tier
@@ -1246,6 +1336,18 @@ func (m App) View() tea.View {
 	if m.reveal != nil {
 		bodyH := strings.Count(body, "\n") + 1
 		body = m.revealView(w, bodyH)
+	}
+
+	// The field-select copy overlay (017 US2) overlays the body, centered.
+	if m.fieldCopy != nil {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.fieldCopyView(w, bodyH)
+	}
+
+	// The copy/share menu (017 US3) overlays the body, centered.
+	if m.copyMenu != nil {
+		bodyH := strings.Count(body, "\n") + 1
+		body = m.copyMenuView(w, bodyH)
 	}
 
 	// The filter forms live inside body (listWithPane stacks them under the list boxes), so the

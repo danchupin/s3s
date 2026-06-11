@@ -11,7 +11,9 @@ func TestClassifyText(t *testing.T) {
 		data []byte
 	}{
 		{"text/plain", []byte("hello world")},
-		{"application/json", []byte(`{"a":1}`)},
+		// 017 US5: parseable JSON now upgrades to KindJSON — covered in pretty_test.go;
+		// a json content type over NON-JSON bytes stays plain text.
+		{"application/json", []byte(`not json at all`)},
 		{"", []byte("plain sniffed text\nsecond line")},
 		{"application/octet-stream", []byte("actually utf-8 text")},
 	}
