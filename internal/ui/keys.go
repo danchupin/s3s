@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -207,8 +208,14 @@ func (m App) helpLines() []string {
 		conn("region", m.info.Region, segRegionStyle),
 		conn("user", m.info.User, segUserStyle),
 		conn("s3s ver", Version, dimCellStyle),
-		"",
-		dimCellStyle.Render("  press any key to close help"),
 	}
+	// Plugins section — only when declarations exist (zero-config sessions
+	// carry no plugin chrome anywhere).
+	if n := len(m.plugins); n > 0 {
+		lines = append(lines, "",
+			sec("Plugins")+dimCellStyle.Render(fmt.Sprintf("  (%d declared)", n)),
+			row(formatKeys(k.Plugins), "plugin status: outcomes · space toggle · r retry · Enter detail"))
+	}
+	lines = append(lines, "", dimCellStyle.Render("  press any key to close help"))
 	return lines
 }

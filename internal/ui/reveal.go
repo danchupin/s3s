@@ -17,6 +17,7 @@ const (
 	revealObject
 	revealFolder
 	revealPath
+	revealPlugin // full sanitized plugin error detail (status surface)
 )
 
 func (k revealKind) label() string {
@@ -27,6 +28,8 @@ func (k revealKind) label() string {
 		return "folder"
 	case revealPath:
 		return "path"
+	case revealPlugin:
+		return "plugin detail"
 	default:
 		return "bucket"
 	}

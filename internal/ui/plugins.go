@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -422,9 +423,235 @@ func (m App) enrichFieldRows(bucket, key string) []metaField {
 	return rows
 }
 
-// onPluginToggled applies the toggle persistence outcome (US3).
-func (m App) onPluginToggled(msg pluginToggledMsg) (tea.Model, tea.Cmd) {
+// --- status surface (modePlugins) ---
+
+// openPlugins enters the full-screen plugin status surface. A no-op with zero
+// declared plugins — zero-config users never see plugin chrome.
+func (m App) openPlugins() (tea.Model, tea.Cmd) {
+	if len(m.plugins) == 0 || m.mode == modePlugins {
+		return m, nil
+	}
+	m.prevMode = m.mode
+	m.mode = modePlugins
+	if m.pluginSel >= len(m.plugins) {
+		m.pluginSel = 0
+	}
 	return m, nil
+}
+
+// onPluginsKey owns input inside the status surface: row navigation, Enter
+// reveals the full error detail, space toggles enable/disable (persisted),
+// r retries the selected plugin's last failed target, Esc returns.
+func (m App) onPluginsKey(key string) (tea.Model, tea.Cmd) {
+	switch {
+	case matches(key, m.keys.Up):
+		if m.pluginSel > 0 {
+			m.pluginSel--
+		}
+	case matches(key, m.keys.Down):
+		if m.pluginSel < len(m.plugins)-1 {
+			m.pluginSel++
+		}
+	case matches(key, m.keys.Top):
+		m.pluginSel = 0
+	case matches(key, m.keys.Bottom):
+		m.pluginSel = max(0, len(m.plugins)-1)
+	case matches(key, m.keys.Back):
+		m.mode = m.prevMode
+	case matches(key, m.keys.Enter):
+		st := m.plugins[m.pluginSel]
+		if detail := pluginRevealText(st); detail != "" {
+			m.reveal = &revealState{kind: revealPlugin, value: detail, detail: "plugin: " + sanitizeLabel(st.decl.Name)}
+		}
+	case matches(key, m.keys.Mark):
+		return m.togglePlugin()
+	case matches(key, m.keys.Refresh):
+		return m.retryPlugin()
+	}
+	return m, nil
+}
+
+// togglePlugin flips the selected plugin immediately (the very next load skips
+// or includes it) and persists via the Connector off the event loop; a
+// persistence failure reverts the flip.
+func (m App) togglePlugin() (tea.Model, tea.Cmd) {
+	if len(m.plugins) == 0 {
+		return m, nil
+	}
+	if m.connect == nil {
+		m.notice = "plugin toggle unavailable (no config writer)"
+		return m, nil
+	}
+	st := m.plugins[m.pluginSel]
+	target := !st.enabled
+	st.enabled = target // optimistic — reverted by onPluginToggled on error
+	return m, setPluginEnabledCmd(m.connect, st.decl.Name, target)
+}
+
+// setPluginEnabledCmd persists the toggle off the event loop (config mutation).
+func setPluginEnabledCmd(c Connector, name string, enabled bool) tea.Cmd {
+	return func() tea.Msg {
+		err := c.SetPluginEnabled(context.Background(), name, enabled)
+		return pluginToggledMsg{name: name, enabled: enabled, err: err}
+	}
+}
+
+// onPluginToggled applies the toggle persistence outcome: an error reverts the
+// optimistic flip and posts a notice; success confirms quietly.
+func (m App) onPluginToggled(msg pluginToggledMsg) (tea.Model, tea.Cmd) {
+	st := m.pluginByName(msg.name)
+	if st == nil {
+		return m, nil
+	}
+	if msg.err != nil {
+		st.enabled = !msg.enabled
+		m.notice = "plugin toggle failed: " + msg.err.Error()
+		return m, nil
+	}
+	verb := "disabled"
+	if msg.enabled {
+		verb = "enabled"
+	}
+	m.notice = "plugin " + verb + ": " + sanitizeLabel(msg.name)
+	return m, nil
+}
+
+// retryPlugin re-invokes the selected plugin against its last target —
+// discovery for the active connection, or the last enriched object. An
+// incompatible plugin needs a fix + restart, never a silent retry.
+func (m App) retryPlugin() (tea.Model, tea.Cmd) {
+	if len(m.plugins) == 0 || m.pluginRunner == nil {
+		return m, nil
+	}
+	st := m.plugins[m.pluginSel]
+	if st.incompatible > 0 {
+		m.notice = "plugin speaks an incompatible contract — fix the plugin and restart"
+		return m, nil
+	}
+	if !st.enabled {
+		m.notice = "plugin is disabled — space to enable"
+		return m, nil
+	}
+	switch plugin.Capability(st.decl.Capability) {
+	case plugin.BucketDiscovery:
+		if !slices.Contains(st.decl.Connections, m.ctxName) {
+			m.notice = "plugin is not assigned to the active connection"
+			return m, nil
+		}
+		st.unavailable = "" // a fixed executable gets to re-probe
+		delete(m.discCache, discKey{m.ctxName, st.decl.Name})
+		st.discRunning = true
+		st.discRunGen = m.discGen
+		return m, discoverCmd(m.pluginRunner, runnerDecl(st.decl), m.pluginConn(), m.ctxName, m.discGen)
+	case plugin.ObjectMetadata:
+		if st.lastBucket == "" {
+			m.notice = "nothing to retry yet — select a matching object first"
+			return m, nil
+		}
+		st.unavailable = ""
+		k := enrichKey{m.ctxName, st.decl.Name, st.lastBucket, st.lastKey}
+		delete(m.enrichCache, k)
+		m.enrichInflight[k] = true
+		return m, enrichCmd(m.pluginRunner, runnerDecl(st.decl), m.pluginConn(), m.ctxName, st.lastBucket, st.lastKey, m.enrichGen)
+	}
+	return m, nil
+}
+
+// pluginRevealText is the full sanitized detail behind the truncated state
+// column — the reveal popup's payload.
+func pluginRevealText(st *pluginState) string {
+	switch {
+	case st.incompatible > 0:
+		return fmt.Sprintf("incompatible: plugin answered contract v%d (this build speaks v%d)", st.incompatible, plugin.ContractVersion)
+	case st.unavailable != "":
+		return "unavailable: " + st.unavailable
+	case st.lastErr != "":
+		return st.lastErr
+	}
+	return ""
+}
+
+// pluginStateText is the STATE column vocabulary — text-distinct, NO_COLOR-safe.
+func (m App) pluginStateText(st *pluginState) string {
+	switch {
+	case st.incompatible > 0:
+		return fmt.Sprintf("incompatible: contract v%d", st.incompatible)
+	case !st.enabled:
+		return "disabled"
+	case st.unavailable != "":
+		return "unavailable: " + st.unavailable
+	case m.pluginRunning(st):
+		return "running"
+	case !st.hasRun:
+		return "ready"
+	case st.lastOutcome == plugin.OutcomeOK:
+		return fmt.Sprintf("ok %s · %s", st.lastDur.Round(time.Millisecond), relTime(m.now(), st.lastAtTime))
+	default:
+		return fmt.Sprintf("failed: %s · %s", pluginFailText(st), relTime(m.now(), st.lastAtTime))
+	}
+}
+
+// pluginFailText is the short failure reason for the state column.
+func pluginFailText(st *pluginState) string {
+	if st.lastOutcome == plugin.OutcomeTimeout {
+		return "timeout"
+	}
+	if st.lastErr != "" {
+		return st.lastErr
+	}
+	return string(st.lastOutcome)
+}
+
+// pluginRunning reports any in-flight invocation for the plugin (discovery
+// flag or an enrichment in-flight entry).
+func (m App) pluginRunning(st *pluginState) bool {
+	if st.discRunning {
+		return true
+	}
+	for k := range m.enrichInflight {
+		if k.plugin == st.decl.Name {
+			return true
+		}
+	}
+	return false
+}
+
+// pluginScopeText summarizes a declaration's scope for the SCOPE column.
+func pluginScopeText(d config.PluginDecl) string {
+	if d.Match != nil {
+		s := strings.Join(d.Match.Connections, ",")
+		if len(d.Match.Buckets) > 0 {
+			s += " " + strings.Join(d.Match.Buckets, ",")
+		}
+		return s
+	}
+	return strings.Join(d.Connections, ",")
+}
+
+// pluginsView renders the status surface body: one row per declared plugin
+// (name, capability, scope, state) plus the surface's own key hints. Long
+// values truncate in the table; Enter reveals the full sanitized detail.
+func (m App) pluginsView(w, rows int) string {
+	if len(m.plugins) == 0 {
+		return emptyStyle.Render("No plugins declared.")
+	}
+	body := max(1, rows-2) // reserve the inline hint line + its separator
+	off, end := windowBounds(len(m.plugins), m.pluginSel, body)
+	cols := []column{{"name", 0}, {"capability", 16}, {"scope", 20}, {"state", 34}}
+	data := make([][]string, 0, end-off)
+	for i := off; i < end; i++ {
+		st := m.plugins[i]
+		data = append(data, []string{
+			sanitizeLabel(st.decl.Name),
+			st.decl.Capability,
+			sanitizeLabel(pluginScopeText(st.decl)),
+			sanitizeLabel(m.pluginStateText(st)),
+		})
+	}
+	hint := keyHint(m.keys.Enter, "detail") + sepDot + "Space enable/disable" + sepDot +
+		keyHint(m.keys.Refresh, "retry") + sepDot + keyHint(m.keys.Back, "back")
+	return renderTable(w, cols, data, nil, m.pluginSel-off) + "\n\n" +
+		dimCellStyle.Render(truncate(hint, max(1, w-1)))
 }
 
 // pluginFailReason maps a failed result to its short display reason.

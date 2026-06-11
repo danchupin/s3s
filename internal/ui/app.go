@@ -1010,6 +1010,12 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openHealth()
 	}
 
+	// The plugin status surface — browse modes only, and only when plugins are
+	// declared (zero-config sessions keep P inert and hint-free).
+	if matches(key, m.keys.Plugins) && len(m.plugins) > 0 && (m.mode == modeBuckets || m.mode == modeTree) {
+		return m.openPlugins()
+	}
+
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
 	if matches(key, m.keys.Back) && m.loading {
 		(&m).cancelLoad()
@@ -1034,6 +1040,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onContextKey(key)
 	case modeHealth:
 		return m.onHealthKey(key)
+	case modePlugins:
+		return m.onPluginsKey(key)
 	}
 	return m, nil
 }
@@ -1371,6 +1379,8 @@ func (m App) View() tea.View {
 		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
 	case modeHealth:
 		body = boxView("health", "", m.healthView(w-2, dataRows), w, rows)
+	case modePlugins:
+		body = boxView(fmt.Sprintf("plugins[%d]", len(m.plugins)), "", m.pluginsView(w-2, dataRows), w, rows)
 	}
 
 	// Binary-tier confirmation: a centered popup over the body (the typed tier

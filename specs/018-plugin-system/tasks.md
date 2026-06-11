@@ -122,17 +122,17 @@ surface lists both with correct states; toggle stops invocations immediately
 
 ### Tests (write first, confirm failing)
 
-- [ ] T028 [P] [US3] Surface lifecycle tests in `internal/ui/plugins_test.go`: `P` and `:plugins` open modePlugins, `Esc` returns to previous mode; zero declared plugins ⇒ `P` no-op and hints line carries no plugin hint; ≥1 declared ⇒ hint present
-- [ ] T029 [P] [US3] Rendering tests in `internal/ui/plugins_test.go`: rows show name/capability/scope/state; `ok <dur> · <age>` / `failed: <reason> · <age>` / `running` / `disabled` / `unavailable: <reason>` / `incompatible: contract v<N>` text-distinct under NO_COLOR; `Enter` reveals full sanitized error; footer + hints visible at 130×24 and the height floor
-- [ ] T030 [P] [US3] Toggle/retry tests in `internal/ui/plugins_test.go`: `space` calls fake Connector `SetPluginEnabled`, optimistic flip, Connector error ⇒ revert + notice; disabled plugin skipped by the very next load; `r` re-invokes the selected plugin's last failed target; a plugin that returned `incompatible` is skipped by all subsequent loads in the session (fake counter static after the mismatch)
-- [ ] T031 [P] [US3] Config mutation tests in `internal/config/plugins_test.go`: `SetPluginEnabled` flips the flag with atomic write (temp+rename), idempotent, unknown plugin name ⇒ error, other declarations untouched
+- [X] T028 [P] [US3] Surface lifecycle tests in `internal/ui/plugins_test.go`: `P` and `:plugins` open modePlugins, `Esc` returns to previous mode; zero declared plugins ⇒ `P` no-op and hints line carries no plugin hint; ≥1 declared ⇒ hint present
+- [X] T029 [P] [US3] Rendering tests in `internal/ui/plugins_test.go`: rows show name/capability/scope/state; `ok <dur> · <age>` / `failed: <reason> · <age>` / `running` / `disabled` / `unavailable: <reason>` / `incompatible: contract v<N>` text-distinct under NO_COLOR; `Enter` reveals full sanitized error; footer + hints visible at 130×24 and the height floor
+- [X] T030 [P] [US3] Toggle/retry tests in `internal/ui/plugins_test.go`: `space` calls fake Connector `SetPluginEnabled`, optimistic flip, Connector error ⇒ revert + notice; disabled plugin skipped by the very next load; `r` re-invokes the selected plugin's last failed target; a plugin that returned `incompatible` is skipped by all subsequent loads in the session (fake counter static after the mismatch)
+- [X] T031 [P] [US3] Config mutation tests in `internal/config/plugins_test.go`: `SetPluginEnabled` flips the flag with atomic write (temp+rename), idempotent, unknown plugin name ⇒ error, other declarations untouched
 
 ### Implementation
 
-- [ ] T032 [US3] `Config.SetPluginEnabled(name, enabled)` in `internal/config/plugins.go` following `AppendBucket`'s atomic-write pattern in `internal/config/connection.go` (greens T031)
-- [ ] T033 [US3] Extend `Connector` interface in `internal/ui/connections.go` + implement `connSeam.SetPluginEnabled` in `cmd/s3s/connection.go`
-- [ ] T034 [US3] Keys & entry points: `Plugins` binding `"P"` in `internal/ui/keys.go`, conditional `P plugins` hint in `internal/ui/hintbar.go`, `:plugins` case in `dispatchCommand` in `internal/ui/command.go`, help (`?`) Plugins section
-- [ ] T035 [US3] `modePlugins` surface in `internal/ui/plugins.go` + mode wiring in `internal/ui/app.go`: row list with selection, state vocabulary, `Enter` detail reveal, `space` toggle via `tea.Cmd` persistence + `pluginToggledMsg` in `internal/ui/messages.go`, `r` retry, height budget keeping footer/hints visible (greens T028–T030)
+- [X] T032 [US3] `Config.SetPluginEnabled(name, enabled)` in `internal/config/plugins.go` following `AppendBucket`'s atomic-write pattern in `internal/config/connection.go` (greens T031)
+- [X] T033 [US3] Extend `Connector` interface in `internal/ui/connections.go` + implement `connSeam.SetPluginEnabled` in `cmd/s3s/connection.go`
+- [X] T034 [US3] Keys & entry points: `Plugins` binding `"P"` in `internal/ui/keys.go`, conditional `P plugins` hint in `internal/ui/hintbar.go`, `:plugins` case in `dispatchCommand` in `internal/ui/command.go`, help (`?`) Plugins section
+- [X] T035 [US3] `modePlugins` surface in `internal/ui/plugins.go` + mode wiring in `internal/ui/app.go`: row list with selection, state vocabulary, `Enter` detail reveal, `space` toggle via `tea.Cmd` persistence + `pluginToggledMsg` in `internal/ui/messages.go`, `r` retry, height budget keeping footer/hints visible (greens T028–T030)
 
 **Checkpoint**: All three stories independently functional.
 

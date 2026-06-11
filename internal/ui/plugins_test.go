@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -586,6 +587,243 @@ func TestEnrichSingleInflightPerTarget(t *testing.T) {
 	}
 	if _, ok := m.enrichCache[enrichKey{"ctx", "meta", "images", key}]; !ok {
 		t.Error("landed result must cache")
+	}
+}
+
+// --- US3: plugin status surface ---
+
+// statusApp builds an App with plugins AND a Connector (the toggle needs one).
+func statusApp(f *storage.Fake, decls []config.PluginDecl, r plugin.Runner, fc Connector) App {
+	be := Backend{Store: f, Cluster: "c", User: "u", Endpoint: "http://x", UsageScanBudget: 20000}
+	m := New(be, "ctx", []string{"ctx"}, nil, fc, preview.ProtoNone)
+	return m.WithPlugins(decls, r)
+}
+
+func TestPluginsSurfaceOpenAndClose(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, &fakeConnector{})
+	m = drain(m, m.Init())
+
+	m = press(m, "P")
+	if m.mode != modePlugins {
+		t.Fatalf("P must open the plugin surface, mode = %d", m.mode)
+	}
+	m = press(m, "esc")
+	if m.mode != modeBuckets {
+		t.Fatalf("Esc must return to the previous mode, mode = %d", m.mode)
+	}
+
+	// Command-bar alias.
+	m = press(m, ":")
+	for _, ch := range "plugins" {
+		m = press(m, string(ch))
+	}
+	m = press(m, "enter")
+	if m.mode != modePlugins {
+		t.Fatalf(":plugins must open the surface, mode = %d", m.mode)
+	}
+}
+
+func TestPluginsKeyNoOpAndNoHintWithoutDeclarations(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	m := withBuckets(f, []string{"ctx"}, nil) // zero plugins declared
+	m = deliver(m, tea.WindowSizeMsg{Width: 130, Height: 40})
+
+	if strings.Contains(viewOf(m), "plugins") {
+		t.Errorf("zero-plugin session must carry no plugin hint:\n%s", viewOf(m))
+	}
+	m = press(m, "P")
+	if m.mode != modeBuckets {
+		t.Errorf("P must be a no-op with zero plugins, mode = %d", m.mode)
+	}
+}
+
+func TestPluginsHintPresentWhenDeclared(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, &fakeConnector{})
+	m = drain(m, m.Init())
+	m = deliver(m, tea.WindowSizeMsg{Width: 130, Height: 40})
+
+	if !strings.Contains(viewOf(m), "plugins") {
+		t.Errorf("declared plugins must surface the P hint:\n%s", viewOf(m))
+	}
+}
+
+// surfaceFixture builds a six-plugin App covering every status-surface state.
+func surfaceFixture(t *testing.T) (App, *fakeRunner) {
+	t.Helper()
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	decls := []config.PluginDecl{
+		discoveryDecl("okay-plug", "ctx"),
+		metadataDecl("fail-plug", &config.MatchRule{Connections: []string{"ctx"}}),
+		discoveryDecl("run-plug", "ctx"),
+		discoveryDecl("off-plug", "ctx"),
+		discoveryDecl("ghost-plug", "ghost"), // unknown connection ⇒ unavailable
+		discoveryDecl("old-plug", "ctx"),
+	}
+	r := &fakeRunner{}
+	m := statusApp(f, decls, r, &fakeConnector{})
+	now := m.now()
+	m.now = func() time.Time { return now }
+	for _, st := range m.plugins {
+		st.discRunning = false // craft each state explicitly below
+	}
+
+	st := m.pluginByName("okay-plug")
+	st.hasRun, st.lastOutcome, st.lastDur, st.lastAtTime = true, plugin.OutcomeOK, 120*time.Millisecond, now.Add(-2*time.Minute)
+	st = m.pluginByName("fail-plug")
+	st.hasRun, st.lastOutcome, st.lastErr, st.lastAtTime = true, plugin.OutcomeTimeout, "timeout", now.Add(-5*time.Minute)
+	m.pluginByName("run-plug").discRunning = true
+	m.pluginByName("off-plug").enabled = false
+	m.pluginByName("old-plug").incompatible = 2
+
+	mm, _ := m.openPlugins()
+	return mm.(App), r
+}
+
+func TestPluginsSurfaceStateVocabulary(t *testing.T) {
+	m, _ := surfaceFixture(t)
+	m = deliver(m, tea.WindowSizeMsg{Width: 130, Height: 40})
+	v := viewOf(m)
+	for _, frag := range []string{
+		"okay-plug", "bucket-discovery", "object-metadata",
+		"ok 120ms · 2m ago",
+		"failed: timeout · 5m ago",
+		"running",
+		"disabled",
+		"unavailable: unknown connection",
+		"incompatible: contract v2",
+	} {
+		if !strings.Contains(v, frag) {
+			t.Errorf("surface missing %q:\n%s", frag, v)
+		}
+	}
+}
+
+func TestPluginsSurfaceEnterRevealsError(t *testing.T) {
+	m, _ := surfaceFixture(t)
+	m = press(m, "down") // onto fail-plug
+	m = press(m, "enter")
+	if m.reveal == nil {
+		t.Fatal("Enter must open the reveal popup for a failed plugin")
+	}
+	if !strings.Contains(m.reveal.value, "timeout") {
+		t.Errorf("reveal must carry the full sanitized reason: %q", m.reveal.value)
+	}
+}
+
+func TestPluginsSurfaceFooterVisibleAt130x24(t *testing.T) {
+	m, _ := surfaceFixture(t)
+	m = deliver(m, tea.WindowSizeMsg{Width: 130, Height: 24})
+	v := viewOf(m)
+	lines := strings.Split(v, "\n")
+	if len(lines) > 24 {
+		t.Errorf("view is %d lines for a 24-row terminal", len(lines))
+	}
+	if !strings.Contains(v, "help") || !strings.Contains(v, "quit") {
+		t.Errorf("footer hints scrolled off:\n%s", v)
+	}
+	// Height floor: nothing panics and the footer survives.
+	m = deliver(m, tea.WindowSizeMsg{Width: 130, Height: 8})
+	if !strings.Contains(viewOf(m), "help") {
+		t.Error("footer lost at the height floor")
+	}
+}
+
+func TestPluginsToggleOptimisticAndPersisted(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
+	fc := &fakeConnector{}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, fc)
+	m = drain(m, m.Init())
+	if r.callCount("disco") != 1 {
+		t.Fatalf("calls = %d, want 1", r.callCount("disco"))
+	}
+
+	m = press(m, "P")
+	m, cmd := pressCmd(m, " ")
+	if m.pluginByName("disco").enabled {
+		t.Fatal("toggle must flip optimistically")
+	}
+	m = drain(m, cmd)
+	if len(fc.pluginToggles) != 1 || fc.pluginToggles[0] != "disco=false" {
+		t.Errorf("Connector persistence not called: %v", fc.pluginToggles)
+	}
+
+	// The very next load skips the disabled plugin.
+	m = press(m, "esc")
+	m, cmd = pressCmd(m, "r")
+	m = drain(m, cmd)
+	if r.callCount("disco") != 1 {
+		t.Errorf("disabled plugin still invoked: calls = %d", r.callCount("disco"))
+	}
+}
+
+func TestPluginsToggleErrorReverts(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": okDiscovery("zeta")}}
+	fc := &fakeConnector{pluginErr: context.DeadlineExceeded}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, fc)
+	m = drain(m, m.Init())
+
+	m = press(m, "P")
+	m, cmd := pressCmd(m, " ")
+	m = drain(m, cmd)
+	if !m.pluginByName("disco").enabled {
+		t.Error("failed persistence must revert the optimistic flip")
+	}
+	if m.notice == "" {
+		t.Error("failed persistence must post a notice")
+	}
+}
+
+func TestPluginsRetryReinvokesLastFailedTarget(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": {Outcome: plugin.OutcomeTimeout, ErrDetail: "timeout"}}}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, &fakeConnector{})
+	m = drain(m, m.Init())
+	if r.callCount("disco") != 1 {
+		t.Fatalf("calls = %d, want 1", r.callCount("disco"))
+	}
+
+	r.mu.Lock()
+	r.results["disco"] = okDiscovery("zeta") // the plugin recovered
+	r.mu.Unlock()
+
+	m = press(m, "P")
+	m, cmd := pressCmd(m, "r")
+	m = drain(m, cmd)
+	if r.callCount("disco") != 2 {
+		t.Fatalf("retry must re-invoke: calls = %d", r.callCount("disco"))
+	}
+	if !strings.Contains(strings.Join(bucketNames(m), ","), "zeta") {
+		t.Errorf("recovered discovery must merge: %v", bucketNames(m))
+	}
+}
+
+func TestIncompatiblePluginSkippedForSession(t *testing.T) {
+	f := storage.NewFake()
+	f.Seed("listed-a")
+	r := &fakeRunner{results: map[string]plugin.Result{"disco": {Outcome: plugin.OutcomeIncompatible, Incompatible: 2}}}
+	m := statusApp(f, []config.PluginDecl{discoveryDecl("disco", "ctx")}, r, &fakeConnector{})
+	m = drain(m, m.Init())
+	if r.callCount("disco") != 1 {
+		t.Fatalf("calls = %d, want 1", r.callCount("disco"))
+	}
+
+	m, cmd := pressCmd(m, "r") // refresh: incompatible plugin must be skipped
+	m = drain(m, cmd)
+	if r.callCount("disco") != 1 {
+		t.Errorf("incompatible plugin re-invoked: calls = %d", r.callCount("disco"))
 	}
 }
 

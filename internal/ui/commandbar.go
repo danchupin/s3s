@@ -93,6 +93,11 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 		}
 		out = append(out, barEntry{key: glyph(a.binds[0]), label: m.actionLabel(a), role: role})
 	}
+	// Plugin status surface — advertised only when at least one plugin is
+	// declared (zero-config users never see plugin chrome).
+	if len(m.plugins) > 0 {
+		out = append(out, barEntry{key: glyph(firstBind(m.keys.Plugins)), label: "plugins", role: roleRead})
+	}
 	// Reset affordance: shown only when a filter term is applied AND the
 	// input is closed (not while typing — that mode shows its own Enter/Esc hints).
 	if m.searchActive() && !m.searching {

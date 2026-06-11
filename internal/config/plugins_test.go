@@ -189,6 +189,50 @@ func TestMatchRuleMatches(t *testing.T) {
 	}
 }
 
+func TestSetPluginEnabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(pluginsYAML(`plugins:
+  - {name: p1, capability: bucket-discovery, cmd: c1, connections: [prod-rgw]}
+  - {name: p2, capability: bucket-discovery, cmd: c2, connections: [prod-rgw]}
+`)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.SetPluginEnabled("p1", false); err != nil {
+		t.Fatalf("SetPluginEnabled: %v", err)
+	}
+	if cfg.Plugins[0].IsEnabled() {
+		t.Error("live config must reflect the flip")
+	}
+	// Persisted: a fresh load sees the flag; the sibling declaration is untouched.
+	re, err := Load(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if re.Plugins[0].IsEnabled() {
+		t.Error("flip not persisted")
+	}
+	if !re.Plugins[1].IsEnabled() || re.Plugins[1].Cmd != "c2" {
+		t.Errorf("sibling declaration disturbed: %+v", re.Plugins[1])
+	}
+	// Idempotent re-set succeeds.
+	if err := cfg.SetPluginEnabled("p1", false); err != nil {
+		t.Errorf("idempotent re-set failed: %v", err)
+	}
+	// Unknown plugin name is an error and writes nothing.
+	if err := cfg.SetPluginEnabled("nope", true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown plugin: %v, want ErrNotFound", err)
+	}
+	// The atomic write leaves no temp file behind.
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Error("temp file left behind by the atomic write")
+	}
+}
+
 func TestPluginsAbsentSectionLoads(t *testing.T) {
 	cfg, err := loadPlugins(t, pluginsYAML(""))
 	if err != nil {

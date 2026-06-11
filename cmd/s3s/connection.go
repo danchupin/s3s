@@ -78,3 +78,8 @@ func (s connSeam) Delete(_ context.Context, name string) ([]string, error) {
 func (s connSeam) AddBucket(_ context.Context, ctxName, bucket string) ([]string, error) {
 	return s.cfg.AppendBucket(ctxName, bucket)
 }
+
+// SetPluginEnabled persists the in-app plugin toggle. A config mutation only.
+func (s connSeam) SetPluginEnabled(_ context.Context, name string, enabled bool) error {
+	return s.cfg.SetPluginEnabled(name, enabled)
+}
