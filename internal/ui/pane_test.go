@@ -61,8 +61,8 @@ func TestPaneFolderShowsSummary(t *testing.T) {
 	f.Seed("b", "a.txt", "docs/x.txt")
 	m := wideTree(f)
 	selectDir(&m, "docs/")
-	if p := m.paneView(40, 20); !strings.Contains(p, "Folder") || !strings.Contains(p, "analyze") {
-		t.Errorf("folder pane should show a summary + analyze hint; got:\n%s", p)
+	if p := m.paneView(40, 20); !strings.Contains(p, "Folder") || !strings.Contains(p, "detail") {
+		t.Errorf("folder pane should show a summary + detail hint; got:\n%s", p)
 	}
 }
 

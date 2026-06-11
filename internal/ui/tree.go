@@ -142,6 +142,7 @@ func (m App) fetchNextPage() (tea.Model, tea.Cmd) {
 func (m App) refresh() (tea.Model, tea.Cmd) {
 	key := m.levelKey()
 	m.cache.Invalidate(key)
+	m.usageResults.Invalidate(m.usageKey(m.bucket, m.prefix)) // 016 US2/FR-007: 'r' rescans usage too
 	m.level = nil
 	m.treeSel = 0
 	ctx := (&m).beginLoad()
@@ -233,11 +234,45 @@ func (m App) treeView(w, rows int) string {
 			if m.sel[e.full] { // marked for multi-select
 				label = "✓ " + label
 			}
-			data = append(data, []string{label, "obj", humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
+			data = append(data, []string{label, storageClassMarker(e.obj.StorageClass), humanSize(e.obj.Size), formatDate(e.obj.LastModified)})
 		}
 		dirs = append(dirs, e.isDir)
 	}
 	return renderTableActive(w, cols, data, dirs, m.treeSel-off, rows-(end-off))
+}
+
+// storageClassMarker maps an object storage class to a compact, CLOSED, lossy token
+// that fits the 5-char `type` column (016 US5 / FR-015, contracts/listing-storage-class.md).
+// STANDARD (and the empty default) renders the neutral "obj" so common objects add no
+// per-row noise; every non-standard class gets a fixed token, and the FULL class stays
+// recoverable via the reveal affordance (`i`). An unknown future class → "cls*".
+func storageClassMarker(class string) string {
+	switch strings.ToUpper(class) {
+	case "", "STANDARD":
+		return "obj"
+	case "GLACIER":
+		return "glac"
+	case "GLACIER_IR":
+		return "gir"
+	case "DEEP_ARCHIVE":
+		return "arch"
+	case "INTELLIGENT_TIERING":
+		return "int"
+	case "STANDARD_IA":
+		return "ia"
+	case "ONEZONE_IA":
+		return "1zia"
+	case "REDUCED_REDUNDANCY":
+		return "rr"
+	default:
+		return "cls*"
+	}
+}
+
+// isStandardClass reports whether the class needs no marker/reveal (STANDARD or unset).
+func isStandardClass(class string) bool {
+	c := strings.ToUpper(class)
+	return c == "" || c == "STANDARD"
 }
 
 // parentPrefix returns the prefix one level up ("a/b/" -> "a/", "a/" -> "").

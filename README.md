@@ -54,9 +54,15 @@ _Coming soon — a recording of context switching, tree navigation, and previews
   read-only, against production); multi-select objects (`space`) and act on the batch:
   bulk download (mirrors the key hierarchy into local subdirs), bulk delete, bulk copy,
   each with a truthful per-item succeeded/failed summary.
-- **Storage analytics (`du`)** — analyze a bucket or prefix and see the total size,
-  object count, and a ranked largest-first breakdown of its immediate children (an
-  `ncdu`-style view) with live progress and drill-down — what's eating space, in-TUI.
+- **Inline metadata & usage** — the details pane shows rich object metadata (version,
+  encryption + KMS key, replication, archival/restore, object-lock & legal-hold, lifecycle
+  expiration, content-handling headers) straight from the object's `HeadObject`, plus a
+  bucket/prefix total size + object count computed by a background, cancelable, cached
+  scan. Press `a` ("more detail") to expand a ranked largest-first breakdown of where the
+  space goes, an object's tags, or a bucket's configuration (versioning / encryption /
+  lifecycle / replication / public-access / location) — all on the main screen, no
+  separate view. Non-standard storage classes are marked in the listing (`i` reveals the
+  full class).
 - **Sortable lists** — sort any level by name, size, or last-modified and toggle
   direction (`s` / `S`); the sort persists across navigation.
 - **Two secure credential sources** — a context resolves its secret from exactly one of:
@@ -310,7 +316,7 @@ read-only context (dimmed, `(w to arm)`) so the full capability set is always le
 | `space` | mark/unmark an object for multi-select (bulk variants act on the marked set) |
 | `s` / `S` | cycle the sort column (name/size/modified) · toggle direction |
 | `d` | download the selected object / marked set (a read — works read-only) |
-| `a` | analyze (`du`) a bucket / folder / level (a read) |
+| `a` | more detail: expand usage breakdown · object tags · bucket config (a read) |
 | `r` | refresh the current list |
 | `y` · `u` · `+` | copy · upload · new folder (write mode; safe — bare key) |
 | `w` | **arm/disarm write** at runtime (confirm to arm; instant to disarm) |
@@ -336,7 +342,7 @@ radius:
 Bucket delete requires an **empty** bucket — it never recursively purges. Deleting a
 connection also removes its keychain secret; the **active** context cannot be deleted.
 
-Long operations (download, recursive delete, bulk ops, `du`) show a determinate progress
+Long operations (download, recursive delete, bulk ops, the usage scan) show a determinate progress
 bar with a percentage inline in the footer; fast operations show none.
 
 Images render as ANSI half-block by default. Terminal graphics protocols

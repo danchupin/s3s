@@ -49,7 +49,7 @@ func (m App) actionCatalog() []action {
 	// dispatch identically in both.
 	if m.mode == modeBuckets && m.focusZone == zoneBuckets {
 		return []action{
-			{binds: k.Analyze, label: "analyze", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startAnalyze},
+			{binds: k.MoreDetail, label: "detail", avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startMoreDetail},
 			{binds: k.Refresh, label: "refresh", avail: always, invoke: App.refreshBuckets},
 			{binds: k.DeleteChord, label: "delete", writeOnly: true, dangerous: true, chordKeys: k.DeleteChord,
 				avail: func(a App, _ selKind) bool { return len(a.filteredBuckets()) > 0 }, invoke: App.startRemoveBucket},
@@ -67,7 +67,7 @@ func (m App) actionCatalog() []action {
 			}
 			return a.startDownload()
 		}},
-		{binds: k.Analyze, label: "analyze", avail: func(_ App, kind selKind) bool { return kind != selObject }, invoke: App.startAnalyze},
+		{binds: k.MoreDetail, label: "detail", avail: always, invoke: App.startMoreDetail},
 		{binds: k.Delete, label: "delete", writeOnly: true, bulk: true, dangerous: true, chordKeys: k.DeleteChord, avail: deleteTarget, invoke: func(a App) (tea.Model, tea.Cmd) {
 			if a.hasMarks() {
 				return a.startBulkDelete()
@@ -171,8 +171,13 @@ func (m App) actionLabel(a action) string {
 	return a.label
 }
 
-// refreshBuckets reloads the bucket list (the `r` action in the bucket list).
+// refreshBuckets reloads the bucket list (the `r` action in the bucket list). It also
+// invalidates the highlighted bucket's cached usage totals so the next focus rescans
+// (016 US2/FR-007 — the bucket-list refresh path, which otherwise touches no cache).
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
+	if b := m.highlightedBucketName(); b != "" {
+		m.usageResults.InvalidateBucket(m.ctxName, b)
+	}
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())
 }

@@ -4,117 +4,164 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// runAnalyzeToDone starts the scan producer (runAnalyze's batch cmd is not executed in
-// tests) and drives its progress events to the terminal report.
-func runAnalyzeToDone(t *testing.T, m App) App {
+// driveUsageScan runs a usage scan started on m to its terminal report, applying every
+// event via Update (so the cache ends populated). It re-arms the SAME channel carried in
+// each progress msg (the drain discipline the production handler uses).
+func driveUsageScan(t *testing.T, m App, bucket, prefix string) App {
 	t.Helper()
-	if m.usageCh == nil {
-		t.Fatal("analyze did not arm a scan channel")
+	mm, cmd := m.startUsageScan(bucket, prefix)
+	m = mm.(App)
+	if cmd == nil {
+		t.Fatal("startUsageScan returned no cmd")
 	}
-	msg := analyzeCmd(m.loadCtx, m.activeStore(), m.usageBucket, m.usagePrefix, m.usageCh, m.gen)()
+	msg := cmd()
 	for {
 		switch ev := msg.(type) {
 		case usageProgressMsg:
 			mm, _ := m.Update(ev)
 			m = mm.(App)
-			msg = waitForUsage(m.usageCh, m.gen)()
+			if ev.ch == nil {
+				t.Fatal("usageProgressMsg missing its channel (drain would leak)")
+			}
+			msg = waitForUsage(ev.ch, ev.gen)()
 		case usageDoneMsg:
 			mm, _ := m.Update(ev)
 			return mm.(App)
 		default:
-			t.Fatalf("unexpected msg %#v", msg)
+			t.Fatalf("unexpected msg %#v", ev)
 		}
 	}
 }
 
-// TestAnalyzeTotalsAndView: analyzing a level shows totals and the ranked children in
-// the rendered view (005 US2, FR-008/FR-009).
-func TestAnalyzeTotalsAndView(t *testing.T) {
+// scanToDone runs a scan cmd to its raw terminal usageDoneMsg WITHOUT applying it (used to
+// test generation isolation).
+func scanToDone(t *testing.T, cmd tea.Cmd) usageDoneMsg {
+	t.Helper()
+	msg := cmd()
+	for {
+		switch ev := msg.(type) {
+		case usageProgressMsg:
+			msg = waitForUsage(ev.ch, ev.gen)()
+		case usageDoneMsg:
+			return ev
+		default:
+			t.Fatalf("unexpected msg %#v", ev)
+		}
+	}
+}
+
+// TestInlineUsageTotalsCached: a completed scan caches the report and the inline usage line
+// shows the total + count, ranked children largest-first (016 US2, FR-004/FR-007).
+func TestInlineUsageTotalsCached(t *testing.T) {
 	f := storage.NewFake()
 	f.SeedObject("b", "logs/a.log", storage.FakeObject{Data: make([]byte, 300)})
 	f.SeedObject("b", "media/x.png", storage.FakeObject{Data: make([]byte, 100)})
 	f.SeedObject("b", "big.bin", storage.FakeObject{Data: make([]byte, 250)})
 	m := treeApp(f, false)
 
-	mm, _ := m.runAnalyze("b", "")
-	m = runAnalyzeToDone(t, mm.(App))
-
-	if m.mode != modeUsage || m.usage == nil {
-		t.Fatalf("analyze should land in modeUsage with a report; mode=%v usage=%v", m.mode, m.usage)
+	m = driveUsageScan(t, m, "b", "")
+	rep, ok := m.usageResults.Get(m.usageKey("b", ""))
+	if !ok || rep.TotalCount != 3 || rep.TotalSize != 650 {
+		t.Fatalf("usage not cached or totals wrong: ok=%v rep=%+v", ok, rep)
 	}
-	if m.usage.TotalCount != 3 || m.usage.TotalSize != 650 {
-		t.Errorf("totals = %d/%d, want 3/650", m.usage.TotalCount, m.usage.TotalSize)
+	if rep.Children[0].Name != "logs/" || rep.Children[1].Name != "big.bin" {
+		t.Errorf("children ranking: %+v", rep.Children)
 	}
-	// Ranked largest-first: logs/ (300) before big.bin (250) before media/ (100).
-	if len(m.usage.Children) != 3 || m.usage.Children[0].Name != "logs/" || m.usage.Children[1].Name != "big.bin" {
-		t.Errorf("children ranking wrong: %+v", m.usage.Children)
-	}
-	v := viewOf(m)
-	if !strings.Contains(v, "logs/") || !strings.Contains(v, "total") {
-		t.Errorf("usage view missing ranked children or total:\n%s", v)
+	if line := m.usageLine("b", ""); !strings.Contains(line, "total") || !strings.Contains(line, "3 objects") {
+		t.Errorf("usageLine = %q, want total + 3 objects", line)
 	}
 }
 
-// TestAnalyzeDrillDown: Enter on a sub-prefix child re-analyzes under it (005 FR-013).
-func TestAnalyzeDrillDown(t *testing.T) {
+// TestUsageGenerationIsolation: a scan's late terminal report is NOT cached after the user
+// navigates (beginLoad bumps usageGen + cancels), so a superseded target never overwrites
+// the view (016 US2/FR-006/FR-016).
+func TestUsageGenerationIsolation(t *testing.T) {
 	f := storage.NewFake()
-	f.SeedObject("b", "logs/2026/a.log", storage.FakeObject{Data: make([]byte, 40)})
-	f.SeedObject("b", "logs/2026/b.log", storage.FakeObject{Data: make([]byte, 60)})
-	f.SeedObject("b", "other/x", storage.FakeObject{Data: make([]byte, 5)})
+	f.SeedObject("b", "x", storage.FakeObject{Data: make([]byte, 10)})
 	m := treeApp(f, false)
 
-	mm, _ := m.runAnalyze("b", "")
-	m = runAnalyzeToDone(t, mm.(App)) // top level: logs/ (100), other/ (5)
-	if m.usage.Children[0].Name != "logs/" {
-		t.Fatalf("precondition: logs/ should rank first; %+v", m.usage.Children)
-	}
-	// Drill into logs/ (selected row 0).
-	mm, _ = m.onUsageKey("enter")
-	m = runAnalyzeToDone(t, mm.(App))
-	if m.usagePrefix != "logs/" {
-		t.Errorf("drill-down prefix = %q, want logs/", m.usagePrefix)
-	}
-	if m.usage.TotalCount != 2 || m.usage.TotalSize != 100 {
-		t.Errorf("drilled totals = %d/%d, want 2/100", m.usage.TotalCount, m.usage.TotalSize)
-	}
-	if m.usage.Children[0].Name != "2026/" {
-		t.Errorf("drilled child = %+v, want 2026/", m.usage.Children)
+	mm, cmd := m.startUsageScan("b", "")
+	m = mm.(App)
+	done := scanToDone(t, cmd) // raw terminal msg, stamped the scan's gen
+
+	(&m).beginLoad() // navigation supersedes the scan: usageGen++ + cancel
+	mm, _ = m.Update(done)
+	m = mm.(App)
+	if _, ok := m.usageResults.Get(m.usageKey("b", "")); ok {
+		t.Error("a superseded scan's report must NOT be cached")
 	}
 }
 
-// TestAnalyzeBackReturnsToOrigin: leaving the analytics view returns to the mode it was
-// launched from — the bucket list, not a phantom tree (regression for the 005 review).
-func TestAnalyzeBackReturnsToOrigin(t *testing.T) {
+// TestInlineBreakdownAndConfigCycle: on a bucket, MoreDetail cycles None → breakdown →
+// config → None (one section at a time). The breakdown lists ranked children; the config
+// section renders the tri-state labels (016 US3 + US4).
+func TestInlineBreakdownAndConfigCycle(t *testing.T) {
 	f := storage.NewFake()
-	f.SeedObject("b", "x", storage.FakeObject{Data: make([]byte, 3)})
-	m := withBuckets(f, []string{"ctx"}, nil) // bucket list
-
-	mm, _ := m.startAnalyze() // analyze the highlighted bucket
-	m = runAnalyzeToDone(t, mm.(App))
-	if m.mode != modeUsage {
-		t.Fatalf("analyze should be in modeUsage; got %v", m.mode)
+	f.SeedObject("b", "logs/a.log", storage.FakeObject{Data: make([]byte, 300)})
+	f.SeedObject("b", "big.bin", storage.FakeObject{Data: make([]byte, 250)})
+	f.Buckets["b"].BucketConfig = storage.BucketConfig{
+		Versioning: storage.ConfigItem{State: storage.ConfigConfigured, Detail: "Enabled"},
 	}
-	mm, _ = m.onUsageKey("esc")
-	if got := mm.(App).mode; got != modeBuckets {
-		t.Errorf("Back from a bucket-list analyze should return to modeBuckets, got %v", got)
+	f.Buckets["b"].UnsupportedGetConfigs = map[string]bool{"replication": true}
+	m := withBuckets(f, []string{"ctx"}, nil) // bucket list, "b" highlighted
+	m = driveUsageScan(t, m, "b", "")
+
+	// Press 1 → breakdown.
+	mm, _ := m.startMoreDetail()
+	m = mm.(App)
+	if m.detailSection != sectBreakdown {
+		t.Fatalf("press 1: want sectBreakdown, got %v", m.detailSection)
+	}
+	if v := m.detailBreakdownView("b", "", 60); !strings.Contains(v, "breakdown") || !strings.Contains(v, "logs/") {
+		t.Errorf("breakdown view:\n%s", v)
+	}
+
+	// Press 2 → config (loads it). Drive the bucketConfigMsg.
+	mm, cmd := m.startMoreDetail()
+	m = mm.(App)
+	if m.detailSection != sectConfig {
+		t.Fatalf("press 2: want sectConfig, got %v", m.detailSection)
+	}
+	if cmd != nil {
+		mm, _ = m.Update(cmd())
+		m = mm.(App)
+	}
+	v := stripANSI(m.detailConfigView(60))
+	if !strings.Contains(v, "Enabled") || !strings.Contains(v, "unsupported") || !strings.Contains(v, "none") {
+		t.Errorf("config view must show configured/unsupported/none labels:\n%s", v)
+	}
+
+	// Press 3 → collapse.
+	mm, _ = m.startMoreDetail()
+	if mm.(App).detailSection != sectNone {
+		t.Errorf("press 3: want sectNone, got %v", mm.(App).detailSection)
 	}
 }
 
-// TestAnalyzeEmptyPrefix: analyzing an empty prefix shows zero, not an error (FR-012).
-func TestAnalyzeEmptyPrefix(t *testing.T) {
+// TestObjectTagsToggle: MoreDetail on an object loads + shows its tags; an object with no
+// tags shows "none" (016 US4/FR-011).
+func TestObjectTagsToggle(t *testing.T) {
 	f := storage.NewFake()
-	f.Seed("b") // no objects
+	f.SeedObject("b", "doc.txt", storage.FakeObject{Data: []byte("x"), Tags: map[string]string{"env": "prod"}})
 	m := treeApp(f, false)
+	selectObject(&m, "doc.txt")
 
-	mm, _ := m.runAnalyze("b", "nothing/")
-	m = runAnalyzeToDone(t, mm.(App))
-	if m.usage == nil || m.usage.TotalCount != 0 || m.usage.TotalSize != 0 {
-		t.Errorf("empty analyze = %+v, want zero totals", m.usage)
+	mm, cmd := m.startMoreDetail()
+	m = mm.(App)
+	if m.detailSection != sectTags {
+		t.Fatalf("want sectTags, got %v", m.detailSection)
 	}
-	if m.err != nil {
-		t.Errorf("empty analyze should not error: %v", m.err)
+	if cmd != nil {
+		mm, _ = m.Update(cmd())
+		m = mm.(App)
+	}
+	v := stripANSI(m.detailTagsView("doc.txt", 60))
+	if !strings.Contains(v, "env") || !strings.Contains(v, "prod") {
+		t.Errorf("tags view must show the KV pair:\n%s", v)
 	}
 }

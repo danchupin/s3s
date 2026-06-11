@@ -34,8 +34,9 @@ func (k revealKind) label() string {
 
 // revealState is the active reveal popup payload (nil = closed).
 type revealState struct {
-	kind  revealKind
-	value string
+	kind   revealKind
+	value  string
+	detail string // optional extra line (e.g. the full storage class for a marked object)
 }
 
 // openReveal captures the full identifier of the current selection and opens the reveal
@@ -60,7 +61,11 @@ func (m App) revealTarget() *revealState {
 		if e.isDir {
 			return &revealState{kind: revealFolder, value: e.full}
 		}
-		return &revealState{kind: revealObject, value: e.full}
+		rs := &revealState{kind: revealObject, value: e.full}
+		if e.obj != nil && !isStandardClass(e.obj.StorageClass) {
+			rs.detail = "class: " + e.obj.StorageClass // full, lossless class (016 US5)
+		}
+		return rs
 	case m.mode == modeBuckets:
 		fb := m.filteredBuckets()
 		if m.bucketSel < 0 || m.bucketSel >= len(fb) {
@@ -83,6 +88,9 @@ func (m App) revealView(w, h int) string {
 			body += "\n"
 		}
 		body += objCellStyle.Render(l)
+	}
+	if rs.detail != "" {
+		body += "\n\n" + dimCellStyle.Render(sanitizeLabel(rs.detail))
 	}
 	inner := titleStyle.Render("reveal "+rs.kind.label()) + "\n\n" +
 		body + "\n\n" +

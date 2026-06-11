@@ -328,6 +328,38 @@ func bucketTickCmd(gen int, bucket string) tea.Cmd {
 	})
 }
 
+// usageTickCmd schedules a debounced usage scan for (gen, bucket, prefix): the focused
+// target's UsageOf scan starts only once the selection settles, so rapid transit through a
+// list spawns no scan (016 US2 FR-005). Reuses the pane debounce window.
+func usageTickCmd(gen int, bucket, prefix string) tea.Cmd {
+	return tea.Tick(paneDebounce, func(time.Time) tea.Msg {
+		return usageTickMsg{gen: gen, bucket: bucket, prefix: prefix}
+	})
+}
+
+// loadObjectTags fetches an object's tag values off the event loop (016 US4/FR-011).
+func loadObjectTags(ctx context.Context, st storage.Storage, bucket, key string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		ot, err := st.GetObjectTagging(ctx, bucket, key)
+		if err != nil {
+			logOpErr("get object tagging", err, "bucket", bucket, "key", key)
+		}
+		return objectTagsMsg{gen: gen, key: key, tags: ot, err: err}
+	}
+}
+
+// loadBucketConfig fetches a bucket's governance sub-resources off the event loop
+// (016 US4/FR-012). Each sub-resource is classified independently inside the storage layer.
+func loadBucketConfig(ctx context.Context, st storage.Storage, bucket string, gen int) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := st.GetBucketConfiguration(ctx, bucket)
+		if err != nil {
+			logOpErr("get bucket configuration", err, "bucket", bucket)
+		}
+		return bucketConfigMsg{gen: gen, bucket: bucket, cfg: cfg, err: err}
+	}
+}
+
 // loadPaneMeta fetches object metadata for the details pane off the event loop. Unlike
 // loadMetadata it emits paneMetaMsg (which does NOT flip modeObject) under the pane gen.
 func loadPaneMeta(ctx context.Context, st storage.Storage, bucket, key string, gen int) tea.Cmd {

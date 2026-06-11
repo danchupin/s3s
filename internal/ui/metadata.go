@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -22,9 +23,15 @@ func metaRow(k, v string, w int) string {
 	return metaKeyStyle.Render(pad(k, metaKeyWidth)) + metaValStyle.Render(truncate(v, valW)) + "\n"
 }
 
-// metaFieldRows renders the standard object field block (Key/Size/Modified/Type/Class/
-// ETag) for the given metadata at width w. The single source of truth for both the Enter
-// object view and the details pane.
+// metaFieldRows renders the object field block for the given metadata at width w. The
+// single source of truth for both the Enter object view AND the focus details pane
+// (pane.go), so enriching it surfaces the new fields on both paths (016 US1, FR-003).
+//
+// The core block (Key/Size/Modified/Type/Class/ETag) ALWAYS renders. The 016 enriched
+// block below it is OMIT-EMPTY for optional fields, so a plain object adds no clutter
+// and the pane stays compact. The permission-gated object-lock fields ALWAYS render —
+// "unknown" when the header is absent (the caller may simply lack the retention/
+// legal-hold read permission), distinct from a configured-but-empty "none".
 func metaFieldRows(md storage.ObjectMetadata, w int) string {
 	var b strings.Builder
 	b.WriteString(metaRow("Key", sanitizeLabel(md.Key), w))
@@ -33,7 +40,48 @@ func metaFieldRows(md storage.ObjectMetadata, w int) string {
 	b.WriteString(metaRow("Type", orDash(md.ContentType), w))
 	b.WriteString(metaRow("Class", orDash(md.StorageClass), w))
 	b.WriteString(metaRow("ETag", orDash(md.ETag), w))
+
+	b.WriteString(optRow("Version", md.VersionID, w))
+	if md.DeleteMarker {
+		b.WriteString(metaRow("Delete marker", "yes", w))
+	}
+	b.WriteString(optRow("Encryption", md.SSEAlgorithm, w))
+	b.WriteString(optRow("KMS key", md.SSEKMSKeyID, w))
+	b.WriteString(optRow("Replication", md.ReplicationStatus, w))
+	b.WriteString(optRow("Restore", md.RestoreStatus, w))
+	b.WriteString(gatedRow("Lock", md.ObjectLockMode, w))
+	b.WriteString(optRow("Retain until", optTime(md.ObjectLockRetainTil), w))
+	b.WriteString(gatedRow("Legal hold", md.ObjectLockLegalHold, w))
+	b.WriteString(optRow("Expires", md.LifecycleExpiration, w))
+	b.WriteString(optRow("Encoding", md.ContentEncoding, w))
+	b.WriteString(optRow("Cache", md.CacheControl, w))
+	b.WriteString(optRow("Disposition", md.ContentDisposition, w))
 	return b.String()
+}
+
+// optRow renders an optional field only when non-empty (omit-empty, FR-003).
+func optRow(k, v string, w int) string {
+	if v == "" {
+		return ""
+	}
+	return metaRow(k, sanitizeLabel(v), w)
+}
+
+// gatedRow renders a permission-gated field ALWAYS: an absent value shows "unknown"
+// (absence is information), never the optional "" placeholder (FR-003).
+func gatedRow(k, v string, w int) string {
+	if v == "" {
+		v = "unknown"
+	}
+	return metaRow(k, sanitizeLabel(v), w)
+}
+
+// optTime formats a time for an optional row, or "" (omit) when zero.
+func optTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return formatDate(t)
 }
 
 // metaPane renders the object metadata block within width w. It is the

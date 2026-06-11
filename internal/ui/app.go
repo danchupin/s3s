@@ -27,7 +27,6 @@ const (
 	modeObject // combined metadata + content view (opened with Enter)
 	modeContextSwitch
 	modeHelp
-	modeUsage       // du analytics view — 005 US2
 	modeCommand     // `:` command bar — 006 US3
 	modeConnections // in-app connection manager list — 006 US4
 	modeConnForm    // add-connection form — 006 US4
@@ -216,14 +215,26 @@ type App struct {
 	sortBy  sortCol
 	sortAsc bool
 
-	// du analytics
-	usage       *storage.UsageReport // completed report (nil while scanning)
-	usageSel    int                  // selected child row (for drill-down)
-	usageBucket string
-	usagePrefix string
-	usageReturn mode                  // mode to restore when leaving the analytics view
-	usageProg   storage.UsageProgress // running totals during a scan
-	usageCh     chan usageEvent       // scan progress channel
+	// inline usage (016 US2/US3): a dwell-gated, generation-guarded, session-cached
+	// background UsageOf scan whose totals + breakdown render in the details pane. The
+	// scan owns its OWN generation + cancel, ISOLATED from m.gen/loadCancel (the main
+	// load), so a level load never cancels a usage scan and vice-versa.
+	usageResults *cache.Cache[*storage.UsageReport] // session cache keyed by (ctx,bucket,prefix)
+	usageProg    storage.UsageProgress              // running partial during the active scan
+	usageScanKey cache.Key                          // target of the in-flight scan
+	usageGen     int                                // scan generation (NOT m.gen)
+	usageCancel  context.CancelFunc                 // cancels the in-flight scan's own ctx
+	usageCh      chan usageEvent                    // in-flight scan progress channel
+
+	// inline "more detail" sections (016 US3/US4): at most ONE renders at a time (budget
+	// gate). detailSection selects which; the loads below back the tags/config sections.
+	detailSection detailSection
+	breakdownSel  int                   // selected child row in the usage breakdown
+	objectTags    *storage.ObjectTags   // lazily-loaded tags for the focused object
+	tagsErr       error                 // non-nil when the tags load was denied/failed
+	bucketCfg     *storage.BucketConfig // lazily-loaded config for the focused bucket
+	detailKey     string                // object key / bucket the tags/config belong to
+	detailGen     int                   // generation for tag/config loads
 
 	// local file browser state (active during an upload's phaseBrowse)
 	fbDir     string
@@ -238,22 +249,23 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 // image protocol for previews.
 func New(initial Backend, ctxName string, contexts []string, resolve Resolver, connect Connector, imgProto preview.Protocol) App {
 	m := App{
-		raw:         initial.Store,
-		info:        initial,
-		ctxName:     ctxName,
-		contexts:    contexts,
-		resolve:     resolve,
-		connect:     connect,
-		imgProto:    imgProto,
-		armed:       initial.Writable,
-		ctxReadOnly: initial.ReadOnly,
-		sortAsc:     true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
-		paneVisible: true, // details pane on by default; collapses on narrow terminals
-		keys:        defaultKeys(),
-		cache:       cache.New[*levelState](),
-		mode:        modeBuckets,
-		width:       80,
-		height:      24,
+		raw:          initial.Store,
+		info:         initial,
+		ctxName:      ctxName,
+		contexts:     contexts,
+		resolve:      resolve,
+		connect:      connect,
+		imgProto:     imgProto,
+		armed:        initial.Writable,
+		ctxReadOnly:  initial.ReadOnly,
+		sortAsc:      true, // default to ascending (A→Z / smallest / oldest first) — 005 FR-020
+		paneVisible:  true, // details pane on by default; collapses on narrow terminals
+		keys:         defaultKeys(),
+		cache:        cache.New[*levelState](),
+		usageResults: cache.New[*storage.UsageReport](),
+		mode:         modeBuckets,
+		width:        80,
+		height:       24,
 	}
 	// No active backend (nil store) — don't try to load buckets from a backend that does not
 	// exist. If connections already exist but none is active (no current-context/flag/env),
@@ -303,6 +315,15 @@ func (m *App) beginLoad() context.Context {
 	if m.loadCancel != nil {
 		m.loadCancel()
 	}
+	// A navigation/main load also supersedes any in-flight inline usage scan: cancel its
+	// own context and bump the usage generation so its late messages are dropped (016
+	// US2/FR-006, isolated from m.gen).
+	if m.usageCancel != nil {
+		m.usageCancel()
+		m.usageCancel = nil
+	}
+	m.usageGen++
+	m.usageCh = nil
 	m.gen++
 	ctx, cancel := context.WithCancel(context.Background())
 	m.loadCtx = ctx
@@ -326,15 +347,16 @@ func (m *App) cancelLoad() {
 // previous row), clears the stale pane data, and — for an object selection — schedules a
 // paneTick. Folders/levels need no fetch (instant summary), so no tick is scheduled.
 func (m App) afterSelectionMove() (tea.Model, tea.Cmd) {
+	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the new target (016 US2)
 	m.paneGen++
 	m.paneMeta = nil
 	m.panePrev = nil
 	if e := m.selected(); e != nil && !e.isDir {
 		m.paneSelKey = e.full
-		return m, paneTickCmd(m.paneGen, m.paneSelKey)
+		return m, tea.Batch(paneTickCmd(m.paneGen, m.paneSelKey), usageCmd)
 	}
 	m.paneSelKey = ""
-	return m, nil
+	return m, usageCmd
 }
 
 // onPaneTick fires the debounced pane fetch if the selection is unchanged (gen+key match)
@@ -372,15 +394,16 @@ func (m App) highlightedBucketName() string {
 // flow is unchanged and issues zero object listings, SC-007/SC-010) or when the cursor is on
 // the "+ add bucket" row.
 func (m App) afterBucketMove() (tea.Model, tea.Cmd) {
+	usageCmd := (&m).armUsageScan() // dwell-gated inline usage for the highlighted bucket (016 US2)
 	if layoutTier(m.width) == tierSingle {
-		return m, nil
+		return m, usageCmd
 	}
 	b := m.highlightedBucketName()
 	if b == "" {
-		return m, nil
+		return m, usageCmd
 	}
 	m.bucketLoadGen++
-	return m, bucketTickCmd(m.bucketLoadGen, b)
+	return m, tea.Batch(bucketTickCmd(m.bucketLoadGen, b), usageCmd)
 }
 
 // onBucketTick fires the debounced objects-zone load once the bucket selection settles
@@ -651,6 +674,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageDoneMsg:
 		return m.onUsageDone(msg)
 
+	case usageTickMsg:
+		return m.onUsageTick(msg)
+
+	case objectTagsMsg:
+		return m.onObjectTags(msg)
+
+	case bucketConfigMsg:
+		return m.onBucketConfig(msg)
+
 	case paneTickMsg:
 		return m.onPaneTick(msg)
 
@@ -878,8 +910,6 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
-	case modeUsage:
-		return m.onUsageKey(key)
 	}
 	return m, nil
 }
@@ -1058,6 +1088,9 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.op = nil
 	m.ctxName = msg.target
 	m.cache.Clear()
+	m.usageResults.Clear() // 016 US2: usage totals are per-context — never bleed across a switch
+	m.detailSection = sectNone
+	m.objectTags, m.bucketCfg, m.tagsErr = nil, nil, nil
 	m.buckets = nil
 	m.bucketSel = 0
 	m.bucketFilter = ""
@@ -1187,8 +1220,6 @@ func (m App) View() tea.View {
 		body = boxView(m.resourceTitle(), m.selectionName(), m.contextView(w-2, dataRows), w, rows)
 	case modeObject:
 		body = boxViewChip(m.resourceTitle(), m.objectKind(), "", m.modeChip(), m.objectView(w-2, rows), w, rows)
-	case modeUsage:
-		body = boxView(m.usageTitle(), "", m.usageView(w-2, dataRows), w, rows)
 	case modeConnections:
 		body = boxView("connections", "", m.connectionsView(w-2, dataRows), w, rows)
 	case modeConnForm:

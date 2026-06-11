@@ -72,17 +72,45 @@ type searchFireMsg struct {
 	term      string
 }
 
-// usageProgressMsg delivers one running-totals tick during a du scan.
+// usageProgressMsg delivers one running-totals tick during a usage scan. It carries the
+// scan's OWN channel so the handler always re-arms the SAME channel — even a superseded
+// scan drains to its done event and never strands the producer (016 II, no goroutine leak).
 type usageProgressMsg struct {
 	gen int
 	p   storage.UsageProgress
+	ch  chan usageEvent
 }
 
-// usageDoneMsg delivers the terminal du report (or error). A cancelled scan carries a
+// usageDoneMsg delivers the terminal usage report (or error). A cancelled scan carries a
 // partial report with Complete=false.
 type usageDoneMsg struct {
 	gen    int
 	report storage.UsageReport
+	err    error
+}
+
+// usageTickMsg fires after the usage dwell window; it carries the scan generation + the
+// (bucket, prefix) target it was scheduled for, so a tick for a target the cursor has
+// moved off is dropped (mirrors paneTickMsg / bucketTickMsg). 016 US2 FR-005.
+type usageTickMsg struct {
+	gen    int
+	bucket string
+	prefix string
+}
+
+// objectTagsMsg / bucketConfigMsg deliver the lazily-loaded US4 detail loads, carrying the
+// detail generation + the object/bucket they belong to so a stale result is dropped (FR-016).
+type objectTagsMsg struct {
+	gen  int
+	key  string
+	tags storage.ObjectTags
+	err  error
+}
+
+type bucketConfigMsg struct {
+	gen    int
+	bucket string
+	cfg    storage.BucketConfig
 	err    error
 }
 
