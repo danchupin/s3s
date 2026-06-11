@@ -40,6 +40,9 @@ type Config struct {
 	// HealthSmallObjectKiB. Zero values resolve to the 128 KiB / 0.5 defaults.
 	HealthSmallObjectKiB   int     `yaml:"healthSmallObjectKiB,omitempty"`
 	HealthSmallObjectShare float64 `yaml:"healthSmallObjectShare,omitempty"`
+	// Plugins are the declared external capability providers (explicit opt-in;
+	// an absent section keeps the feature dormant).
+	Plugins []PluginDecl `yaml:"plugins,omitempty"`
 
 	path string // source file path (set by Load) — for the cmd-source owner-only gate
 }
@@ -287,7 +290,7 @@ func (c *Config) Validate() error {
 	if c.CurrentContext != "" && !contexts[c.CurrentContext] {
 		return fmt.Errorf("%w: current-context %q does not resolve", ErrInvalid, c.CurrentContext)
 	}
-	return nil
+	return c.validatePlugins()
 }
 
 // cluster returns the named cluster.

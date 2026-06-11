@@ -39,6 +39,7 @@ type keyMap struct {
 	Command     []string // open the `:` command bar
 	Reveal      []string // reveal/inspect the full identifier of the selection
 	Tab         []string // toggle focus between zones in the two-pane browse
+	Plugins     []string // full-screen plugin status surface
 	Quit        []string
 	Help        []string
 }
@@ -76,6 +77,7 @@ func defaultKeys() keyMap {
 		Command:     []string{":"},          // open the `:` command bar
 		Reveal:      []string{"i"},          // inspect/reveal full identifier
 		Tab:         []string{"tab"},        // focus toggle between zones
+		Plugins:     []string{"P"},          // plugin status surface — shift-pair convention like y/Y
 		Quit:        []string{"ctrl+c", "q"},
 		Help:        []string{"?"},
 	}

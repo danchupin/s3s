@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/danchupin/s3s/internal/cache"
+	"github.com/danchupin/s3s/internal/plugin"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/storage"
 )
@@ -197,4 +198,33 @@ type contextResolvedMsg struct {
 	target string
 	be     Backend
 	err    error
+}
+
+// discoveryDoneMsg delivers one bucket-discovery invocation result. gen is the
+// DISCOVERY generation (bumped on refresh/context switch, not on level loads):
+// a stale result is dropped before the session cache is ever written.
+type discoveryDoneMsg struct {
+	gen    int
+	ctx    string // context the invocation ran for
+	plugin string
+	res    plugin.Result
+}
+
+// enrichDoneMsg delivers one object-metadata invocation result, keyed by its
+// full target so the session cache and the in-flight tracker resolve exactly
+// one exchange. gen is the enrichment generation (refresh/context switch).
+type enrichDoneMsg struct {
+	gen         int
+	ctx         string
+	plugin      string
+	bucket, key string
+	res         plugin.Result
+}
+
+// pluginToggledMsg delivers the off-loop persistence outcome of the status
+// surface's enable/disable toggle; an error reverts the optimistic flip.
+type pluginToggledMsg struct {
+	name    string
+	enabled bool
+	err     error
 }

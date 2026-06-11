@@ -17,6 +17,7 @@ import (
 
 	"github.com/danchupin/s3s/internal/config"
 	"github.com/danchupin/s3s/internal/logging"
+	"github.com/danchupin/s3s/internal/plugin"
 	"github.com/danchupin/s3s/internal/preview"
 	"github.com/danchupin/s3s/internal/secret"
 	"github.com/danchupin/s3s/internal/storage"
@@ -115,6 +116,7 @@ func run() error {
 			DownloadDir:            cfg.DownloadDir,
 			PathStyle:              cl.PathStyle,
 			PinnedBuckets:          cl.Buckets,
+			AccessKeyID:            u.AccessKeyID,
 			UsageScanBudget:        cfg.ResolvedUsageScanBudget(),
 			HealthSmallObjectKiB:   cfg.ResolvedHealthSmallObjectKiB(),
 			HealthSmallObjectShare: cfg.ResolvedHealthSmallObjectShare(),
@@ -174,8 +176,10 @@ func run() error {
 	}
 	// connSeam lets the UI add a cluster connection from inside the app (006 US4): it
 	// tests reachability and persists the triple + keychain secret, mutating the live cfg
-	// so the new context is switchable without a restart.
-	model := ui.New(initial, active, cfg.ContextNames(), resolve, connSeam{cfg: cfg}, imgProto)
+	// so the new context is switchable without a restart. Declared plugins ride in
+	// behind the exec runner; the config path feeds its owner-only gate.
+	model := ui.New(initial, active, cfg.ContextNames(), resolve, connSeam{cfg: cfg}, imgProto).
+		WithPlugins(cfg.Plugins, &plugin.ExecRunner{ConfigPath: cfgPath})
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
 	}
