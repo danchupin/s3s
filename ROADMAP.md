@@ -95,6 +95,11 @@ known bug — these are enhancements. Ordered roughly by value.
 
 ## Testing / tooling
 
+- [ ] **Scrub spec-reference comments.** Constitution v1.3.0 forbids comments referencing
+  spec-kit artifacts (US/FR/SC/T identifiers, feature numbers, contract pointers); code that
+  predates the rule still carries them. Scrub opportunistically whenever a file is touched —
+  replace each reference with the constraint stated in plain language.
+
 - [ ] **Testable entrypoint.** `cmd/s3s` is at 0% coverage; extract the wiring in
   `run()` into a thin, testable seam (config → backend → model) so the happy path
   and error branches can be unit-tested.

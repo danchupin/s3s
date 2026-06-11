@@ -48,7 +48,7 @@ func (m App) actionCatalog() []action {
 	// SAME object/level catalog as the full-screen tree — so per-item actions
 	// dispatch identically in both.
 	// The explicit full scan is available wherever a bucket/prefix usage target exists
-	// (017 FR-003) — the ONLY entry point for unbounded enumeration besides `:scan`.
+	// — the ONLY entry point for unbounded enumeration besides `:scan`.
 	scanTarget := func(a App, _ selKind) bool { _, _, ok := a.fullScanTarget(); return ok }
 	healthTarget := func(a App, _ selKind) bool { _, _, ok := a.focusedUsageTarget(); return ok }
 	shareTarget := func(a App, _ selKind) bool { _, _, _, ok := a.copyMenuTarget(); return ok }
@@ -153,8 +153,8 @@ func (m App) dispatchActionKey(key string) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
-// dispatchChord runs a dangerous action when its Ctrl chord is pressed (007 US4,
-// FR-021). It scans the catalog for a dangerous action whose chord matches and whose
+// dispatchChord runs a dangerous action when its Ctrl chord is pressed.
+// It scans the catalog for a dangerous action whose chord matches and whose
 // availability holds for the current selection; in a read-only context it falls through
 // to the read-only nudge and opens NO surface. Reports whether the chord
 // matched a dangerous action.
@@ -168,7 +168,7 @@ func (m App) dispatchChord(key string) (tea.Model, tea.Cmd, bool) {
 			continue // this dangerous action doesn't fit the selection — try the next
 		}
 		if !m.writable() {
-			m.err = storage.ErrReadOnly // FR-028: no surface in read-only
+			m.err = storage.ErrReadOnly //: no surface in read-only
 			return m, nil, true
 		}
 		mm, cmd := a.invoke(m)
@@ -187,11 +187,11 @@ func (m App) actionLabel(a action) string {
 
 // refreshBuckets reloads the bucket list (the `r` action in the bucket list). It also
 // invalidates the highlighted bucket's cached usage totals so the next focus rescans
-// (016 US2/FR-007 — the bucket-list refresh path, which otherwise touches no cache).
+// (the bucket-list refresh path, which otherwise touches no cache).
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	if b := m.highlightedBucketName(); b != "" {
 		m.usageResults.InvalidateBucket(m.ctxName, b)
-		m.mpuResults.InvalidateBucket(m.ctxName, b) // 017 US4
+		m.mpuResults.InvalidateBucket(m.ctxName, b)
 	}
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())

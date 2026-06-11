@@ -9,7 +9,7 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Regression tests for the T053 manual-validation findings (fix/017): the usage line
+// Regression tests for the manual-validation findings (fix/): the usage line
 // overflowed the details pane (the "(partial)" marker clipped at the box border), and a
 // full scan running over a CACHED partial was invisible — the cache hit outranked the
 // in-flight progress, so the UI looked dead until the scan finished.
@@ -22,7 +22,7 @@ func TestUsageLineFitsNarrowPane(t *testing.T) {
 	f.Seed("b", "x")
 	m := treeApp(f, false)
 	m.usageResults.Put(m.usageKey("b", ""), &storage.UsageReport{
-		TotalSize: 1 << 30, TotalCount: 20901, Bounded: true, // the exact T053 repro figures
+		TotalSize: 1 << 30, TotalCount: 20901, Bounded: true, // the exact repro figures
 	})
 
 	for _, w := range []int{38, 30, 24} {
@@ -43,7 +43,7 @@ func TestUsageLineFitsNarrowPane(t *testing.T) {
 
 // TestUsageLineScanningOutranksCachedPartial: an in-flight scan for the SAME target
 // renders its running totals INSTEAD of the stale cached entry — a full scan over a
-// cached partial must be visibly alive (T053 finding 2).
+// cached partial must be visibly alive ( finding 2).
 func TestUsageLineScanningOutranksCachedPartial(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 1500)
@@ -68,7 +68,7 @@ func TestUsageLineScanningOutranksCachedPartial(t *testing.T) {
 }
 
 // TestUsageLineProgressUpdatesLive: each usageProgressMsg advances the rendered totals
-// — the scan visibly ticks in the pane (T053 finding 2).
+// — the scan visibly ticks in the pane ( finding 2).
 func TestUsageLineProgressUpdatesLive(t *testing.T) {
 	f := storage.NewFake()
 	seedKeys(f, "b", 2500) // 3 Fake pages → ≥2 progress events before done

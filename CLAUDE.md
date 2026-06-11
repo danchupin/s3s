@@ -27,6 +27,13 @@ go test -cover ./...                            # coverage
   test-integration` skips, run with `DOCKER_HOST` pointing at the Lima socket and
   `TESTCONTAINERS_RYUK_DISABLED=true`.
 
+## Code style (constitution v1.3.0, Development Workflow)
+
+**Comments must NOT reference spec-kit artifacts** — no US numbers, FR-/SC-/T-identifiers,
+feature numbers (016/017/…), or research/contract/data-model pointers in code, tests, or any
+product-visible text. Write the constraint itself in plain language. Pre-rule comments are
+scrubbed opportunistically when a file is touched (ROADMAP backlog item).
+
 ## Non-obvious gotchas
 
 - **Bubble Tea v2 import path is `charm.land/bubbletea/v2`** (and

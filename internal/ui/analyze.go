@@ -12,20 +12,20 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// Inline usage + "more detail" (016). The separate full-screen analyze mode is gone:
+// Inline usage + "more detail". The separate full-screen analyze mode is gone
 // bucket/prefix totals + a ranked child breakdown (storage.UsageOf) now render INLINE in
-// the details pane, computed by a dwell-gated, generation-guarded, session-cached,
+// the details pane, computed by a dwell-gated, generation-guarded, session-cached
 // cancelable background scan. The freed `a` key is the context-aware MoreDetail trigger.
 
 // detailSection is the single expandable section shown in the details pane. At most one
-// renders at a time (budget gate, constitution VI / contracts/layout-budget.md).
+// renders at a time (budget gate, constitution VI / ).
 type detailSection int
 
 const (
 	sectNone      detailSection = iota
-	sectBreakdown               // ranked largest-first child breakdown (US3)
-	sectTags                    // object tag key/values (US4)
-	sectConfig                  // bucket configuration tri-state (US4)
+	sectBreakdown               // ranked largest-first child breakdown
+	sectTags                    // object tag key/values
+	sectConfig                  // bucket configuration tri-state
 )
 
 // usageEvent is one item on the scan's progress channel.
@@ -38,12 +38,12 @@ type usageEvent struct {
 
 // focusedUsageTarget resolves the (bucket, prefix) whose usage the details pane shows for
 // the current focus: the highlighted bucket (whole bucket), a selected folder, or the
-// current level. An object selection has NO usage target (its metadata is shown instead),
+// current level. An object selection has NO usage target (its metadata is shown instead)
 // so the pane never scans per-object-focus.
 func (m App) focusedUsageTarget() (bucket, prefix string, ok bool) {
 	switch {
 	case m.mode == modeHealth:
-		return m.healthBucket, m.healthPrefix, true // the card's subject (017 US4)
+		return m.healthBucket, m.healthPrefix, true // the card's subject
 	case m.mode == modeBuckets && m.focusZone == zoneBuckets:
 		if b := m.highlightedBucketName(); b != "" {
 			return b, "", true
@@ -71,11 +71,11 @@ func (m App) usageKey(bucket, prefix string) cache.Key {
 
 // armUsageScan cancels any in-flight scan, bumps the usage generation, and (when the
 // focused target is uncached and the pane is visible) schedules a dwell tick so rapid
-// transit through a list spawns no scan (016 US2/FR-005/FR-006). Mutates the receiver;
-// returns the tick cmd (or nil). Cached targets — INCLUDING budget-bounded partials —
+// transit through a list spawns no scan. Mutates the receiver;
+// returns the tick cmd (or nil). Cached targets — INCLUDING budget-bounded partials
 // are shown immediately by the pane: ambient rescanning a partial would only reproduce
-// the same bound; the explicit full scan (A/:scan) upgrades it (017 US1). A zero budget
-// disables the ambient path entirely (017 FR-006).
+// the same bound; the explicit full scan (A/:scan) upgrades it. A zero budget
+// disables the ambient path entirely.
 func (m *App) armUsageScan() tea.Cmd {
 	if m.usageCancel != nil {
 		m.usageCancel()
@@ -90,20 +90,20 @@ func (m *App) armUsageScan() tea.Cmd {
 		return nil
 	}
 	if m.usageBudget == 0 {
-		return nil // ambient scanning disabled — explicit-only mode (017 FR-006)
+		return nil // ambient scanning disabled — explicit-only mode
 	}
 	b, p, ok := m.focusedUsageTarget()
 	if !ok {
 		return nil
 	}
 	if _, hit := m.usageResults.Get(m.usageKey(b, p)); hit {
-		return nil // cached (exact or partial) → instant, no scan (SC-007, 017)
+		return nil // cached (exact or partial) → instant, no scan
 	}
 	return usageTickCmd(m.usageGen, b, p)
 }
 
 // onUsageTick starts the BUDGETED scan once the selection has settled on the same target
-// and the scan generation is current (016 US2, 017 US1). A tick for a scrolled-past
+// and the scan generation is current. A tick for a scrolled-past
 // target is dropped.
 func (m App) onUsageTick(msg usageTickMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.usageGen {
@@ -133,8 +133,8 @@ func (m App) fullScanTarget() (bucket, prefix string, ok bool) {
 }
 
 // startFullScan is the dedicated explicit full-scan dispatcher — the ONLY path that may
-// start an unbounded enumeration (017 FR-003). Bound to the FullScan key and the `:scan`
-// command (one target — they cannot drift, the FR-019 pattern). No-op without any
+// start an unbounded enumeration. Bound to the FullScan key and the `:scan`
+// command (one target — they cannot drift, the pattern). No-op without any
 // bucket/prefix target (e.g. the empty bucket list).
 func (m App) startFullScan() (tea.Model, tea.Cmd) {
 	b, p, ok := m.fullScanTarget()
@@ -145,7 +145,7 @@ func (m App) startFullScan() (tea.Model, tea.Cmd) {
 }
 
 // fullScanHintNeeded reports whether the target's usage is absent or partial — exactly
-// when the `A full scan` affordance must be visible (017 FR-001/FR-003).
+// when the `A full scan` affordance must be visible.
 func (m App) fullScanHintNeeded(bucket, prefix string) bool {
 	rep, ok := m.usageResults.Get(m.usageKey(bucket, prefix))
 	return !ok || !rep.Complete
@@ -215,12 +215,12 @@ func (m App) onUsageProgress(msg usageProgressMsg) (tea.Model, tea.Cmd) {
 	return m, waitForUsage(msg.ch, msg.gen, msg.key)
 }
 
-// onUsageDone caches the terminal report under the TARGET key it was scanned for —
+// onUsageDone caches the terminal report under the TARGET key it was scanned for
 // exact, budget-bounded, or cancelled-with-progress alike: partial work is never
-// discarded (017 FR-002/FR-004, inverts the 016 drop). Even a superseded-generation
+// discarded (inverts the drop). Even a superseded-generation
 // report is cached (its data is valid for its own key; only the VIEW is gen-guarded).
 // Exceptions: a backend error leaves no entry (usage is ancillary — it never hijacks
-// the main view's error), an exact entry is never overwritten by a partial (FR-005),
+// the main view's error), an exact entry is never overwritten by a partial
 // and a zero-progress cancellation taught us nothing.
 func (m App) onUsageDone(msg usageDoneMsg) (tea.Model, tea.Cmd) {
 	if msg.gen == m.usageGen {
@@ -235,14 +235,14 @@ func (m App) onUsageDone(msg usageDoneMsg) (tea.Model, tea.Cmd) {
 		return m, nil // nothing learned — a zero lower bound is noise
 	}
 	if prev, ok := m.usageResults.Get(msg.key); ok && prev.Complete && !rep.Complete {
-		return m, nil // exact stays; a partial never downgrades it (017 FR-005)
+		return m, nil // exact stays; a partial never downgrades it
 	}
 	m.usageResults.Put(msg.key, &rep)
 	return m, nil
 }
 
 // startMoreDetail is the context-aware "more detail" dispatcher bound to the `a` key and
-// the `:detail`/`:info` command (one target — they cannot drift, FR-019). It toggles the
+// the `:detail`/`:info` command (one target — they cannot drift). It toggles the
 // single expandable detail section appropriate to the focus: an object → tags; a bucket →
 // breakdown then config then collapse; a prefix/folder/level → breakdown then collapse.
 func (m App) startMoreDetail() (tea.Model, tea.Cmd) {
@@ -276,7 +276,7 @@ func (m App) startMoreDetail() (tea.Model, tea.Cmd) {
 		m.breakdownSel = 0
 		// Ensure data exists (or is being gathered) for the breakdown — at most a
 		// BUDGETED scan: expanding detail must never start unbounded work; the full
-		// scan has its own explicit action (017 FR-003).
+		// scan has its own explicit action.
 		key := m.usageKey(b, p)
 		if _, hit := m.usageResults.Get(key); !hit && (m.usageCh == nil || m.usageScanKey != key) {
 			return m.startUsageScan(b, p, m.usageBudget)
@@ -285,7 +285,7 @@ func (m App) startMoreDetail() (tea.Model, tea.Cmd) {
 	}
 }
 
-// loadObjectTagsFor lazily loads an object's tags under a fresh detail generation (US4).
+// loadObjectTagsFor lazily loads an object's tags under a fresh detail generation.
 func (m App) loadObjectTagsFor(key string) (tea.Model, tea.Cmd) {
 	m.detailGen++
 	m.detailKey = key
@@ -293,7 +293,7 @@ func (m App) loadObjectTagsFor(key string) (tea.Model, tea.Cmd) {
 	return m, loadObjectTags(context.Background(), m.activeStore(), m.bucket, key, m.detailGen)
 }
 
-// loadBucketConfigFor lazily loads a bucket's configuration under a fresh detail gen (US4).
+// loadBucketConfigFor lazily loads a bucket's configuration under a fresh detail gen.
 func (m App) loadBucketConfigFor(bucket string) (tea.Model, tea.Cmd) {
 	m.detailGen++
 	m.detailKey = bucket
@@ -302,7 +302,7 @@ func (m App) loadBucketConfigFor(bucket string) (tea.Model, tea.Cmd) {
 }
 
 // onObjectTags / onBucketConfig apply a lazily-loaded detail result, dropping a stale one
-// whose generation or target no longer matches (FR-016).
+// whose generation or target no longer matches.
 func (m App) onObjectTags(msg objectTagsMsg) (tea.Model, tea.Cmd) {
 	if msg.gen != m.detailGen || msg.key != m.detailKey {
 		return m, nil

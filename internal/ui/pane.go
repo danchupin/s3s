@@ -110,7 +110,7 @@ func (m App) paneTree(w, rows int) string {
 			sb.WriteString(dimCellStyle.Render(pad("Type", metaKeyWidth)) + dimCellStyle.Render("loading…") + "\n")
 		}
 	}
-	// US4 tags section (object) — shown only when toggled by MoreDetail.
+	// tags section (object) — shown only when toggled by MoreDetail.
 	if m.detailSection == sectTags {
 		sb.WriteString("\n" + m.detailTagsView(e.full, w) + "\n")
 	}
@@ -123,10 +123,10 @@ func (m App) paneTree(w, rows int) string {
 }
 
 // usageLine renders the focused target's inline usage within width w (NOTHING may
-// exceed it — overflow used to clip silently at the box border, T053 finding 1).
+// exceed it — overflow used to clip silently at the box border, finding 1).
 // Precedence: an IN-FLIGHT scan for this target outranks the cached entry — a full scan
 // running over a cached partial must be visibly alive, announcing itself and its running
-// totals (T053 finding 2); then the cached report (a partial as an explicit "≥" lower
+// totals ( finding 2); then the cached report (a partial as an explicit "≥" lower
 // bound + "partial" text marker — NO_COLOR-safe); else "".
 func (m App) usageLine(bucket, prefix string, w int) string {
 	key := m.usageKey(bucket, prefix)
@@ -170,7 +170,7 @@ func (m App) usageLine(bucket, prefix string, w int) string {
 
 // usageHints assembles the pane's hint tail for a bucket/prefix target: the MoreDetail
 // hint plus — while the target's usage is absent or partial — the explicit full-scan
-// affordance (017 FR-001/FR-003).
+// affordance.
 func (m App) usageHints(bucket, prefix string) string {
 	h := keyHint(m.keys.MoreDetail, "detail")
 	if m.fullScanHintNeeded(bucket, prefix) {
@@ -179,8 +179,8 @@ func (m App) usageHints(bucket, prefix string) string {
 	return h
 }
 
-// detailSectionView renders the single open bucket/prefix detail section (US3 breakdown or
-// US4 config). The object tags section is rendered inline in paneTree.
+// detailSectionView renders the single open bucket/prefix detail section ( breakdown or
+// config). The object tags section is rendered inline in paneTree.
 func (m App) detailSectionView(bucket, prefix string, w int) string {
 	switch m.detailSection {
 	case sectBreakdown:
@@ -192,7 +192,7 @@ func (m App) detailSectionView(bucket, prefix string, w int) string {
 }
 
 // detailBreakdownView renders the ranked, largest-first child breakdown with a size + share
-// bar (US3). Overflow past the budget is summarised by a "… +N more (i to reveal)" line so
+// bar. Overflow past the budget is summarised by a "… +N more (i to reveal)" line so
 // nothing is silently clipped (constitution VI).
 func (m App) detailBreakdownView(bucket, prefix string, w int) string {
 	rep, ok := m.usageResults.Get(m.usageKey(bucket, prefix))
@@ -225,7 +225,7 @@ func (m App) detailBreakdownView(bucket, prefix string, w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// detailConfigView renders the bucket configuration tri-state (US4). Each item is a text
+// detailConfigView renders the bucket configuration tri-state. Each item is a text
 // label (none / unknown-denied / unsupported / a summary), distinguishable under NO_COLOR.
 func (m App) detailConfigView(w int) string {
 	if m.bucketCfg == nil {
@@ -243,7 +243,7 @@ func (m App) detailConfigView(w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// detailTagsView renders an object's tag key/values (US4): "loading…", "unknown (denied)",
+// detailTagsView renders an object's tag key/values: "loading…", "unknown (denied)"
 // "none", or the sorted pairs.
 func (m App) detailTagsView(key string, w int) string {
 	head := colHeadStyle.Render("tags") + "\n"
@@ -269,8 +269,8 @@ func (m App) detailTagsView(key string, w int) string {
 	return strings.TrimRight(sb.String(), "\n")
 }
 
-// configLabel maps a tri-state config item to a NO_COLOR-distinguishable text label,
-// keeping the "none" / "unknown (denied)" / "unsupported" distinction explicit (FR-013).
+// configLabel maps a tri-state config item to a NO_COLOR-distinguishable text label
+// keeping the "none" / "unknown (denied)" / "unsupported" distinction explicit.
 func configLabel(it storage.ConfigItem) string {
 	switch it.State {
 	case storage.ConfigConfigured:

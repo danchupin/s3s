@@ -7,8 +7,8 @@ import (
 )
 
 // Three-block command bar: info · read · write, laid out as side-by-side
-// columns. The write block is ALWAYS shown — dimmed in a read-only context (reversing
-// 006 FR-004), active (caution) when armed — so the operator sees the full capability
+// columns. The write block is ALWAYS shown — dimmed in a read-only context, active
+// (caution) when armed — so the operator sees the full capability
 // map even read-only. Below blockColMin the columns collapse to a
 // compact wrapped row that still lists the write entries (dimmed) and keeps the badge
 // Colors reuse the existing palette only — no new hue.
@@ -17,7 +17,7 @@ import (
 // it the bar collapses to a compact single row.
 const blockColMin = 100
 
-// colGap is the gap between the three command-bar columns (013 US3: widened 2→3 spaces). The
+// colGap is the gap between the three command-bar columns (: widened 2→3 spaces). The
 // natural-width guard derives its reserve from len(colGap) so the two never drift.
 const colGap = "   "
 
@@ -68,7 +68,7 @@ var barGlobals = keyStyle.Render(":") + " " + dimCellStyle.Render("cmds") +
 	barSep + keyStyle.Render("q") + " " + dimCellStyle.Render("quit")
 
 // readEntries builds the read block: open + search/filter, then the read (non-write)
-// actions. A read action inapplicable to the current selection is marked (still shown),
+// actions. A read action inapplicable to the current selection is marked (still shown)
 // never hidden. kind and cat are passed in (computed ONCE per render by the caller) to
 // avoid re-deriving the selection (re-sorts the level) and rebuilding the catalog of
 // closures.
@@ -106,10 +106,10 @@ func (m App) readEntries(kind selKind, cat []action) []barEntry {
 // , else active. Dangerous actions display their chord glyph.
 func (m App) writeEntries(kind selKind, cat []action) []barEntry {
 	writable := m.writable()
-	// US9: the duplicate-"delete" problem only exists when the catalog has the delete
+	//: the duplicate-"delete" problem only exists when the catalog has the delete
 	// PAIR (object + recursive, tree mode). Suppress an inapplicable delete ONLY then — never
 	// when "delete" is the lone write action (bucket mode), so the write group is never emptied
-	// (preserves 007 FR-016: the write block always shows the capability, dimmed when N/A).
+	// (preserves: the write block always shows the capability, dimmed when N/A).
 	deletePair := 0
 	for _, a := range cat {
 		if a.writeOnly && a.label == "delete" {
@@ -142,7 +142,7 @@ func (m App) writeEntries(kind selKind, cat []action) []barEntry {
 	return out
 }
 
-// infoFields builds the info block: identity (with the loud arm badge), cluster, user,
+// infoFields builds the info block: identity (with the loud arm badge), cluster, user
 // region, and the s3s version — plus the add-connection affordance is appended
 // by the renderer. ctx carries the [RW]/[RO] badge so the bar always shows write state
 // without a separate identity line.
@@ -197,7 +197,7 @@ func (m App) infoColumn() string {
 	}
 	if m.connect != nil {
 		// "connections" opens the manager (switch / add / delete) via the context key `c`
-		// (011 US4: the standalone `n` add-connection key was removed; the "+ add connection"
+		// (: the standalone `n` add-connection key was removed; the "+ add connection"
 		// row inside the manager is the sole add affordance).
 		rows = append(rows, keyStyle.Render(glyph(m.keys.Context[0]))+" "+dimCellStyle.Render("connections"))
 	}
@@ -206,7 +206,7 @@ func (m App) infoColumn() string {
 }
 
 // barColMaxRows caps a block's height so a richer action set widens the bar instead of
-// growing the footer past its height budget (T053: adding health/share/reveal/mark must
+// growing the footer past its height budget (: adding health/share/reveal/mark must
 // not scroll the list off). Matches the info column's natural height.
 const barColMaxRows = 7
 
@@ -288,7 +288,7 @@ func (m App) collapsedBarView(w int, kind selKind, cat []action) string {
 	return identity + "\n" + readRow + "\n" + writeRow
 }
 
-// fitEntries joins entries with " · " and drops TRAILING entries until the row fits w,
+// fitEntries joins entries with " · " and drops TRAILING entries until the row fits w
 // appending a dim "…" when any were dropped. keepMin entries are always retained (the row
 // may then exceed w only on an extremely narrow terminal, unavoidable without clipping
 // styled text). O(n): each entry is rendered and measured once.

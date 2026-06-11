@@ -10,7 +10,7 @@ import (
 	"github.com/danchupin/s3s/internal/storage"
 )
 
-// T053 finding: every advertised-in-help key must also be discoverable in the
+// finding: every advertised-in-help key must also be discoverable in the
 // always-visible command bar — nobody reads docs to find `Y`/`H`/`i`/`:` (constitution
 // VI/VII: the capability map is part of the UI, not the manual).
 
