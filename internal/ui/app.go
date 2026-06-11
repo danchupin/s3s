@@ -32,6 +32,7 @@ const (
 	modeConnections // in-app connection manager list — 006 US4
 	modeConnForm    // add-connection form — 006 US4
 	modeAddBucket   // "+ add bucket" name input — 010 US2
+	modeHealth      // full-screen operator health card — 017 US4
 )
 
 // zone names which interactive column owns keyboard input in the multi-pane browse
@@ -110,6 +111,9 @@ type Backend struct {
 	// UsageScanBudget caps the ambient usage scan in enumerated objects (017 US1):
 	// the RESOLVED config value (main applies the default); 0 = ambient scanning off.
 	UsageScanBudget int
+	// Health-card small-object warning knobs (017 US4/FR-023); zero ⇒ 128 KiB / 0.5.
+	HealthSmallObjectKiB   int
+	HealthSmallObjectShare float64
 	// PinnedBuckets are the connection's declared bucket names (010). Non-empty ⇒ the
 	// bucket list is rendered from these and ListBuckets is never called (scoped creds).
 	PinnedBuckets []string
@@ -221,6 +225,15 @@ type App struct {
 	// copy/share menu overlay (017 US3/FR-014): non-nil while open
 	copyMenu *copyMenuState
 
+	// health card (017 US4): target, probe lifecycle, MPU session cache, warning knobs
+	healthBucket string
+	healthPrefix string
+	healthGen    int                                      // MPU-probe generation
+	healthCancel context.CancelFunc                       // cancels the in-flight probe
+	mpuResults   *cache.Cache[*storage.IncompleteUploads] // keyed like usageResults
+	healthKiB    int                                      // small-object threshold (KiB)
+	healthShare  float64                                  // warning share threshold
+
 	// now is the injectable clock for relative dates (017 D14); tests pin it.
 	now func() time.Time
 
@@ -281,6 +294,9 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 		cache:        cache.New[*levelState](),
 		usageResults: cache.New[*storage.UsageReport](),
 		usageBudget:  initial.UsageScanBudget,
+		mpuResults:   cache.New[*storage.IncompleteUploads](),
+		healthKiB:    healthKiBOrDefault(initial.HealthSmallObjectKiB),
+		healthShare:  healthShareOrDefault(initial.HealthSmallObjectShare),
 		now:          time.Now,
 		mode:         modeBuckets,
 		width:        80,
@@ -305,6 +321,22 @@ func New(initial Backend, ctxName string, contexts []string, resolve Resolver, c
 	// on the model the program actually keeps.
 	(&m).beginLoad()
 	return m
+}
+
+// healthKiBOrDefault / healthShareOrDefault apply the 017 D8 defaults for zero-valued
+// Backend knobs (test helpers and older callers construct Backend without them).
+func healthKiBOrDefault(v int) int {
+	if v == 0 {
+		return 128
+	}
+	return v
+}
+
+func healthShareOrDefault(v float64) float64 {
+	if v == 0 {
+		return 0.5
+	}
+	return v
 }
 
 // writable reports whether mutations are currently permitted: the session is armed
@@ -699,6 +731,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case presignDoneMsg:
 		return m.onPresignDone(msg)
 
+	case incompleteUploadsMsg:
+		return m.onIncompleteUploads(msg)
+
 	case exportDoneMsg:
 		return m.onExportDone(msg)
 
@@ -923,9 +958,14 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.openReveal()
 	}
 
-	// The copy/share menu — globally available in the browse modes (017 US3).
-	if matches(key, m.keys.CopyMenu) && (m.mode == modeBuckets || m.mode == modeTree || m.mode == modeObject) {
+	// The copy/share menu — globally available in the browse modes + the card (017 US3).
+	if matches(key, m.keys.CopyMenu) && (m.mode == modeBuckets || m.mode == modeTree || m.mode == modeObject || m.mode == modeHealth) {
 		return m.openCopyMenu()
+	}
+
+	// The operator health card (017 US4) — from the browse modes only.
+	if matches(key, m.keys.Health) && (m.mode == modeBuckets || m.mode == modeTree) {
+		return m.openHealth()
 	}
 
 	// Cancel an in-flight load via the back/escape key (no modal overlay open here).
@@ -950,6 +990,8 @@ func (m App) onKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.onObjectKey(key)
 	case modeContextSwitch:
 		return m.onContextKey(key)
+	case modeHealth:
+		return m.onHealthKey(key)
 	}
 	return m, nil
 }
@@ -1130,6 +1172,9 @@ func (m App) onContextResolved(msg contextResolvedMsg) (tea.Model, tea.Cmd) {
 	m.usageBudget = be.UsageScanBudget // 017 US1: the budget rides the resolved backend
 	m.cache.Clear()
 	m.usageResults.Clear() // 016 US2: usage totals are per-context — never bleed across a switch
+	m.mpuResults.Clear()   // 017 US4: the MPU probe cache is per-context too
+	m.healthKiB = healthKiBOrDefault(be.HealthSmallObjectKiB)
+	m.healthShare = healthShareOrDefault(be.HealthSmallObjectShare)
 	m.detailSection = sectNone
 	m.objectTags, m.bucketCfg, m.tagsErr = nil, nil, nil
 	m.buckets = nil
@@ -1267,6 +1312,8 @@ func (m App) View() tea.View {
 		body = boxView("add connection", "", m.connFormView(w-2), w, rows)
 	case modeAddBucket:
 		body = boxView("add bucket", "", m.addBucketView(w-2), w, rows)
+	case modeHealth:
+		body = boxView("health", "", m.healthView(w-2, dataRows), w, rows)
 	}
 
 	// Binary-tier confirmation: a centered popup over the body (the typed tier

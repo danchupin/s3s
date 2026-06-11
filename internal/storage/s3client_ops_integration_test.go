@@ -13,6 +13,9 @@ import (
 	"net/url"
 	"testing"
 	"time"
+
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 // TestIntegrationGetObjectFull downloads a multi-megabyte object and verifies the
@@ -96,6 +99,87 @@ func TestIntegrationUsageOfPagination(t *testing.T) {
 	}
 	if crep.Complete {
 		t.Error("cancelled UsageOf Complete = true, want false")
+	}
+}
+
+// TestIntegrationIncompleteUploads seeds REAL in-progress multipart uploads (create +
+// upload-part WITHOUT complete — the seeder stays inside internal/storage) and verifies
+// count / oldest / part-size totals plus the honest zero (017 US4/FR-021/FR-022, T043).
+func TestIntegrationIncompleteUploads(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "mpu")
+
+	part := bytes.Repeat([]byte("p"), 5*1024*1024) // MinIO min part size for non-final parts
+	for i, key := range []string{"stale/a.bin", "stale/b.bin"} {
+		create, err := b.seed.CreateMultipartUpload(context.Background(), &s3.CreateMultipartUploadInput{
+			Bucket: aws.String("mpu"), Key: aws.String(key),
+		})
+		if err != nil {
+			t.Fatalf("create MPU %d: %v", i, err)
+		}
+		if _, err := b.seed.UploadPart(context.Background(), &s3.UploadPartInput{
+			Bucket: aws.String("mpu"), Key: aws.String(key),
+			UploadId: create.UploadId, PartNumber: aws.Int32(1),
+			Body: bytes.NewReader(part),
+		}); err != nil {
+			t.Fatalf("upload part %d: %v", i, err)
+		}
+		// NO CompleteMultipartUpload — the uploads dangle on purpose.
+	}
+
+	got, err := b.store.ListIncompleteUploads(context.Background(), "mpu", "stale/")
+	if err != nil {
+		t.Fatalf("ListIncompleteUploads: %v", err)
+	}
+	if got.State != ConfigConfigured || got.Count != 2 {
+		t.Errorf("got %+v, want 2 in-progress uploads", got)
+	}
+	if got.SizedCount != 2 || got.TotalSize != int64(2*len(part)) {
+		t.Errorf("sizing: SizedCount=%d TotalSize=%d, want 2/%d", got.SizedCount, got.TotalSize, 2*len(part))
+	}
+	if got.OldestInitiated.IsZero() {
+		t.Error("OldestInitiated must be set")
+	}
+
+	clean, err := b.store.ListIncompleteUploads(context.Background(), "mpu", "other/")
+	if err != nil {
+		t.Fatalf("ListIncompleteUploads(clean): %v", err)
+	}
+	if clean.State != ConfigNone || clean.Count != 0 {
+		t.Errorf("clean prefix = %+v, want honest none/0", clean)
+	}
+}
+
+// TestIntegrationUsageDistributions verifies the same-pass histograms against seeded
+// sizes on a real backend (017 US4/FR-020, T043).
+func TestIntegrationUsageDistributions(t *testing.T) {
+	b := startBackend(t)
+	b.createBucket(t, "dist")
+
+	b.put(t, "dist", "small.txt", "tiny", "")                                   // <128KiB
+	b.put(t, "dist", "mid.bin", string(bytes.Repeat([]byte("m"), 200<<10)), "") // 128KiB–1MiB
+	b.put(t, "dist", "big.bin", string(bytes.Repeat([]byte("b"), 2<<20)), "")   // 1–16MiB
+
+	rep, err := b.store.UsageOf(context.Background(), "dist", "", 0, nil)
+	if err != nil {
+		t.Fatalf("UsageOf: %v", err)
+	}
+	if rep.SizeDist[0].Count != 1 || rep.SizeDist[1].Count != 1 || rep.SizeDist[2].Count != 1 {
+		t.Errorf("SizeDist = %+v, want one object per seeded bucket", rep.SizeDist)
+	}
+	// Everything was written seconds ago → the whole count lands in the <1d age bucket.
+	if rep.AgeDist[0].Count != 3 {
+		t.Errorf("AgeDist[<1d].Count = %d, want 3", rep.AgeDist[0].Count)
+	}
+	if len(rep.ClassDist) == 0 {
+		t.Error("ClassDist must carry at least the default class")
+	}
+	var cc int
+	for _, b := range rep.ClassDist {
+		cc += b.Count
+	}
+	if cc != rep.TotalCount {
+		t.Errorf("ClassDist Σ = %d, want %d", cc, rep.TotalCount)
 	}
 }
 

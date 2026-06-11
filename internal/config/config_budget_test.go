@@ -60,3 +60,38 @@ func TestUsageScanBudgetNegativeInvalid(t *testing.T) {
 		t.Errorf("Load(negative budget) = %v, want ErrInvalid", err)
 	}
 }
+
+// TestHealthKnobDefaults: absent health knobs resolve to 128 KiB / 0.5 share
+// (017 US4/FR-023, research D8).
+func TestHealthKnobDefaults(t *testing.T) {
+	c, err := Load(writeConfig(t, validYAML))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := c.ResolvedHealthSmallObjectKiB(); got != 128 {
+		t.Errorf("ResolvedHealthSmallObjectKiB() = %d, want 128", got)
+	}
+	if got := c.ResolvedHealthSmallObjectShare(); got != 0.5 {
+		t.Errorf("ResolvedHealthSmallObjectShare() = %v, want 0.5", got)
+	}
+}
+
+// TestHealthKnobCustomAndValidation: custom values pass through; out-of-range fails.
+func TestHealthKnobCustomAndValidation(t *testing.T) {
+	body := strings.Replace(validYAML, "current-context: local",
+		"current-context: local\nhealthSmallObjectKiB: 64\nhealthSmallObjectShare: 0.3", 1)
+	c, err := Load(writeConfig(t, body))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if c.ResolvedHealthSmallObjectKiB() != 64 || c.ResolvedHealthSmallObjectShare() != 0.3 {
+		t.Errorf("custom knobs = %d/%v", c.ResolvedHealthSmallObjectKiB(), c.ResolvedHealthSmallObjectShare())
+	}
+
+	for _, bad := range []string{"healthSmallObjectKiB: -1", "healthSmallObjectShare: 1.5", "healthSmallObjectShare: -0.1"} {
+		body := strings.Replace(validYAML, "current-context: local", "current-context: local\n"+bad, 1)
+		if _, err := Load(writeConfig(t, body)); !errors.Is(err, ErrInvalid) {
+			t.Errorf("Load(%s) = %v, want ErrInvalid", bad, err)
+		}
+	}
+}

@@ -143,6 +143,7 @@ func (m App) refresh() (tea.Model, tea.Cmd) {
 	key := m.levelKey()
 	m.cache.Invalidate(key)
 	m.usageResults.Invalidate(m.usageKey(m.bucket, m.prefix)) // 016 US2/FR-007: 'r' rescans usage too
+	m.mpuResults.Invalidate(m.usageKey(m.bucket, m.prefix))   // 017 US4: the MPU probe rides the same refresh
 	m.level = nil
 	m.treeSel = 0
 	ctx := (&m).beginLoad()

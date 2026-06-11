@@ -182,6 +182,7 @@ func (m App) actionLabel(a action) string {
 func (m App) refreshBuckets() (tea.Model, tea.Cmd) {
 	if b := m.highlightedBucketName(); b != "" {
 		m.usageResults.InvalidateBucket(m.ctxName, b)
+		m.mpuResults.InvalidateBucket(m.ctxName, b) // 017 US4
 	}
 	ctx := (&m).beginLoad()
 	return m, tea.Batch(loadBuckets(ctx, m.activeStore(), m.gen, m.info.PinnedBuckets), spinnerTick())

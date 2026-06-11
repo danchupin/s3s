@@ -40,6 +40,18 @@ type Fake struct {
 	// PresignCredsExpireIn simulates credentials that expire after this duration
 	// (zero ⇒ never): PresignGet warns when a ttl outlives them (017 US3/FR-017).
 	PresignCredsExpireIn time.Duration
+	// FailListUploads / UnsupportedListUploads force the incomplete-multipart probe
+	// into its denied / unsupported tri-states (017 US4/FR-022; unsupported is
+	// untestable on MinIO — the Fake is its unit-test home, the 016 split).
+	FailListUploads        bool
+	UnsupportedListUploads bool
+}
+
+// FakeIncompleteUpload is one seeded in-progress multipart upload (017 US4).
+type FakeIncompleteUpload struct {
+	Key       string
+	Initiated time.Time
+	PartSizes []int64
 }
 
 // FakeBucket is one seeded bucket.
@@ -53,6 +65,9 @@ type FakeBucket struct {
 	// publicaccessblock|location) — MinIO can't produce this, so it is unit-tested here.
 	BucketConfig          BucketConfig
 	UnsupportedGetConfigs map[string]bool
+
+	// IncompleteUploads are the bucket's seeded in-progress multipart uploads (017 US4).
+	IncompleteUploads []FakeIncompleteUpload
 }
 
 // FakeObject is one seeded object.
@@ -526,6 +541,64 @@ func (f *Fake) GetBucketConfiguration(ctx context.Context, bucket string) (Bucke
 		}
 	}
 	return cfg, nil
+}
+
+// SeedIncompleteUpload adds one in-progress multipart upload to the bucket (creating
+// the bucket if needed).
+func (f *Fake) SeedIncompleteUpload(bucket string, u FakeIncompleteUpload) {
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		b = &FakeBucket{Objects: map[string]FakeObject{}}
+		f.Buckets[bucket] = b
+	}
+	b.IncompleteUploads = append(b.IncompleteUploads, u)
+}
+
+// ListIncompleteUploads mirrors the real client: prefix-scoped counting (never capped),
+// sizing capped at the first 100 uploads in key order, tri-state classification
+// (017 US4/FR-021/FR-022).
+func (f *Fake) ListIncompleteUploads(ctx context.Context, bucket, prefix string) (IncompleteUploads, error) {
+	out := IncompleteUploads{Bucket: bucket, Prefix: prefix}
+	if err := ctx.Err(); err != nil {
+		return out, err
+	}
+	if f.FailListUploads {
+		out.State = ConfigDenied
+		return out, nil
+	}
+	if f.UnsupportedListUploads {
+		out.State = ConfigUnsupported
+		return out, nil
+	}
+	b, ok := f.Buckets[bucket]
+	if !ok {
+		return out, fmt.Errorf("uploads %q: %w", bucket, ErrNotFound)
+	}
+	matched := make([]FakeIncompleteUpload, 0, len(b.IncompleteUploads))
+	for _, u := range b.IncompleteUploads {
+		if strings.HasPrefix(u.Key, prefix) {
+			matched = append(matched, u)
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool { return matched[i].Key < matched[j].Key })
+	for i, u := range matched {
+		out.Count++
+		if out.OldestInitiated.IsZero() || u.Initiated.Before(out.OldestInitiated) {
+			out.OldestInitiated = u.Initiated
+		}
+		if i < incompleteSizingCap {
+			for _, s := range u.PartSizes {
+				out.TotalSize += s
+			}
+			out.SizedCount++
+		}
+	}
+	if out.Count == 0 {
+		out.State = ConfigNone
+	} else {
+		out.State = ConfigConfigured
+	}
+	return out, nil
 }
 
 // PresignGet mirrors the real client's client-side presign: TTL preset validation, a

@@ -53,6 +53,9 @@ type copyMenuState struct {
 
 // copyMenuTarget resolves what the menu acts on for the current focus.
 func (m App) copyMenuTarget() (bucket, key string, isObject, ok bool) {
+	if m.mode == modeHealth {
+		return m.healthBucket, m.healthPrefix, false, true
+	}
 	if m.mode == modeObject && m.meta != nil {
 		return m.bucket, m.meta.Key, true, true
 	}

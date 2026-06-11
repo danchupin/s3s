@@ -34,6 +34,8 @@ type s3API interface {
 	GetBucketReplication(context.Context, *s3.GetBucketReplicationInput, ...func(*s3.Options)) (*s3.GetBucketReplicationOutput, error)
 	GetPublicAccessBlock(context.Context, *s3.GetPublicAccessBlockInput, ...func(*s3.Options)) (*s3.GetPublicAccessBlockOutput, error)
 	GetBucketLocation(context.Context, *s3.GetBucketLocationInput, ...func(*s3.Options)) (*s3.GetBucketLocationOutput, error)
+	ListMultipartUploads(context.Context, *s3.ListMultipartUploadsInput, ...func(*s3.Options)) (*s3.ListMultipartUploadsOutput, error)
+	ListParts(context.Context, *s3.ListPartsInput, ...func(*s3.Options)) (*s3.ListPartsOutput, error)
 	PutObject(context.Context, *s3.PutObjectInput, ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	DeleteObject(context.Context, *s3.DeleteObjectInput, ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
 	CopyObject(context.Context, *s3.CopyObjectInput, ...func(*s3.Options)) (*s3.CopyObjectOutput, error)
@@ -309,6 +311,99 @@ func (c *s3Client) UsageOf(ctx context.Context, bucket, prefix string, maxObject
 		token = out.NextContinuationToken
 	}
 	return agg.report(true, false), nil
+}
+
+// incompleteSizingCap bounds the per-upload ListParts size enrichment: a dangling-MPU
+// population is typically tens, so 100 covers the real case at ≤100 extra requests —
+// an unbounded fan-out would recreate the US1 problem on a different API (research D6).
+const incompleteSizingCap = 100
+
+// ListIncompleteUploads paginates ListMultipartUploads under prefix and size-enriches
+// the first incompleteSizingCap uploads via ListParts (017 US4/FR-021). Denied and
+// not-implemented map to tri-states, never to a zero result (FR-022).
+func (c *s3Client) ListIncompleteUploads(ctx context.Context, bucket, prefix string) (IncompleteUploads, error) {
+	out := IncompleteUploads{Bucket: bucket, Prefix: prefix}
+	var keyMarker, idMarker *string
+	type up struct {
+		key, id string
+	}
+	var uploads []up
+	for {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		in := &s3.ListMultipartUploadsInput{
+			Bucket:         aws.String(bucket),
+			KeyMarker:      keyMarker,
+			UploadIdMarker: idMarker,
+		}
+		if prefix != "" {
+			in.Prefix = aws.String(prefix)
+		}
+		page, err := c.api.ListMultipartUploads(ctx, in)
+		if err != nil {
+			return classifyIncomplete(out, err)
+		}
+		for _, u := range page.Uploads {
+			out.Count++
+			if t := aws.ToTime(u.Initiated); out.OldestInitiated.IsZero() || t.Before(out.OldestInitiated) {
+				out.OldestInitiated = t
+			}
+			if len(uploads) < incompleteSizingCap {
+				uploads = append(uploads, up{key: aws.ToString(u.Key), id: aws.ToString(u.UploadId)})
+			}
+		}
+		if !aws.ToBool(page.IsTruncated) {
+			break
+		}
+		keyMarker = page.NextKeyMarker
+		idMarker = page.NextUploadIdMarker
+	}
+	for _, u := range uploads {
+		if err := ctx.Err(); err != nil {
+			return out, err
+		}
+		var partMarker *string
+		for {
+			parts, err := c.api.ListParts(ctx, &s3.ListPartsInput{
+				Bucket: aws.String(bucket), Key: aws.String(u.key), UploadId: aws.String(u.id),
+				PartNumberMarker: partMarker,
+			})
+			if err != nil {
+				break // sizing is best-effort; counting stays exact
+			}
+			for _, p := range parts.Parts {
+				out.TotalSize += aws.ToInt64(p.Size)
+			}
+			if !aws.ToBool(parts.IsTruncated) {
+				break
+			}
+			partMarker = parts.NextPartNumberMarker
+		}
+		out.SizedCount++
+	}
+	if out.Count == 0 {
+		out.State = ConfigNone
+	} else {
+		out.State = ConfigConfigured
+	}
+	return out, nil
+}
+
+// classifyIncomplete maps a listing failure to the tri-state (denied/unsupported) or
+// returns the classified error for everything else — never a silent zero (FR-022).
+func classifyIncomplete(out IncompleteUploads, err error) (IncompleteUploads, error) {
+	c := classify(err)
+	switch {
+	case errors.Is(c, ErrAccessDenied):
+		out.State = ConfigDenied
+		return out, nil
+	case errors.Is(c, ErrUnsupported):
+		out.State = ConfigUnsupported
+		return out, nil
+	default:
+		return out, c
+	}
 }
 
 // GetObjectTagging returns the object's tag key/value pairs (016 US4/FR-011).

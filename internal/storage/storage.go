@@ -145,6 +145,14 @@ type Storage interface {
 	// sub-resource never fails the whole call. A read. 016 US4/FR-012/FR-013.
 	GetBucketConfiguration(ctx context.Context, bucket string) (BucketConfig, error)
 
+	// ListIncompleteUploads surfaces in-progress (dangling) multipart uploads under
+	// (bucket, prefix): count, oldest initiation, and part-size totals for the first
+	// 100 uploads (sizing is capped — one extra request per upload; counting never
+	// is). Classification reuses the 016 tri-state: an empty successful listing is an
+	// HONEST ConfigNone, denied → ConfigDenied, NotImplemented/501 → ConfigUnsupported
+	// — never zero-as-clean. A read. 017 US4/FR-021/FR-022.
+	ListIncompleteUploads(ctx context.Context, bucket, prefix string) (IncompleteUploads, error)
+
 	// PresignGet mints a time-limited GET link for an object ENTIRELY client-side —
 	// no network call; the backend is untouched (a read-only capability). ttl MUST be
 	// one of the PresignTTLs presets (else ErrInvalidConfig). warn is non-empty when
@@ -204,6 +212,18 @@ type BucketConfig struct {
 	Replication       ConfigItem
 	PublicAccessBlock ConfigItem
 	Location          ConfigItem
+}
+
+// IncompleteUploads aggregates the in-progress multipart uploads under one
+// (bucket, prefix) — the operator's hidden-cost view (017 US4). State carries the
+// tri-state: configured(=present) / none(honest zero) / denied / unsupported.
+type IncompleteUploads struct {
+	Bucket, Prefix  string
+	State           ConfigState
+	Count           int       // total in-progress uploads (all pages — never capped)
+	OldestInitiated time.Time // zero when Count == 0
+	TotalSize       int64     // Σ part sizes over the first SizedCount uploads
+	SizedCount      int       // uploads size-enriched (≤ the sizing cap)
 }
 
 // UsageChild is one immediate child (sub-prefix or direct object) of an analyzed

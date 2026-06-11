@@ -122,6 +122,15 @@ type exportDoneMsg struct {
 	err  error
 }
 
+// incompleteUploadsMsg delivers the health card's MPU probe result (017 US4),
+// generation-guarded like every lazy detail load.
+type incompleteUploadsMsg struct {
+	gen int
+	key cache.Key
+	res storage.IncompleteUploads
+	err error
+}
+
 // objectTagsMsg / bucketConfigMsg deliver the lazily-loaded US4 detail loads, carrying the
 // detail generation + the object/bucket they belong to so a stale result is dropped (FR-016).
 type objectTagsMsg struct {

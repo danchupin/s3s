@@ -33,6 +33,7 @@ func commandRegistry() []command {
 		{name: "detail", aliases: []string{"info", "du"}, invoke: App.startMoreDetail},
 		{name: "scan", invoke: App.startFullScan},
 		{name: "copy", aliases: []string{"share"}, invoke: App.openCopyMenu},
+		{name: "health", aliases: []string{"card"}, invoke: App.openHealth},
 		{name: "refresh", invoke: func(m App) (tea.Model, tea.Cmd) {
 			if m.mode == modeBuckets {
 				return m.refreshBuckets()
@@ -56,7 +57,7 @@ func commandRegistry() []command {
 // this point in onKey).
 func (m App) canOpenCommand() bool {
 	switch m.mode {
-	case modeBuckets, modeTree, modeObject, modeContextSwitch:
+	case modeBuckets, modeTree, modeObject, modeContextSwitch, modeHealth:
 		return true
 	}
 	return false

@@ -42,6 +42,8 @@ type usageEvent struct {
 // so the pane never scans per-object-focus.
 func (m App) focusedUsageTarget() (bucket, prefix string, ok bool) {
 	switch {
+	case m.mode == modeHealth:
+		return m.healthBucket, m.healthPrefix, true // the card's subject (017 US4)
 	case m.mode == modeBuckets && m.focusZone == zoneBuckets:
 		if b := m.highlightedBucketName(); b != "" {
 			return b, "", true
